@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	pb "github.com/vadiminshakov/committer/proto"
+	"log"
 )
 
 func ProposeHandler(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
@@ -11,5 +12,6 @@ func ProposeHandler(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, 
 	} else {
 
 	}
+	log.Printf("Received: %s=%s\n", req.Key, string(req.Value))
 	return &pb.Response{Type: pb.Type_ACK}, nil
 }
