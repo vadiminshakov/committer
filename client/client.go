@@ -5,16 +5,15 @@ import (
 	pb "github.com/vadiminshakov/committer/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"net"
 )
 
 type CommitClient struct {
 	Connection pb.CommitClient
 }
 
-func New(addr, port string) (*CommitClient, error) {
+func New(addr string) (*CommitClient, error) {
 
-	conn, err := grpc.Dial(net.JoinHostPort(addr, port), grpc.WithInsecure())
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect")
 	}
