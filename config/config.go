@@ -2,7 +2,9 @@ package config
 
 import (
 	"flag"
+	"fmt"
 	"github.com/spf13/viper"
+	"log"
 	"strings"
 )
 
@@ -34,17 +36,6 @@ func Get() *Config {
 	flag.Var(&followersArray, "follower", "follower address")
 	flag.Parse()
 
-	// viper configuration
-	var configFromFile Config
-	viper.SetDefault("./", "content")
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-	err := viper.Unmarshal(&configFromFile)
-	if err != nil {
-		panic("Unable to unmarshal config")
-	}
-
 	if *config == "" {
 		if *role != "coordinator" {
 			if !includes(followersArray, *nodeaddr) {
@@ -54,7 +45,20 @@ func Get() *Config {
 		return &Config{*role, *nodeaddr, *coordinator, followersArray}
 	}
 
-	if *role != "coordinator" {
+	// viper configuration
+	var configFromFile Config
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(*config)
+	if err := viper.ReadInConfig(); err != nil {
+		log.Fatal(fmt.Sprintf("Error reading config file, %s", err))
+	}
+	err := viper.Unmarshal(&configFromFile)
+	if err != nil {
+		log.Fatal("Unable to unmarshal config")
+	}
+
+	if configFromFile.Role != "coordinator" {
 		if !includes(configFromFile.Followers, configFromFile.Nodeaddr) {
 			configFromFile.Followers = append(configFromFile.Followers, configFromFile.Nodeaddr)
 		}
