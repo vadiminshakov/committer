@@ -3,24 +3,27 @@ package main
 import (
 	"fmt"
 	"github.com/vadiminshakov/committer/client"
+	"github.com/vadiminshakov/committer/config"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/server"
-	"os"
 )
 
 func main() {
-	s := server.NewCommitServer()
-	if len(os.Args) > 1 && os.Args[1] == "coordinator" {
-		server.Run(s)
+	conf := config.Get()
+	s := server.NewCommitServer(conf.Nodeaddr)
+	if conf.Role == "coordinator" {
+		for _, node := range conf.Followers {
+			cli, err := client.New(node)
+			if err != nil {
+				panic("failed to create client")
+			}
+			response, err := cli.Propose(&pb.ProposeRequest{})
+			if err != nil {
+				panic(err)
+			}
+			fmt.Println(response.Type)
+		}
 	} else {
-		cli, err := client.New("localhost", "3050")
-		if err != nil {
-			panic("failed to create client")
-		}
-		response, err := cli.Propose(&pb.ProposeRequest{})
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println(response.Type)
+		server.Run(s)
 	}
 }
