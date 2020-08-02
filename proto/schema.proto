@@ -1,0 +1,37 @@
+syntax = "proto3";
+package schema;
+
+service Commit {
+  rpc Propose(ProposeRequest) returns (Response);
+  rpc Precommit(PrecommitRequest) returns (Response);
+  rpc Commit(CommitRequest) returns (Response);
+}
+
+message ProposeRequest {
+  string Key = 1;
+  bytes Value = 2;
+  CommitType CommitType = 3;
+  uint64 index = 4;
+}
+
+enum CommitType {
+  TWO_PHASE_COMMIT = 0;
+  THREE_PHASE_COMMIT = 1;
+}
+
+enum Type {
+  ACK = 0;
+  NACK = 1;
+}
+
+message Response {
+  Type Type = 1;
+}
+
+message PrecommitRequest {
+  uint64 index = 1;
+}
+
+message CommitRequest {
+  uint64 index = 1;
+}
