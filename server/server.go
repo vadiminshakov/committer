@@ -12,6 +12,7 @@ import (
 )
 
 type Server struct {
+	Addr string
 }
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
@@ -24,18 +25,18 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (*pb.Respons
 	return nil, status.Errorf(codes.Unimplemented, "method Commit not implemented")
 }
 
-func NewCommitServer() *Server {
-	return &Server{}
+func NewCommitServer(addr string) *Server {
+	return &Server{Addr: addr}
 }
 
 func Run(serv *Server) {
 	grpcServer := grpc.NewServer()
 	pb.RegisterCommitServer(grpcServer, serv)
 
-	l, err := net.Listen("tcp", "localhost:3050")
+	l, err := net.Listen("tcp", serv.Addr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	log.Printf("Listening on tcp://%s:%s", "localhost", "3050")
+	log.Printf("Listening on tcp://%s", serv.Addr)
 	grpcServer.Serve(l)
 }
