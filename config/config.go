@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/spf13/viper"
+	"github.com/vadiminshakov/committer/helpers"
 	"log"
 	"strings"
 )
@@ -13,6 +14,7 @@ type Config struct {
 	Nodeaddr    string
 	Coordinator string
 	Followers   []string
+	Whitelist   []string
 }
 
 type followers []string
@@ -26,23 +28,41 @@ func (i *followers) Set(value string) error {
 	return nil
 }
 
+type whitelist []string
+
+func (i *whitelist) String() string {
+	return strings.Join(*i, ",")
+}
+
+func (i *whitelist) Set(value string) error {
+	*i = append(*i, value)
+	return nil
+}
+
 func Get() *Config {
 	// command-line flags
-	var followersArray followers
+	var (
+		followersArray followers
+		whitelistArray whitelist
+	)
 	config := flag.String("config", "", "path to config")
 	role := flag.String("role", "follower", "role (coordinator of follower)")
 	nodeaddr := flag.String("nodeaddr", "localhost:3050", "node address")
 	coordinator := flag.String("coordinator", "", "coordinator address")
 	flag.Var(&followersArray, "follower", "follower address")
+	flag.Var(&whitelistArray, "whitelist", "allowed hosts")
 	flag.Parse()
 
 	if *config == "" {
 		if *role != "coordinator" {
-			if !includes(followersArray, *nodeaddr) {
+			if !helpers.Includes(followersArray, *nodeaddr) {
 				followersArray = append(followersArray, *nodeaddr)
 			}
 		}
-		return &Config{*role, *nodeaddr, *coordinator, followersArray}
+		if !helpers.Includes(whitelistArray, "127.0.0.1") {
+			whitelistArray = append(whitelistArray, "127.0.0.1")
+		}
+		return &Config{*role, *nodeaddr, *coordinator, followersArray, whitelistArray}
 	}
 
 	// viper configuration
@@ -59,19 +79,14 @@ func Get() *Config {
 	}
 
 	if configFromFile.Role != "coordinator" {
-		if !includes(configFromFile.Followers, configFromFile.Nodeaddr) {
+		if !helpers.Includes(configFromFile.Followers, configFromFile.Nodeaddr) {
 			configFromFile.Followers = append(configFromFile.Followers, configFromFile.Nodeaddr)
 		}
 	}
 
-	return &Config{configFromFile.Role, configFromFile.Nodeaddr, configFromFile.Coordinator, configFromFile.Followers}
-}
-
-func includes(arr []string, value string) bool {
-	for i := range arr {
-		if arr[i] == value {
-			return true
-		}
+	if !helpers.Includes(configFromFile.Whitelist, "127.0.0.1") {
+		configFromFile.Whitelist = append(configFromFile.Whitelist, "127.0.0.1")
 	}
-	return false
+
+	return &Config{configFromFile.Role, configFromFile.Nodeaddr, configFromFile.Coordinator, configFromFile.Followers, configFromFile.Whitelist}
 }

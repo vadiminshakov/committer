@@ -1,6 +1,6 @@
 Role: coordinator
 Nodeaddr: localhost:3000
-Followers: [localhost:3001, localhost:3002]
+Followers: ["192.168.0.101:3999"]
 
 # follower #1
 #Role: follower
@@ -9,3 +9,6 @@ Followers: [localhost:3001, localhost:3002]
 # follower #2
 #Role: follower
 #Nodeaddr: "localhost:3002"
+
+# allowed hosts
+#whitelist: ["192.168.0.101"]
