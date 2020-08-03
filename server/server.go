@@ -16,9 +16,10 @@ import (
 type Option func(server *Server)
 
 type Server struct {
-	Addr      string
-	Followers []*client.CommitClient
-	Config    config.Config
+	Addr       string
+	Followers  []*client.CommitClient
+	Config     *config.Config
+	GRPCServer *grpc.Server
 }
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
@@ -71,14 +72,30 @@ func WithFollowers(followers []string) func(*Server) {
 	}
 }
 
+func WithConfig(conf *config.Config) func(*Server) {
+	return func(server *Server) {
+		server.Config = conf
+		if conf.Role == "coordinator" {
+			server.Config.Coordinator = server.Addr
+		}
+	}
+}
+
 func (s *Server) Run() {
-	grpcServer := grpc.NewServer()
-	pb.RegisterCommitServer(grpcServer, s)
+	s.GRPCServer = grpc.NewServer(withCoordinatorChecker())
+	pb.RegisterCommitServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	log.Printf("Listening on tcp://%s", s.Addr)
-	grpcServer.Serve(l)
+
+	go s.GRPCServer.Serve(l)
+}
+
+func (s *Server) Stop() {
+	log.Println("Stopping server")
+	s.GRPCServer.GracefulStop()
+	log.Println("Server stopped")
 }
