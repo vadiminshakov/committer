@@ -2,9 +2,9 @@ package server
 
 import (
 	"context"
-	"github.com/vadiminshakov/committer/client"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core"
+	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -15,9 +15,10 @@ import (
 
 type Option func(server *Server)
 
+// Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
 	Addr       string
-	Followers  []*client.CommitClient
+	Followers  []*peer.CommitClient
 	Config     *config.Config
 	GRPCServer *grpc.Server
 }
@@ -52,6 +53,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	return &pb.Response{Type: pb.Type_ACK}, nil
 }
 
+// NewCommitServer fabric func for Server
 func NewCommitServer(addr string, opts ...Option) (*Server, error) {
 	server := &Server{Addr: addr}
 	for _, option := range opts {
@@ -60,10 +62,11 @@ func NewCommitServer(addr string, opts ...Option) (*Server, error) {
 	return server, nil
 }
 
+// WithFollowers creates network connections to followers and adds them to the Server instance
 func WithFollowers(followers []string) func(*Server) {
 	return func(server *Server) {
 		for _, node := range followers {
-			cli, err := client.New(node)
+			cli, err := peer.New(node)
 			if err != nil {
 				panic(err)
 			}
@@ -72,6 +75,7 @@ func WithFollowers(followers []string) func(*Server) {
 	}
 }
 
+// WithConfig adds Config instance to the Server instance
 func WithConfig(conf *config.Config) func(*Server) {
 	return func(server *Server) {
 		server.Config = conf
@@ -81,8 +85,9 @@ func WithConfig(conf *config.Config) func(*Server) {
 	}
 }
 
+// Run starts non-blocking GRPC server
 func (s *Server) Run() {
-	s.GRPCServer = grpc.NewServer(withCoordinatorChecker())
+	s.GRPCServer = grpc.NewServer(WithWhitelistChecker())
 	pb.RegisterCommitServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
@@ -94,6 +99,7 @@ func (s *Server) Run() {
 	go s.GRPCServer.Serve(l)
 }
 
+// Stop stops server
 func (s *Server) Stop() {
 	log.Println("Stopping server")
 	s.GRPCServer.GracefulStop()
