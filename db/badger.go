@@ -1,7 +1,6 @@
 package db
 
 import (
-	"fmt"
 	badger "github.com/dgraph-io/badger/v2"
 )
 
