@@ -13,7 +13,7 @@ func main() {
 	signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	conf := config.Get()
-	s, err := server.NewCommitServer(conf.Nodeaddr, server.WithFollowers(conf.Followers), server.WithConfig(conf))
+	s, err := server.NewCommitServer(conf.Nodeaddr, server.WithFollowers(conf.Followers), server.WithConfig(conf), server.WithBadgerDB("/tmp/badger"))
 	if err != nil {
 		panic(err)
 	}
