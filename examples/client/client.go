@@ -1,11 +1,11 @@
 package main
 
 import (
-	"github.com/vadiminshakov/committer/client"
+	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 )
 func main(){
-	cli, err := client.New("localhost:3000")
+	cli, err := peer.New("localhost:3000")
 	if err != nil {
 		panic(err)
 	}

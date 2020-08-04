@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/vadiminshakov/committer/client"
 	"github.com/vadiminshakov/committer/config"
+	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/server"
 	"testing"
@@ -51,7 +51,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestCommitClient_Put(t *testing.T) {
-	c, err := client.New(nodes[COORDINATOR_TYPE][0].Nodeaddr)
+	c, err := peer.New(nodes[COORDINATOR_TYPE][0].Nodeaddr)
 	if err != nil {
 		t.Error(err)
 	}

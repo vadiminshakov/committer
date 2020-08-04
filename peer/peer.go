@@ -1,4 +1,4 @@
-package client
+package peer
 
 import (
 	"github.com/pkg/errors"
@@ -11,6 +11,7 @@ type CommitClient struct {
 	Connection pb.CommitClient
 }
 
+// New creates instance of peer client.
 func New(addr string) (*CommitClient, error) {
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
@@ -31,6 +32,8 @@ func (client *CommitClient) Commit(*pb.CommitRequest) (*pb.Response, error) {
 	return nil, nil
 }
 
+// Put sends key/value pair to peer (it should be a coordinator).
+// The coordinator reaches consensus and all peers commit the value.
 func (client *CommitClient) Put(key string, value []byte) (*pb.Response, error) {
 	return client.Connection.Put(context.Background(), &pb.Entry{Key: key, Value: value})
 }
