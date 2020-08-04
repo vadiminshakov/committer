@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core"
+	"github.com/vadiminshakov/committer/db"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"google.golang.org/grpc"
@@ -13,7 +15,7 @@ import (
 	"net"
 )
 
-type Option func(server *Server)
+type Option func(server *Server) error
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
@@ -21,6 +23,7 @@ type Server struct {
 	Followers  []*peer.CommitClient
 	Config     *config.Config
 	GRPCServer *grpc.Server
+	DB         db.Database
 }
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
@@ -49,40 +52,74 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if response.Type != pb.Type_ACK {
 			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
 		}
+
 	}
+	//err = s.DB.Put(req.Key, req.Value)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//val, err := s.DB.Get(req.Key)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//fmt.Println(string(val))
 	return &pb.Response{Type: pb.Type_ACK}, nil
 }
 
 // NewCommitServer fabric func for Server
 func NewCommitServer(addr string, opts ...Option) (*Server, error) {
 	server := &Server{Addr: addr}
+	var err error
 	for _, option := range opts {
-		option(server)
+		err = option(server)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return server, nil
+
+	err = checkServerFields(server)
+	return server, err
 }
 
 // WithFollowers creates network connections to followers and adds them to the Server instance
-func WithFollowers(followers []string) func(*Server) {
-	return func(server *Server) {
+func WithFollowers(followers []string) func(*Server) error {
+	return func(server *Server) error {
 		for _, node := range followers {
 			cli, err := peer.New(node)
 			if err != nil {
-				panic(err)
+				return err
 			}
 			server.Followers = append(server.Followers, cli)
 		}
+		return nil
 	}
 }
 
 // WithConfig adds Config instance to the Server instance
-func WithConfig(conf *config.Config) func(*Server) {
-	return func(server *Server) {
+func WithConfig(conf *config.Config) func(*Server) error {
+	return func(server *Server) error {
 		server.Config = conf
 		if conf.Role == "coordinator" {
 			server.Config.Coordinator = server.Addr
 		}
+		return nil
 	}
+}
+
+// WithBadgerDB adds BadgerDB manager to the Server instance
+func WithBadgerDB(path string) func(*Server) error {
+	return func(server *Server) error {
+		var err error
+		server.DB, err = db.New(path)
+		return err
+	}
+}
+
+func checkServerFields(server *Server) error {
+	if server.DB == nil {
+		return errors.New("database is not selected")
+	}
+	return nil
 }
 
 // Run starts non-blocking GRPC server
@@ -103,5 +140,8 @@ func (s *Server) Run() {
 func (s *Server) Stop() {
 	log.Println("Stopping server")
 	s.GRPCServer.GracefulStop()
+	if err := s.DB.Close(); err != nil {
+		log.Printf("failed to close db, err: %s\n", err)
+	}
 	log.Println("Server stopped")
 }
