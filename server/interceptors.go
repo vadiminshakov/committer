@@ -34,6 +34,8 @@ func hostInterceptor(ctx context.Context,
 
 	return h, err
 }
-func withCoordinatorChecker() grpc.ServerOption {
+
+// WithWhitelistChecker intercepts RPC and checks that the caller is whitelisted.
+func WithWhitelistChecker() grpc.ServerOption {
 	return grpc.UnaryInterceptor(hostInterceptor)
 }

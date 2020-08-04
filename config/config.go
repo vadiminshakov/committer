@@ -39,6 +39,7 @@ func (i *whitelist) Set(value string) error {
 	return nil
 }
 
+// Get creates configuration from yaml configuration file (if '-config=' flag specified) or command-line arguments.
 func Get() *Config {
 	// command-line flags
 	var (
