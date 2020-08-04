@@ -5,6 +5,7 @@ import (
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/server"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -30,8 +31,8 @@ var (
 
 func TestMain(m *testing.M) {
 	// start followers
-	for _, node := range nodes[FOLLOWER_TYPE] {
-		followerServer, err := server.NewCommitServer(node.Nodeaddr, server.WithConfig(node))
+	for i, node := range nodes[FOLLOWER_TYPE] {
+		followerServer, err := server.NewCommitServer(node.Nodeaddr, server.WithConfig(node), server.WithBadgerDB("/tmp/badger"+strconv.Itoa(i)))
 		if err != nil {
 			panic(err)
 		}
@@ -40,7 +41,7 @@ func TestMain(m *testing.M) {
 	time.Sleep(3 * time.Second)
 
 	// start coordinator
-	coordServer, err := server.NewCommitServer(nodes[COORDINATOR_TYPE][0].Nodeaddr, server.WithFollowers(nodes[COORDINATOR_TYPE][0].Followers), server.WithConfig(nodes[COORDINATOR_TYPE][0]))
+	coordServer, err := server.NewCommitServer(nodes[COORDINATOR_TYPE][0].Nodeaddr, server.WithFollowers(nodes[COORDINATOR_TYPE][0].Followers), server.WithConfig(nodes[COORDINATOR_TYPE][0]), server.WithBadgerDB("/tmp/badger"))
 	if err != nil {
 		panic(err)
 	}
