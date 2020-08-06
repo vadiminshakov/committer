@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"github.com/vadiminshakov/committer/config"
+	"github.com/vadiminshakov/committer/helpers"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/server"
@@ -30,9 +32,20 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	var (
+		propose helpers.ProposeHook = func(req *pb.ProposeRequest) bool {
+			return true
+		}
+		commit helpers.CommitHook = func(req *pb.CommitRequest) bool {
+			return true
+		}
+	)
+
 	// start followers
 	for i, node := range nodes[FOLLOWER_TYPE] {
-		followerServer, err := server.NewCommitServer(node.Nodeaddr, server.WithConfig(node), server.WithBadgerDB("/tmp/badger"+strconv.Itoa(i)))
+		followerServer, err := server.NewCommitServer(node.Nodeaddr,
+			server.WithConfig(node), server.WithBadgerDB("/tmp/badger"+strconv.Itoa(i)),
+			server.WithProposeHook(propose), server.WithCommitHook(commit))
 		if err != nil {
 			panic(err)
 		}
@@ -41,7 +54,10 @@ func TestMain(m *testing.M) {
 	time.Sleep(3 * time.Second)
 
 	// start coordinator
-	coordServer, err := server.NewCommitServer(nodes[COORDINATOR_TYPE][0].Nodeaddr, server.WithFollowers(nodes[COORDINATOR_TYPE][0].Followers), server.WithConfig(nodes[COORDINATOR_TYPE][0]), server.WithBadgerDB("/tmp/badger"))
+	coordServer, err := server.NewCommitServer(nodes[COORDINATOR_TYPE][0].Nodeaddr,
+		server.WithFollowers(nodes[COORDINATOR_TYPE][0].Followers),
+		server.WithConfig(nodes[COORDINATOR_TYPE][0]), server.WithBadgerDB("/tmp/badger"),
+		server.WithProposeHook(propose), server.WithCommitHook(commit))
 	if err != nil {
 		panic(err)
 	}
@@ -56,7 +72,7 @@ func TestCommitClient_Put(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	resp, err := c.Put("testkey", []byte("testvalue"))
+	resp, err := c.Put(context.Background(), "testkey", []byte("testvalue"))
 	if err != nil {
 		t.Error(err)
 	}
