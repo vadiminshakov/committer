@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core"
 	"github.com/vadiminshakov/committer/db"
+	"github.com/vadiminshakov/committer/helpers"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"google.golang.org/grpc"
@@ -13,27 +15,32 @@ import (
 	status "google.golang.org/grpc/status"
 	"log"
 	"net"
+	"sync/atomic"
 )
 
 type Option func(server *Server) error
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
-	Addr       string
-	Followers  []*peer.CommitClient
-	Config     *config.Config
-	GRPCServer *grpc.Server
-	DB         db.Database
+	Addr        string
+	Followers   []*peer.CommitClient
+	Config      *config.Config
+	GRPCServer  *grpc.Server
+	DB          db.Database
+	ProposeHook helpers.ProposeHook
+	CommitHook  helpers.CommitHook
+	NodeCache   *cache.Cache
+	Height      uint64
 }
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
-	return core.ProposeHandler(ctx, req)
+	return core.ProposeHandler(ctx, req, s.ProposeHook, s.NodeCache)
 }
 func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Precommit not implemented")
+	return core.PrecommitHandler(ctx, req)
 }
 func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (*pb.Response, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Commit not implemented")
+	return core.CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
 }
 
 func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
@@ -41,28 +48,42 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		response *pb.Response
 		err      error
 	)
+
+	// propose
+	s.NodeCache.Set(s.Height, req.Key, req.Value)
 	for _, follower := range s.Followers {
-		response, err = follower.Propose(&pb.ProposeRequest{Key: req.Key,
+		response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
 			Value:      req.Value,
 			CommitType: pb.CommitType_TWO_PHASE_COMMIT,
-			Index:      1})
+			Index:      s.Height})
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 		if response.Type != pb.Type_ACK {
 			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
 		}
-
 	}
-	//err = s.DB.Put(req.Key, req.Value)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//val, err := s.DB.Get(req.Key)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//fmt.Println(string(val))
+
+	// commit
+	for _, follower := range s.Followers {
+		response, err = follower.Commit(ctx, &pb.CommitRequest{Index: s.Height})
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if response.Type != pb.Type_ACK {
+			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
+		}
+	}
+	key, value, ok := s.NodeCache.Get(s.Height)
+	if !ok {
+		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
+	}
+	if err = s.DB.Put(key, value); err != nil {
+		return &pb.Response{Type: pb.Type_NACK}, status.Error(codes.Internal, "failed to save msg on coordinator")
+	}
+
+	atomic.AddUint64(&s.Height, 1)
+
 	return &pb.Response{Type: pb.Type_ACK}, nil
 }
 
@@ -76,6 +97,7 @@ func NewCommitServer(addr string, opts ...Option) (*Server, error) {
 			return nil, err
 		}
 	}
+	server.NodeCache = cache.New()
 
 	err = checkServerFields(server)
 	return server, err
@@ -112,6 +134,22 @@ func WithBadgerDB(path string) func(*Server) error {
 		var err error
 		server.DB, err = db.New(path)
 		return err
+	}
+}
+
+// WithProposeHook adds hook function for Propose stage to the Server instance
+func WithProposeHook(f helpers.ProposeHook) func(*Server) error {
+	return func(server *Server) error {
+		server.ProposeHook = f
+		return nil
+	}
+}
+
+// WithCommitHook adds hook function for Commit stage to the Server instance
+func WithCommitHook(f helpers.CommitHook) func(*Server) error {
+	return func(server *Server) error {
+		server.CommitHook = f
+		return nil
 	}
 }
 
