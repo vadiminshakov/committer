@@ -1,3 +1,6 @@
+committype: three-phase
+timeout: 1000 # ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)
+
 Role: coordinator
 Nodeaddr: localhost:3000
 Followers: ["192.168.0.101:3999"]

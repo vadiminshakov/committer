@@ -15,6 +15,8 @@ type Config struct {
 	Coordinator string
 	Followers   []string
 	Whitelist   []string
+	CommitType  string
+	Timeout     uint64
 }
 
 type followers []string
@@ -50,6 +52,9 @@ func Get() *Config {
 	role := flag.String("role", "follower", "role (coordinator of follower)")
 	nodeaddr := flag.String("nodeaddr", "localhost:3050", "node address")
 	coordinator := flag.String("coordinator", "", "coordinator address")
+	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
+	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
+
 	flag.Var(&followersArray, "follower", "follower address")
 	flag.Var(&whitelistArray, "whitelist", "allowed hosts")
 	flag.Parse()
@@ -63,7 +68,8 @@ func Get() *Config {
 		if !helpers.Includes(whitelistArray, "127.0.0.1") {
 			whitelistArray = append(whitelistArray, "127.0.0.1")
 		}
-		return &Config{*role, *nodeaddr, *coordinator, followersArray, whitelistArray}
+		return &Config{*role, *nodeaddr, *coordinator,
+			followersArray, whitelistArray, *committype, *timeout}
 	}
 
 	// viper configuration
@@ -89,5 +95,8 @@ func Get() *Config {
 		configFromFile.Whitelist = append(configFromFile.Whitelist, "127.0.0.1")
 	}
 
-	return &Config{configFromFile.Role, configFromFile.Nodeaddr, configFromFile.Coordinator, configFromFile.Followers, configFromFile.Whitelist}
+	return &Config{configFromFile.Role, configFromFile.Nodeaddr,
+		configFromFile.Coordinator, configFromFile.Followers,
+		configFromFile.Whitelist, configFromFile.CommitType,
+		configFromFile.Timeout}
 }
