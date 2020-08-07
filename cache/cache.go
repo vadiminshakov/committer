@@ -31,3 +31,9 @@ func (c *Cache) Get(index uint64) (string, []byte, bool) {
 	message, ok := c.store[index]
 	return message.Key, message.Value, ok
 }
+
+func (c *Cache) Delete(index uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.store, index)
+}
