@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core"
@@ -13,12 +14,17 @@ import (
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	"log"
 	"net"
 	"sync/atomic"
+	"time"
 )
 
 type Option func(server *Server) error
+
+const (
+	TWO_PHASE   = "two-phase"
+	THREE_PHASE = "three-phase"
+)
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
@@ -49,31 +55,48 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		err      error
 	)
 
+	var ctype pb.CommitType
+	if s.Config.CommitType == THREE_PHASE {
+		ctype = pb.CommitType_THREE_PHASE_COMMIT
+	} else {
+		ctype = pb.CommitType_TWO_PHASE_COMMIT
+	}
+
 	// propose
 	s.NodeCache.Set(s.Height, req.Key, req.Value)
 	for _, follower := range s.Followers {
+		if s.Config.CommitType == THREE_PHASE {
+			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
+		}
 		response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
 			Value:      req.Value,
-			CommitType: pb.CommitType_TWO_PHASE_COMMIT,
+			CommitType: ctype,
 			Index:      s.Height})
 		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
+			log.Errorf(err.Error())
+			return &pb.Response{Type: pb.Type_NACK}, nil
 		}
 		if response.Type != pb.Type_ACK {
 			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
 		}
 	}
 
-	// commit
+	// precommit phase only for three-phase mode
 	for _, follower := range s.Followers {
-		response, err = follower.Commit(ctx, &pb.CommitRequest{Index: s.Height})
+		if s.Config.CommitType == THREE_PHASE {
+			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
+		}
+		response, err = follower.Precommit(ctx, &pb.PrecommitRequest{Index: s.Height})
 		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
+			log.Errorf(err.Error())
+			return &pb.Response{Type: pb.Type_NACK}, nil
 		}
 		if response.Type != pb.Type_ACK {
 			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
 		}
 	}
+
+	// the coordinator got all the answers, so it's time to persist msg and send commit command to followers
 	key, value, ok := s.NodeCache.Get(s.Height)
 	if !ok {
 		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
@@ -82,6 +105,19 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		return &pb.Response{Type: pb.Type_NACK}, status.Error(codes.Internal, "failed to save msg on coordinator")
 	}
 
+	// commit
+	for _, follower := range s.Followers {
+		response, err = follower.Commit(context.Background(), &pb.CommitRequest{Index: s.Height})
+		if err != nil {
+			log.Errorf(err.Error())
+			return &pb.Response{Type: pb.Type_NACK}, nil
+		}
+		if response.Type != pb.Type_ACK {
+			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
+		}
+	}
+
+	// increase height for next round
 	atomic.AddUint64(&s.Height, 1)
 
 	return &pb.Response{Type: pb.Type_ACK}, nil
@@ -89,6 +125,12 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 
 // NewCommitServer fabric func for Server
 func NewCommitServer(addr string, opts ...Option) (*Server, error) {
+	log.SetFormatter(&log.TextFormatter{
+		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
+		FullTimestamp:   true,
+		TimestampFormat: time.RFC822,
+	})
+
 	server := &Server{Addr: addr}
 	var err error
 	for _, option := range opts {
@@ -98,7 +140,11 @@ func NewCommitServer(addr string, opts ...Option) (*Server, error) {
 		}
 	}
 	server.NodeCache = cache.New()
-
+	if server.Config.CommitType == TWO_PHASE {
+		log.Println("Two-phase-commit mode enabled")
+	} else {
+		log.Println("Three-phase-commit mode enabled")
+	}
 	err = checkServerFields(server)
 	return server, err
 }
