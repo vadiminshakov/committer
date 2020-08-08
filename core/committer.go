@@ -13,7 +13,6 @@ import (
 
 func ProposeHandler(ctx context.Context, req *pb.ProposeRequest, hook helpers.ProposeHook, nodecache *cache.Cache) (*pb.Response, error) {
 	var response *pb.Response
-
 	if hook(req) {
 		log.Printf("Received: %s=%s\n", req.Key, string(req.Value))
 		nodecache.Set(req.Index, req.Key, req.Value)
@@ -34,6 +33,7 @@ func CommitHandler(ctx context.Context, req *pb.CommitRequest, hook helpers.Comm
 		log.Printf("Committing on height: %d\n", req.Index)
 		key, value, ok := nodecache.Get(req.Index)
 		if !ok {
+			nodecache.Delete(req.Index)
 			return &pb.Response{Type: pb.Type_NACK}, errors.New(fmt.Sprintf("no value in node cache on the index %d", req.Index))
 		}
 
@@ -42,6 +42,7 @@ func CommitHandler(ctx context.Context, req *pb.CommitRequest, hook helpers.Comm
 		}
 		response = &pb.Response{Type: pb.Type_ACK}
 	} else {
+		nodecache.Delete(req.Index)
 		response = &pb.Response{Type: pb.Type_NACK}
 	}
 	return response, nil
