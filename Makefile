@@ -14,6 +14,8 @@ run-example-follower:
 run-example-client:
 	@examples/client/client
 
-tests:
-	@go test
+unit-tests:
 	@cd core && go test
+
+functional-tests:
+	@go test
