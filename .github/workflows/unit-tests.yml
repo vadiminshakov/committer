@@ -24,4 +24,4 @@ jobs:
 
     # Runs a single command using the runners shell
     - name: Run unit tests
-      run: go test
+      run: make prepare && make tests
