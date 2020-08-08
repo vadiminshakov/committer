@@ -13,8 +13,10 @@ import (
 	pb "github.com/vadiminshakov/committer/proto"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	status "google.golang.org/grpc/status"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -28,25 +30,82 @@ const (
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
-	Addr        string
-	Followers   []*peer.CommitClient
-	Config      *config.Config
-	GRPCServer  *grpc.Server
-	DB          db.Database
-	ProposeHook helpers.ProposeHook
-	CommitHook  helpers.CommitHook
-	NodeCache   *cache.Cache
-	Height      uint64
+	Addr                 string
+	Followers            []*peer.CommitClient
+	Config               *config.Config
+	GRPCServer           *grpc.Server
+	DB                   db.Database
+	ProposeHook          helpers.ProposeHook
+	CommitHook           helpers.CommitHook
+	NodeCache            *cache.Cache
+	Height               uint64
+	cancelCommitOnHeight map[uint64]bool
+	mu                   sync.RWMutex
 }
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
+	s.SetCancelCache(req.Index, false)
 	return core.ProposeHandler(ctx, req, s.ProposeHook, s.NodeCache)
 }
 func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
+	if s.Config.CommitType == THREE_PHASE {
+		ctx, _ = context.WithTimeout(context.Background(), time.Duration(s.Config.Timeout)*time.Millisecond)
+		go func(ctx context.Context) {
+		ForLoop:
+			for {
+				select {
+				case <-ctx.Done():
+					md := metadata.Pairs("mode", "autocommit")
+					ctx := metadata.NewOutgoingContext(context.Background(), md)
+					if !s.GetCancelCacheValue(req.Index) {
+						s.Commit(ctx, &pb.CommitRequest{Index: s.Height})
+						log.Println("commit without coordinator after timeout")
+					}
+					break ForLoop
+				}
+			}
+		}(ctx)
+	}
 	return core.PrecommitHandler(ctx, req)
 }
-func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (*pb.Response, error) {
-	return core.CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
+func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Response, err error) {
+
+	if s.Config.CommitType == THREE_PHASE {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, status.Errorf(codes.Internal, "no metadata")
+		}
+
+		meta := md["mode"]
+
+		if len(meta) == 0 {
+			s.SetCancelCache(s.Height, true) // set flag for cancelling 'commit without coordinator' action, coz coordinator responded actually
+			resp, err = core.CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
+			if err != nil {
+				return nil, err
+			}
+			if resp.Type == pb.Type_ACK {
+				atomic.AddUint64(&s.Height, 1)
+			}
+			return
+		}
+
+		if req.IsRollback {
+			s.rollback()
+		}
+	} else {
+
+		resp, err = core.CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
+		if err != nil {
+			return
+		}
+
+		if resp.Type == pb.Type_ACK {
+			atomic.AddUint64(&s.Height, 1)
+		}
+		return
+	}
+	return
 }
 
 func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
@@ -140,6 +199,8 @@ func NewCommitServer(addr string, opts ...Option) (*Server, error) {
 		}
 	}
 	server.NodeCache = cache.New()
+	server.cancelCommitOnHeight = map[uint64]bool{}
+
 	if server.Config.CommitType == TWO_PHASE {
 		log.Println("Two-phase-commit mode enabled")
 	} else {
@@ -228,4 +289,20 @@ func (s *Server) Stop() {
 		log.Printf("failed to close db, err: %s\n", err)
 	}
 	log.Println("Server stopped")
+}
+
+func (s *Server) rollback() {
+	s.NodeCache.Delete(s.Height)
+}
+
+func (s *Server) SetCancelCache(height uint64, docancel bool) {
+	s.mu.Lock()
+	s.cancelCommitOnHeight[height] = docancel
+	s.mu.Unlock()
+}
+
+func (s *Server) GetCancelCacheValue(height uint64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cancelCommitOnHeight[height]
 }
