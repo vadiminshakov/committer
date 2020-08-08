@@ -2,15 +2,18 @@ package server
 
 import (
 	"context"
+	"errors"
 	"github.com/vadiminshakov/committer/helpers"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	status "google.golang.org/grpc/status"
 	"net"
+	"time"
 )
 
-func hostInterceptor(ctx context.Context,
+// WhiteListChecker intercepts RPC and checks that the caller is whitelisted.
+func WhiteListChecker(ctx context.Context,
 	req interface{},
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler) (interface{}, error) {
@@ -35,7 +38,45 @@ func hostInterceptor(ctx context.Context,
 	return h, err
 }
 
-// WithWhitelistChecker intercepts RPC and checks that the caller is whitelisted.
-func WithWhitelistChecker() grpc.ServerOption {
-	return grpc.UnaryInterceptor(hostInterceptor)
+/*
+  blocking interceptors for tests
+*/
+
+// PrecommitBlock blocks execution of all followers on precommit stage for 10s
+func PrecommitBlockALL(ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler) (interface{}, error) {
+
+	if info.FullMethod == "/schema.Commit/Precommit" {
+		time.Sleep(10000 * time.Millisecond)
+	}
+
+	// Calls the handler
+	h, err := handler(ctx, req)
+
+	return h, err
+}
+
+// PrecommitBlockCoordinator blocks execution of coordinator on precommit stage for 10s
+func PrecommitBlockCoordinator(ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler) (interface{}, error) {
+
+	server, ok := info.Server.(*Server)
+	if !ok {
+		return nil, errors.New("failed to assert interface to Server type")
+	}
+
+	if server.Config.Role == "coordinator" {
+		if info.FullMethod == "/schema.Commit/Precommit" {
+			time.Sleep(10000 * time.Millisecond)
+		}
+	}
+
+	// Calls the handler
+	h, err := handler(ctx, req)
+
+	return h, err
 }
