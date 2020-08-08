@@ -1,9 +1,19 @@
 committype: three-phase
 timeout: 1000 # ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)
+DBPath: /tmp/badger
 
-Role: coordinator
-Nodeaddr: localhost:3000
-Followers: ["192.168.0.101:3999"]
+
+# ***
+# COORDINATOR CONFIG
+# ***
+
+#Role: coordinator
+#Nodeaddr: localhost:3000
+#Followers: ["localhost:3001"]
+
+# ***
+# OR YOU CAN DESCRIBE FOLLOWER, AS SHOWN BELOW
+# ***
 
 # follower #1
 #Role: follower

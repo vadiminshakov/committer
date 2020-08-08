@@ -17,6 +17,7 @@ type Config struct {
 	Whitelist   []string
 	CommitType  string
 	Timeout     uint64
+	DBPath      string
 }
 
 type followers []string
@@ -54,6 +55,7 @@ func Get() *Config {
 	coordinator := flag.String("coordinator", "", "coordinator address")
 	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
+	dbpath := flag.String("dbpath", "/tmp/badger", "database path on filesystem")
 
 	flag.Var(&followersArray, "follower", "follower address")
 	flag.Var(&whitelistArray, "whitelist", "allowed hosts")
@@ -69,7 +71,8 @@ func Get() *Config {
 			whitelistArray = append(whitelistArray, "127.0.0.1")
 		}
 		return &Config{*role, *nodeaddr, *coordinator,
-			followersArray, whitelistArray, *committype, *timeout}
+			followersArray, whitelistArray, *committype,
+			*timeout, *dbpath}
 	}
 
 	// viper configuration
@@ -98,5 +101,5 @@ func Get() *Config {
 	return &Config{configFromFile.Role, configFromFile.Nodeaddr,
 		configFromFile.Coordinator, configFromFile.Followers,
 		configFromFile.Whitelist, configFromFile.CommitType,
-		configFromFile.Timeout}
+		configFromFile.Timeout, configFromFile.DBPath}
 }
