@@ -35,6 +35,7 @@ type Server struct {
 	Config               *config.Config
 	GRPCServer           *grpc.Server
 	DB                   db.Database
+	DBPath               string
 	ProposeHook          helpers.ProposeHook
 	CommitHook           helpers.CommitHook
 	NodeCache            *cache.Cache
@@ -183,20 +184,38 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 }
 
 // NewCommitServer fabric func for Server
-func NewCommitServer(addr string, opts ...Option) (*Server, error) {
+func NewCommitServer(conf *config.Config, opts ...Option) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
 		FullTimestamp:   true,
 		TimestampFormat: time.RFC822,
 	})
 
-	server := &Server{Addr: addr}
+	server := &Server{Addr: conf.Nodeaddr, DBPath: conf.DBPath}
 	var err error
 	for _, option := range opts {
 		err = option(server)
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	for _, node := range conf.Followers {
+		cli, err := peer.New(node)
+		if err != nil {
+			return nil, err
+		}
+		server.Followers = append(server.Followers, cli)
+	}
+
+	server.Config = conf
+	if conf.Role == "coordinator" {
+		server.Config.Coordinator = server.Addr
+	}
+
+	server.DB, err = db.New(conf.DBPath)
+	if err != nil {
+		return nil, err
 	}
 	server.NodeCache = cache.New()
 	server.cancelCommitOnHeight = map[uint64]bool{}
@@ -208,31 +227,6 @@ func NewCommitServer(addr string, opts ...Option) (*Server, error) {
 	}
 	err = checkServerFields(server)
 	return server, err
-}
-
-// WithFollowers creates network connections to followers and adds them to the Server instance
-func WithFollowers(followers []string) func(*Server) error {
-	return func(server *Server) error {
-		for _, node := range followers {
-			cli, err := peer.New(node)
-			if err != nil {
-				return err
-			}
-			server.Followers = append(server.Followers, cli)
-		}
-		return nil
-	}
-}
-
-// WithConfig adds Config instance to the Server instance
-func WithConfig(conf *config.Config) func(*Server) error {
-	return func(server *Server) error {
-		server.Config = conf
-		if conf.Role == "coordinator" {
-			server.Config.Coordinator = server.Addr
-		}
-		return nil
-	}
 }
 
 // WithBadgerDB adds BadgerDB manager to the Server instance
