@@ -5,6 +5,14 @@ Two-phase (2PC) and three-phase (3PC) protocols implementaion in Golang. Committ
 
 <br>
 
+_protocols description:_
+
+- http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.63.7048&rep=rep1&type=pdf (2PC)
+
+- http://courses.cs.vt.edu/~cs5204/fall00/distributedDBMS/sreenu/3pc.html (3PC)
+
+<br>
+
 **TODO**
 
 Pluggable hooks for requests checking
