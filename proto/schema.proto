@@ -35,6 +35,7 @@ message PrecommitRequest {
 
 message CommitRequest {
   uint64 index = 1;
+  bool isRollback = 2;
 }
 
 message Entry {
