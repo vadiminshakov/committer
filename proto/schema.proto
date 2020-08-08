@@ -6,6 +6,7 @@ service Commit {
   rpc Precommit(PrecommitRequest) returns (Response);
   rpc Commit(CommitRequest) returns (Response);
   rpc Put(Entry) returns (Response);
+  rpc Get(Msg) returns (Value);
 }
 
 message ProposeRequest {
@@ -41,4 +42,12 @@ message CommitRequest {
 message Entry {
   string key = 1;
   bytes value = 2;
+}
+
+message Msg {
+  string key = 1;
+}
+
+message Value {
+  bytes value = 1;
 }

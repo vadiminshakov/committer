@@ -38,3 +38,8 @@ func (client *CommitClient) Commit(ctx context.Context, req *pb.CommitRequest) (
 func (client *CommitClient) Put(ctx context.Context, key string, value []byte) (*pb.Response, error) {
 	return client.Connection.Put(ctx, &pb.Entry{Key: key, Value: value})
 }
+
+// Get queries value of specific key
+func (client *CommitClient) Get(ctx context.Context, key string) (*pb.Value, error) {
+	return client.Connection.Get(ctx, &pb.Msg{Key: key})
+}
