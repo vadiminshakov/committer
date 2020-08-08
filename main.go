@@ -31,7 +31,7 @@ func main() {
 		panic(err)
 	}
 
-	s.Run()
+	s.Run(server.WhiteListChecker)
 	<-ch
 	s.Stop()
 }
