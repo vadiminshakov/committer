@@ -16,3 +16,4 @@ run-example-client:
 
 tests:
 	@go test
+	@cd core && go test
