@@ -68,6 +68,11 @@ unit-tests: `make unit-tests`
 
 **Testing with example client**
 
+compile executables:
+```
+make prepare
+```
+
 run coordinator:
 ```
 make run-example-coordinator
