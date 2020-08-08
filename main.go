@@ -25,9 +25,8 @@ func main() {
 		}
 	)
 
-	s, err := server.NewCommitServer(conf.Nodeaddr, server.WithProposeHook(propose),
-		server.WithCommitHook(commit), server.WithFollowers(conf.Followers),
-		server.WithConfig(conf), server.WithBadgerDB("/tmp/badger"))
+	s, err := server.NewCommitServer(conf, server.WithProposeHook(propose),
+		server.WithCommitHook(commit))
 	if err != nil {
 		panic(err)
 	}
