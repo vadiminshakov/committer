@@ -109,6 +109,14 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Re
 	return
 }
 
+func (s *Server) Get(ctx context.Context, req *pb.Msg) (*pb.Value, error) {
+	value, err := s.DB.Get(req.Key)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.Value{Value: value}, nil
+}
+
 func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	var (
 		response *pb.Response
@@ -262,8 +270,8 @@ func checkServerFields(server *Server) error {
 }
 
 // Run starts non-blocking GRPC server
-func (s *Server) Run() {
-	s.GRPCServer = grpc.NewServer(WithWhitelistChecker())
+func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
+	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
 	pb.RegisterCommitServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
