@@ -10,7 +10,6 @@ import (
 	"github.com/vadiminshakov/committer/server"
 	"os"
 	"path"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -32,17 +31,17 @@ var (
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000},
+				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, DBPath: path.Join(COORDINATOR_BADGER, "1")},
 			{Nodeaddr: "localhost:5000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000},
+				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, DBPath: path.Join(COORDINATOR_BADGER, "2")},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
-			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
-			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
-			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
-			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
+			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, DBPath: path.Join(FOLLOWER_BADGER, "1")},
+			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, DBPath: path.Join(FOLLOWER_BADGER, "2")},
+			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, DBPath: path.Join(FOLLOWER_BADGER, "3")},
+			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, DBPath: path.Join(FOLLOWER_BADGER, "4")},
+			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, DBPath: path.Join(FOLLOWER_BADGER, "5")},
 		},
 	}
 )
@@ -68,13 +67,15 @@ func TestMain(m *testing.M) {
 		}
 	)
 
-	// create db dir
-	os.Mkdir(BADGER_DIR, os.FileMode(0777))
+	os.Mkdir(COORDINATOR_BADGER, os.FileMode(0777))
+	os.Mkdir(FOLLOWER_BADGER, os.FileMode(0777))
 
 	// start followers
-	for i, node := range nodes[FOLLOWER_TYPE] {
-		followerServer, err := server.NewCommitServer(node.Nodeaddr,
-			server.WithConfig(node), server.WithBadgerDB(FOLLOWER_BADGER+strconv.Itoa(i)),
+	for _, node := range nodes[FOLLOWER_TYPE] {
+		// create db dir
+		os.Mkdir(node.DBPath, os.FileMode(0777))
+		// start follower
+		followerServer, err := server.NewCommitServer(node,
 			server.WithProposeHook(propose), server.WithCommitHook(commit))
 		if err != nil {
 			panic(err)
@@ -84,10 +85,11 @@ func TestMain(m *testing.M) {
 	time.Sleep(3 * time.Second)
 
 	// start coordinators (in two- and three-phase modes)
-	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
-		coordServer, err := server.NewCommitServer(coordConfig.Nodeaddr,
-			server.WithFollowers(coordConfig.Followers),
-			server.WithConfig(coordConfig), server.WithBadgerDB(COORDINATOR_BADGER+strconv.Itoa(i)),
+	for _, coordConfig := range nodes[COORDINATOR_TYPE] {
+		// create db dir
+		os.Mkdir(coordConfig.DBPath, os.FileMode(0777))
+		// start coordinator
+		coordServer, err := server.NewCommitServer(coordConfig,
 			server.WithProposeHook(propose), server.WithCommitHook(commit))
 		if err != nil {
 			panic(err)
