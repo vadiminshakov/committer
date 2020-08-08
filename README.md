@@ -7,4 +7,4 @@ _instructions will be provided soon_
 
 **TODO**
 
-In three-phase mode followers should commit anyway after precommit phase, even if they didn't receive commit msg from coordinator (non-blocking protocol).
+Pluggable hooks for requests checking
