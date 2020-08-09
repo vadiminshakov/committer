@@ -13,12 +13,6 @@ _protocols description:_
 
 <br>
 
-**TODO**
-
-Pluggable hooks for requests checking
-
-<br>
-
 **Configuring using config file**
 
 Use `./config/config.yaml` as configuration with command:
@@ -58,6 +52,16 @@ example **coordinator**:
 ```
 
 <br>
+
+**Hooks**
+
+Pluggable hooks for requests checking on Propose and Commit stage. 
+It's just a function that receives *pb.ProposeRequest of *pb.CommitRequest and returns true or false.
+Function body incorporate all validation logic. 
+
+Example hooks can be found in [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/hooks/src/hooks.go).
+ 
+You can replace code in the [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/hooks/src/hooks.go) and run script hooks/compile.sh that will generate shared object file used by committer to inject your validation logic into the handlers.
 
 **Testing**
 
