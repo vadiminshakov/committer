@@ -6,7 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/helpers"
+	"github.com/vadiminshakov/committer/hooks"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/server"
@@ -35,17 +35,17 @@ var (
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000},
+				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, Hooks: "hooks/src/hooks.so"},
 			{Nodeaddr: "localhost:5000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000},
+				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, Hooks: "hooks/src/hooks.so"},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
-			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
-			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
-			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
-			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000},
+			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.so"},
+			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.so"},
+			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.so"},
+			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.so"},
+			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.so"},
 		},
 	}
 )
@@ -167,14 +167,6 @@ func startnodes(block int, done chan struct{}) {
 	os.Mkdir(COORDINATOR_BADGER, os.FileMode(0777))
 	os.Mkdir(FOLLOWER_BADGER, os.FileMode(0777))
 
-	var (
-		propose helpers.ProposeHook = func(req *pb.ProposeRequest) bool {
-			return true
-		}
-		commit helpers.CommitHook = func(req *pb.CommitRequest) bool {
-			return true
-		}
-	)
 	var blocking grpc.UnaryServerInterceptor
 	switch block {
 	case BLOCK_ON_PRECOMMIT_FOLLOWERS:
@@ -189,8 +181,11 @@ func startnodes(block int, done chan struct{}) {
 		os.Mkdir(node.DBPath, os.FileMode(0777))
 		node.DBPath = fmt.Sprintf("%s%s%s", FOLLOWER_BADGER, strconv.Itoa(i), "~")
 		// start follower
-		followerServer, err := server.NewCommitServer(node,
-			server.WithProposeHook(propose), server.WithCommitHook(commit))
+		hooks, err := hooks.Get(node.Hooks)
+		if err != nil {
+			panic(err)
+		}
+		followerServer, err := server.NewCommitServer(node, hooks...)
 		if err != nil {
 			panic(err)
 		}
@@ -211,8 +206,11 @@ func startnodes(block int, done chan struct{}) {
 		os.Mkdir(coordConfig.DBPath, os.FileMode(0777))
 		coordConfig.DBPath = fmt.Sprintf("%s%s%s", COORDINATOR_BADGER, strconv.Itoa(i), "~")
 		// start coordinator
-		coordServer, err := server.NewCommitServer(coordConfig,
-			server.WithProposeHook(propose), server.WithCommitHook(commit))
+		hooks, err := hooks.Get(coordConfig.Hooks)
+		if err != nil {
+			panic(err)
+		}
+		coordServer, err := server.NewCommitServer(coordConfig, hooks...)
 		if err != nil {
 			panic(err)
 		}

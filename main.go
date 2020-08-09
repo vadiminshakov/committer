@@ -2,8 +2,7 @@ package main
 
 import (
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/helpers"
-	pb "github.com/vadiminshakov/committer/proto"
+	"github.com/vadiminshakov/committer/hooks"
 	"github.com/vadiminshakov/committer/server"
 	"os"
 	"os/signal"
@@ -15,18 +14,11 @@ func main() {
 	signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	conf := config.Get()
-
-	var (
-		propose helpers.ProposeHook = func(req *pb.ProposeRequest) bool {
-			return true
-		}
-		commit helpers.CommitHook = func(req *pb.CommitRequest) bool {
-			return true
-		}
-	)
-
-	s, err := server.NewCommitServer(conf, server.WithProposeHook(propose),
-		server.WithCommitHook(commit))
+	hooks, err := hooks.Get(conf.Hooks)
+	if err != nil {
+		panic(err)
+	}
+	s, err := server.NewCommitServer(conf, hooks...)
 	if err != nil {
 		panic(err)
 	}
