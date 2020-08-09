@@ -6,9 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/core"
 	"github.com/vadiminshakov/committer/db"
-	"github.com/vadiminshakov/committer/helpers"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"google.golang.org/grpc"
@@ -36,8 +34,8 @@ type Server struct {
 	GRPCServer           *grpc.Server
 	DB                   db.Database
 	DBPath               string
-	ProposeHook          helpers.ProposeHook
-	CommitHook           helpers.CommitHook
+	ProposeHook          func(req *pb.ProposeRequest) bool
+	CommitHook           func(req *pb.CommitRequest) bool
 	NodeCache            *cache.Cache
 	Height               uint64
 	cancelCommitOnHeight map[uint64]bool
@@ -46,7 +44,7 @@ type Server struct {
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
 	s.SetCancelCache(req.Index, false)
-	return core.ProposeHandler(ctx, req, s.ProposeHook, s.NodeCache)
+	return ProposeHandler(ctx, req, s.ProposeHook, s.NodeCache)
 }
 func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
 	if s.Config.CommitType == THREE_PHASE {
@@ -67,7 +65,7 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 			}
 		}(ctx)
 	}
-	return core.PrecommitHandler(ctx, req)
+	return PrecommitHandler(ctx, req)
 }
 func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Response, err error) {
 
@@ -81,7 +79,7 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Re
 
 		if len(meta) == 0 {
 			s.SetCancelCache(s.Height, true) // set flag for cancelling 'commit without coordinator' action, coz coordinator responded actually
-			resp, err = core.CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
+			resp, err = CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
 			if err != nil {
 				return nil, err
 			}
@@ -96,7 +94,7 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Re
 		}
 	} else {
 
-		resp, err = core.CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
+		resp, err = CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
 		if err != nil {
 			return
 		}
@@ -243,22 +241,6 @@ func WithBadgerDB(path string) func(*Server) error {
 		var err error
 		server.DB, err = db.New(path)
 		return err
-	}
-}
-
-// WithProposeHook adds hook function for Propose stage to the Server instance
-func WithProposeHook(f helpers.ProposeHook) func(*Server) error {
-	return func(server *Server) error {
-		server.ProposeHook = f
-		return nil
-	}
-}
-
-// WithCommitHook adds hook function for Commit stage to the Server instance
-func WithCommitHook(f helpers.CommitHook) func(*Server) error {
-	return func(server *Server) error {
-		server.CommitHook = f
-		return nil
 	}
 }
 
