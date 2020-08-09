@@ -1,4 +1,4 @@
-package core
+package server
 
 import (
 	"context"
@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/db"
-	"github.com/vadiminshakov/committer/helpers"
 	pb "github.com/vadiminshakov/committer/proto"
 	"log"
 )
 
-func ProposeHandler(ctx context.Context, req *pb.ProposeRequest, hook helpers.ProposeHook, nodecache *cache.Cache) (*pb.Response, error) {
+func ProposeHandler(ctx context.Context, req *pb.ProposeRequest, hook func(req *pb.ProposeRequest) bool, nodecache *cache.Cache) (*pb.Response, error) {
 	var response *pb.Response
 	if hook(req) {
 		log.Printf("Received: %s=%s\n", req.Key, string(req.Value))
@@ -27,7 +26,7 @@ func PrecommitHandler(ctx context.Context, req *pb.PrecommitRequest) (*pb.Respon
 	return &pb.Response{Type: pb.Type_ACK}, nil
 }
 
-func CommitHandler(ctx context.Context, req *pb.CommitRequest, hook helpers.CommitHook, db db.Database, nodecache *cache.Cache) (*pb.Response, error) {
+func CommitHandler(ctx context.Context, req *pb.CommitRequest, hook func(req *pb.CommitRequest) bool, db db.Database, nodecache *cache.Cache) (*pb.Response, error) {
 	var response *pb.Response
 	if hook(req) {
 		log.Printf("Committing on height: %d\n", req.Index)

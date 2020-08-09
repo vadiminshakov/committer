@@ -1,11 +1,10 @@
-package core
+package server
 
 import (
 	"context"
 	"github.com/stretchr/testify/assert"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/db"
-	"github.com/vadiminshakov/committer/helpers"
 	pb "github.com/vadiminshakov/committer/proto"
 	"os"
 	"testing"
@@ -22,7 +21,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestProposeHandler(t *testing.T) {
-	var propose helpers.ProposeHook = func(req *pb.ProposeRequest) bool {
+	var propose = func(req *pb.ProposeRequest) bool {
 		return true
 	}
 	NodeCache := cache.New()
@@ -33,7 +32,7 @@ func TestProposeHandler(t *testing.T) {
 }
 
 func TestCommitHandler(t *testing.T) {
-	var commit helpers.CommitHook = func(req *pb.CommitRequest) bool {
+	var commit = func(req *pb.CommitRequest) bool {
 		return true
 	}
 	NodeCache := cache.New()
