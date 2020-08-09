@@ -15,7 +15,9 @@ run-example-client:
 	@examples/client/client
 
 unit-tests:
-	@cd core && go test
+	@cd server && go test
 
 functional-tests:
+	@cd hooks/ && ./compile.sh
 	@go test
+	@rm hooks/src/hooks.so
