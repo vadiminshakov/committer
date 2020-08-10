@@ -1,4 +1,4 @@
-package main
+package src
 
 import (
 	pb "github.com/vadiminshakov/committer/proto"
