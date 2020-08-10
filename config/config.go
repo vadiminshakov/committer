@@ -57,7 +57,7 @@ func Get() *Config {
 	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
 	dbpath := flag.String("dbpath", "/tmp/badger", "database path on filesystem")
-	hooks := flag.String("hooks", "hooks/src/hooks.so", "path to hooks file on filesystem")
+	hooks := flag.String("hooks", "hooks/src/hooks.go", "path to hooks file on filesystem")
 
 	flag.Var(&followersArray, "follower", "follower address")
 	flag.Var(&whitelistArray, "whitelist", "allowed hosts")

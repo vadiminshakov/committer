@@ -37,7 +37,7 @@ All config parameters may be specified via command-line flags
 | committype  | two-phase or three-phase commit mode | 'two-phase' or 'three-phase' |  
 | timeout  | timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)  |  1000 |  
 | dbpath  |  database path on filesystem |  /tmp/badger |  
-|hooks| path to shared object file with hooks | hooks/src/hooks.so |
+|hooks| path to shared object file with hooks | hooks/src/hooks.go |
 
 <br>
 

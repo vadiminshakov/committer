@@ -1,7 +1,7 @@
 committype: three-phase
 timeout: 1000 # ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)
 DBPath: /tmp/badger
-hooks: config/src/hooks.so
+hooks: hooks/src/hooks.go
 
 
 # ***
