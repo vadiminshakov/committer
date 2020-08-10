@@ -18,6 +18,4 @@ unit-tests:
 	@cd server && go test
 
 functional-tests:
-	@cd hooks/ && ./compile.sh
 	@go test
-	@rm hooks/src/hooks.so
