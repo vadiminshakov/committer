@@ -1,5 +1,6 @@
 syntax = "proto3";
 package schema;
+import "google/protobuf/empty.proto";
 
 service Commit {
   rpc Propose(ProposeRequest) returns (Response);
@@ -7,6 +8,7 @@ service Commit {
   rpc Commit(CommitRequest) returns (Response);
   rpc Put(Entry) returns (Response);
   rpc Get(Msg) returns (Value);
+  rpc NodeInfo(google.protobuf.Empty) returns (Info);
 }
 
 message ProposeRequest {
@@ -50,4 +52,8 @@ message Msg {
 
 message Value {
   bytes value = 1;
+}
+
+message Info {
+  uint64 height = 1;
 }

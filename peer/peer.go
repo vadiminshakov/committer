@@ -39,6 +39,11 @@ func (client *CommitClient) Put(ctx context.Context, key string, value []byte) (
 	return client.Connection.Put(ctx, &pb.Entry{Key: key, Value: value})
 }
 
+// NodeInfo gets info about current node height
+func (client *CommitClient) NodeInfo(ctx context.Context) (*pb.Info, error) {
+	return client.Connection.NodeInfo(ctx, nil)
+}
+
 // Get queries value of specific key
 func (client *CommitClient) Get(ctx context.Context, key string) (*pb.Value, error) {
 	return client.Connection.Get(ctx, &pb.Msg{Key: key})

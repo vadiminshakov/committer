@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/golang/protobuf/ptypes/empty"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
@@ -187,6 +188,10 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	atomic.AddUint64(&s.Height, 1)
 
 	return &pb.Response{Type: pb.Type_ACK}, nil
+}
+
+func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*pb.Info, error) {
+	return &pb.Info{Height: s.Height}, nil
 }
 
 // NewCommitServer fabric func for Server
