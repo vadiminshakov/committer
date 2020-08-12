@@ -139,10 +139,12 @@ func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	assert.NoError(t, err, "err not nil")
 
+	var height uint64 = 0
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
 		assert.NoError(t, err, "err not nil")
 		assert.Equal(t, resp.Type, pb.Type_ACK, "msg should be acknowledged")
+		height += 1
 	}
 
 	// connect to follower and check that them added key-value
@@ -153,6 +155,11 @@ func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 			resp, err := cli.Get(context.Background(), key)
 			assert.NoError(t, err, "err not nil")
 			assert.Equal(t, resp.Value, val)
+
+			// check height of node
+			nodeInfo, err := cli.NodeInfo(context.Background())
+			assert.NoError(t, err, "err not nil")
+			assert.Equal(t, nodeInfo.Height, height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
 		}
 	}
 
