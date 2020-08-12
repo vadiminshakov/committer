@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	pb "github.com/vadiminshakov/committer/proto"
 	"google.golang.org/grpc"
@@ -41,7 +42,7 @@ func (client *CommitClient) Put(ctx context.Context, key string, value []byte) (
 
 // NodeInfo gets info about current node height
 func (client *CommitClient) NodeInfo(ctx context.Context) (*pb.Info, error) {
-	return client.Connection.NodeInfo(ctx, nil)
+	return client.Connection.NodeInfo(ctx, &empty.Empty{})
 }
 
 // Get queries value of specific key
