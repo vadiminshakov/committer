@@ -59,9 +59,9 @@ Hooks for requests checking on Propose and Commit stage.
 It's just a function that receives *pb.ProposeRequest or *pb.CommitRequest and returns true or false.
 Function body incorporate all validation logic. 
 
-Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/hooks/src/hooks.go).
+Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/hooks/src/hooks.go).
  
-You can replace code in the [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
+You can replace code in the [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
 
 **Testing**
 
