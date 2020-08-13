@@ -56,7 +56,7 @@ example **coordinator**:
 **Hooks**
 
 Hooks for requests checking on Propose and Commit stage. 
-It's just a function that receives *pb.ProposeRequest of *pb.CommitRequest and returns true or false.
+It's just a function that receives *pb.ProposeRequest or *pb.CommitRequest and returns true or false.
 Function body incorporate all validation logic. 
 
 Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/hooks/src/hooks.go).
