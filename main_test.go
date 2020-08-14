@@ -72,6 +72,7 @@ func TestHappyPath(t *testing.T) {
 		TimestampFormat: time.RFC822,
 	})
 
+	var height uint64 = 0
 	for _, coordConfig := range nodes[COORDINATOR_TYPE] {
 		if coordConfig.CommitType == "two-phase" {
 			log.Println("***\nTEST IN TWO-PHASE MODE\n***")
@@ -82,6 +83,7 @@ func TestHappyPath(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+
 		for key, val := range testtable {
 			resp, err := c.Put(context.Background(), key, val)
 			if err != nil {
@@ -89,6 +91,25 @@ func TestHappyPath(t *testing.T) {
 			}
 			if resp.Type != pb.Type_ACK {
 				t.Error("msg is not acknowledged")
+			}
+			// ok, value is added, let's increment height counter
+			height++
+		}
+
+		// connect to follower and check that them added key-value
+		for _, node := range nodes[FOLLOWER_TYPE] {
+			cli, err := peer.New(node.Nodeaddr)
+			assert.NoError(t, err, "err not nil")
+			for key, val := range testtable {
+				// check values added by nodes
+				resp, err := cli.Get(context.Background(), key)
+				assert.NoError(t, err, "err not nil")
+				assert.Equal(t, resp.Value, val)
+
+				// check height of node
+				nodeInfo, err := cli.NodeInfo(context.Background())
+				assert.NoError(t, err, "err not nil")
+				assert.Equal(t, nodeInfo.Height, height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
 			}
 		}
 	}
