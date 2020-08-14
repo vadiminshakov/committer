@@ -152,6 +152,7 @@ func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 		cli, err := peer.New(node.Nodeaddr)
 		assert.NoError(t, err, "err not nil")
 		for key, val := range testtable {
+			// check values added by nodes
 			resp, err := cli.Get(context.Background(), key)
 			assert.NoError(t, err, "err not nil")
 			assert.Equal(t, resp.Value, val)
