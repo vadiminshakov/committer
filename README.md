@@ -18,6 +18,7 @@ _protocols description:_
 Open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
 
 ![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.gif)
+![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.png)
 
 <br>
 
