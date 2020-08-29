@@ -4,10 +4,15 @@ import (
 	"context"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
+	"github.com/vadiminshakov/committer/trace"
 )
 
 func main() {
-	cli, err := peer.New("localhost:3000")
+	tracer, err := trace.Tracer(fmt.Sprintf("%s:%s", coordConfig.Role, coordConfig.Nodeaddr), coordConfig.Nodeaddr)
+	if err != nil {
+		panic(err)
+	}
+	cli, err := peer.New("localhost:3000", tracer)
 	if err != nil {
 		panic(err)
 	}
