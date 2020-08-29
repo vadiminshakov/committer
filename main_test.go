@@ -36,17 +36,17 @@ var (
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go"},
+				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
 			{Nodeaddr: "localhost:5000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go"},
+				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
-			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
-			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
-			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
-			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
+			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
 		},
 	}
 )
