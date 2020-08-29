@@ -1,4 +1,10 @@
 ![](https://github.com/vadiminshakov/committer/workflows/unit-tests/badge.svg) ![](https://github.com/vadiminshakov/committer/workflows/functional-tests/badge.svg)
+
+<p align="center">
+<img src="https://github.com/vadimInshakov/committer/blob/tracer/committer.png">
+  <p align="center">Commit it.</p>
+</p>
+
 # committer
 
 Two-phase (2PC) and three-phase (3PC) protocols implementaion in Golang. Committer uses BadgerDB for persistence.
@@ -31,24 +37,25 @@ All config parameters may be specified via command-line flags
 | flag  |   description| example value  |  
 |---|---|---|
 | config  |  path to config |  config (means config.yaml in the ./config/ dir) |
-| role  |  role of the node (coordinator of follower) | 'follower' or 'coordinator'  | 
+| role  |  role of the node (coordinator of follower) | *follower* or *coordinator*  | 
 | nodeaddr  | node address | localhost:3051 |   
 | coordinator  |  coordinator address |  localhost:3050 |   
-| committype  | two-phase or three-phase commit mode | 'two-phase' or 'three-phase' |  
+| committype  | two-phase or three-phase commit mode | *two-phase* or *three-phase* |  
 | timeout  | timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)  |  1000 |  
 | dbpath  |  database path on filesystem |  /tmp/badger |  
-|hooks| path to shared object file with hooks | hooks/src/hooks.go |
+| hooks | path to shared object file with hooks | hooks/src/hooks.go |
+| withtrace | use distributed tracer or not (true/false) | *true* or *false* |
 
 <br>
 
 example **follower**:
 ```
-./committer -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/follower
+./committer -withtrace=true -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/follower
 ```
 
 example **coordinator**:
 ```
-./committer -role=coordinator -nodeaddr=localhost:3000 -follower=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
+./committer -withtrace=true -role=coordinator -nodeaddr=localhost:3000 -follower=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
 ```
 
 <br>
@@ -62,6 +69,23 @@ Function body incorporate all validation logic.
 Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/hooks/src/hooks.go).
  
 You can replace code in the [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
+
+**Tracing**
+
+Start Zipkin:
+
+```
+docker run -d -p 9411:9411 openzipkin/zipkin
+```
+
+Set `--withtrace true` command-line flag or `withtrace: true` config option in config file _before starting committer_.
+
+Start committer, open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
+
+![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.gif)
+![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.png)
+
+<br>
 
 **Testing**
 

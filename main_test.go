@@ -10,6 +10,7 @@ import (
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/server"
+	"github.com/vadiminshakov/committer/trace"
 	"google.golang.org/grpc"
 	"os"
 	"strconv"
@@ -35,17 +36,17 @@ var (
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go"},
+				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
 			{Nodeaddr: "localhost:5000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go"},
+				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
-			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
-			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
-			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
-			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go"},
+			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
 		},
 	}
 )
@@ -79,7 +80,11 @@ func TestHappyPath(t *testing.T) {
 		} else {
 			log.Println("***\nTEST IN THREE-PHASE MODE\n***")
 		}
-		c, err := peer.New(coordConfig.Nodeaddr)
+		tracer, err := trace.Tracer("client", coordConfig.Nodeaddr)
+		if err != nil {
+			t.Errorf("no tracer, err: %v", err)
+		}
+		c, err := peer.New(coordConfig.Nodeaddr, tracer)
 		if err != nil {
 			t.Error(err)
 		}
@@ -96,9 +101,13 @@ func TestHappyPath(t *testing.T) {
 			height++
 		}
 
-		// connect to follower and check that them added key-value
+		// connect to followers and check that them added key-value
 		for _, node := range nodes[FOLLOWER_TYPE] {
-			cli, err := peer.New(node.Nodeaddr)
+			tracer, err := trace.Tracer(fmt.Sprintf("%s:%s", coordConfig.Role, coordConfig.Nodeaddr), coordConfig.Nodeaddr)
+			if err != nil {
+				t.Errorf("no tracer, err: %v", err)
+			}
+			cli, err := peer.New(node.Nodeaddr, tracer)
 			assert.NoError(t, err, "err not nil")
 			for key, val := range testtable {
 				// check values added by nodes
@@ -131,7 +140,11 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 		TimestampFormat: time.RFC822,
 	})
 
-	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
+	tracer, err := trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
+	if err != nil {
+		t.Errorf("no tracer, err: %v", err)
+	}
+	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
 	assert.NoError(t, err, "err not nil")
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
@@ -157,7 +170,11 @@ func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 		TimestampFormat: time.RFC822,
 	})
 
-	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
+	tracer, err := trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
+	if err != nil {
+		t.Errorf("no tracer, err: %v", err)
+	}
+	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
 	assert.NoError(t, err, "err not nil")
 
 	var height uint64 = 0
@@ -170,7 +187,7 @@ func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 
 	// connect to follower and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := peer.New(node.Nodeaddr)
+		cli, err := peer.New(node.Nodeaddr, tracer)
 		assert.NoError(t, err, "err not nil")
 		for key, val := range testtable {
 			// check values added by nodes

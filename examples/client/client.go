@@ -4,10 +4,17 @@ import (
 	"context"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
+	"github.com/vadiminshakov/committer/trace"
 )
 
+const addr = "localhost:3000"
+
 func main() {
-	cli, err := peer.New("localhost:3000")
+	tracer, err := trace.Tracer("client", addr)
+	if err != nil {
+		panic(err)
+	}
+	cli, err := peer.New(addr, tracer)
 	if err != nil {
 		panic(err)
 	}
