@@ -3,13 +3,17 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/openzipkin/zipkin-go"
+	zipkingrpc "github.com/openzipkin/zipkin-go/middleware/grpc"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/db"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
+	"github.com/vadiminshakov/committer/trace"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -41,13 +45,18 @@ type Server struct {
 	Height               uint64
 	cancelCommitOnHeight map[uint64]bool
 	mu                   sync.RWMutex
+	Tracer               *zipkin.Tracer
 }
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
+	span := s.Tracer.StartSpan("ProposeHandle")
+	defer span.Finish()
 	s.SetCancelCache(req.Index, false)
 	return ProposeHandler(ctx, req, s.ProposeHook, s.NodeCache)
 }
 func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
+	span := s.Tracer.StartSpan("PrecommitHandle")
+	defer span.Finish()
 	if s.Config.CommitType == THREE_PHASE {
 		ctx, _ = context.WithTimeout(context.Background(), time.Duration(s.Config.Timeout)*time.Millisecond)
 		go func(ctx context.Context) {
@@ -69,7 +78,8 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 	return PrecommitHandler(ctx, req)
 }
 func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Response, err error) {
-
+	span := s.Tracer.StartSpan("CommitHandle")
+	defer span.Finish()
 	if s.Config.CommitType == THREE_PHASE {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
@@ -135,10 +145,12 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if s.Config.CommitType == THREE_PHASE {
 			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
 		}
+		span, ctx := s.Tracer.StartSpanFromContext(ctx, "Propose")
 		response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
 			Value:      req.Value,
 			CommitType: ctype,
 			Index:      s.Height})
+		span.Finish()
 		if err != nil {
 			log.Errorf(err.Error())
 			return &pb.Response{Type: pb.Type_NACK}, nil
@@ -153,7 +165,9 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if s.Config.CommitType == THREE_PHASE {
 			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
 		}
+		span, ctx := s.Tracer.StartSpanFromContext(ctx, "Precommit")
 		response, err = follower.Precommit(ctx, &pb.PrecommitRequest{Index: s.Height})
+		span.Finish()
 		if err != nil {
 			log.Errorf(err.Error())
 			return &pb.Response{Type: pb.Type_NACK}, nil
@@ -174,7 +188,9 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 
 	// commit
 	for _, follower := range s.Followers {
-		response, err = follower.Commit(context.Background(), &pb.CommitRequest{Index: s.Height})
+		span, ctx := s.Tracer.StartSpanFromContext(ctx, "Commit")
+		response, err = follower.Commit(ctx, &pb.CommitRequest{Index: s.Height})
+		span.Finish()
 		if err != nil {
 			log.Errorf(err.Error())
 			return &pb.Response{Type: pb.Type_NACK}, nil
@@ -211,8 +227,14 @@ func NewCommitServer(conf *config.Config, opts ...Option) (*Server, error) {
 		}
 	}
 
+	// get Zipkin tracer
+	server.Tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", conf.Role, conf.Nodeaddr), conf.Nodeaddr)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, node := range conf.Followers {
-		cli, err := peer.New(node)
+		cli, err := peer.New(node, server.Tracer)
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +280,9 @@ func checkServerFields(server *Server) error {
 
 // Run starts non-blocking GRPC server
 func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
-	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
+	var err error
+
+	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...), grpc.StatsHandler(zipkingrpc.NewServerHandler(s.Tracer)))
 	pb.RegisterCommitServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
