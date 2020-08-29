@@ -19,23 +19,6 @@ _protocols description:_
 
 <br>
 
-**Tracing**
-
-Start Zipkin:
-
-```
-docker run -d -p 9411:9411 openzipkin/zipkin
-```
-
-Set `--withtrace true` command-line flag or `withtrace: true` config option in config file _before starting committer_.
-
-Start committer, open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
-
-![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.gif)
-![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.png)
-
-<br>
-
 **Configuring using config file**
 
 Use `./config/config.yaml` as configuration with command:
@@ -86,6 +69,23 @@ Function body incorporate all validation logic.
 Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/hooks/src/hooks.go).
  
 You can replace code in the [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
+
+**Tracing**
+
+Start Zipkin:
+
+```
+docker run -d -p 9411:9411 openzipkin/zipkin
+```
+
+Set `--withtrace true` command-line flag or `withtrace: true` config option in config file _before starting committer_.
+
+Start committer, open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
+
+![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.gif)
+![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.png)
+
+<br>
 
 **Testing**
 
