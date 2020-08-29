@@ -1,6 +1,9 @@
 ![](https://github.com/vadiminshakov/committer/workflows/unit-tests/badge.svg) ![](https://github.com/vadiminshakov/committer/workflows/functional-tests/badge.svg)
 
-![committer](https://github.com/vadimInshakov/committer/blob/tracer/committer.png)
+<p align="center">
+<img src=https://github.com/vadimInshakov/committer/blob/tracer/committer.png">
+  <p align="center">Commit it.</p>
+</p>
 
 # committer
 
