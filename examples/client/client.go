@@ -7,12 +7,14 @@ import (
 	"github.com/vadiminshakov/committer/trace"
 )
 
+const addr = "localhost:3000"
+
 func main() {
-	tracer, err := trace.Tracer(fmt.Sprintf("%s:%s", coordConfig.Role, coordConfig.Nodeaddr), coordConfig.Nodeaddr)
+	tracer, err := trace.Tracer("client", addr)
 	if err != nil {
 		panic(err)
 	}
-	cli, err := peer.New("localhost:3000", tracer)
+	cli, err := peer.New(addr, tracer)
 	if err != nil {
 		panic(err)
 	}
