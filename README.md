@@ -15,7 +15,15 @@ _protocols description:_
 
 **Tracing**
 
-Open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
+Start Zipkin:
+
+```
+docker run -d -p 9411:9411 openzipkin/zipkin
+```
+
+Set `--withtrace true` command-line flag or `withtrace: true` config option in config file _before starting committer_.
+
+Start committer, open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
 
 ![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.gif)
 ![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.png)
