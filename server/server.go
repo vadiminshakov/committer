@@ -49,14 +49,23 @@ type Server struct {
 }
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
-	span := s.Tracer.StartSpan("ProposeHandle")
-	defer span.Finish()
+	var span zipkin.Span
+	if s.Tracer != nil {
+		span, ctx = s.Tracer.StartSpanFromContext(ctx, "ProposeHandle")
+		defer span.Finish()
+	}
+
 	s.SetCancelCache(req.Index, false)
 	return ProposeHandler(ctx, req, s.ProposeHook, s.NodeCache)
 }
+
 func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
-	span := s.Tracer.StartSpan("PrecommitHandle")
-	defer span.Finish()
+	var span zipkin.Span
+	if s.Tracer != nil {
+		span, ctx = s.Tracer.StartSpanFromContext(ctx, "PrecommitHandle")
+		defer span.Finish()
+	}
+
 	if s.Config.CommitType == THREE_PHASE {
 		ctx, _ = context.WithTimeout(context.Background(), time.Duration(s.Config.Timeout)*time.Millisecond)
 		go func(ctx context.Context) {
@@ -77,9 +86,14 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 	}
 	return PrecommitHandler(ctx, req)
 }
+
 func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Response, err error) {
-	span := s.Tracer.StartSpan("CommitHandle")
-	defer span.Finish()
+	var span zipkin.Span
+	if s.Tracer != nil {
+		span, ctx = s.Tracer.StartSpanFromContext(ctx, "CommitHandle")
+		defer span.Finish()
+	}
+
 	if s.Config.CommitType == THREE_PHASE {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
@@ -119,6 +133,12 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Re
 }
 
 func (s *Server) Get(ctx context.Context, req *pb.Msg) (*pb.Value, error) {
+	var span zipkin.Span
+	if s.Tracer != nil {
+		span, ctx = s.Tracer.StartSpanFromContext(ctx, "GetHandle")
+		defer span.Finish()
+	}
+
 	value, err := s.DB.Get(req.Key)
 	if err != nil {
 		return nil, err
@@ -130,7 +150,13 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	var (
 		response *pb.Response
 		err      error
+		span     zipkin.Span
 	)
+
+	if s.Tracer != nil {
+		span, ctx = s.Tracer.StartSpanFromContext(ctx, "PutHandle")
+		defer span.Finish()
+	}
 
 	var ctype pb.CommitType
 	if s.Config.CommitType == THREE_PHASE {
@@ -145,12 +171,16 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if s.Config.CommitType == THREE_PHASE {
 			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
 		}
-		span, ctx := s.Tracer.StartSpanFromContext(ctx, "Propose")
+		if s.Tracer != nil {
+			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Propose")
+		}
 		response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
 			Value:      req.Value,
 			CommitType: ctype,
 			Index:      s.Height})
-		span.Finish()
+		if s.Tracer != nil && span != nil {
+			span.Finish()
+		}
 		if err != nil {
 			log.Errorf(err.Error())
 			return &pb.Response{Type: pb.Type_NACK}, nil
@@ -165,9 +195,13 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if s.Config.CommitType == THREE_PHASE {
 			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
 		}
-		span, ctx := s.Tracer.StartSpanFromContext(ctx, "Precommit")
+		if s.Tracer != nil {
+			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Precommit")
+		}
 		response, err = follower.Precommit(ctx, &pb.PrecommitRequest{Index: s.Height})
-		span.Finish()
+		if s.Tracer != nil && span != nil {
+			span.Finish()
+		}
 		if err != nil {
 			log.Errorf(err.Error())
 			return &pb.Response{Type: pb.Type_NACK}, nil
@@ -188,9 +222,13 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 
 	// commit
 	for _, follower := range s.Followers {
-		span, ctx := s.Tracer.StartSpanFromContext(ctx, "Commit")
+		if s.Tracer != nil {
+			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Commit")
+		}
 		response, err = follower.Commit(ctx, &pb.CommitRequest{Index: s.Height})
-		span.Finish()
+		if s.Tracer != nil && span != nil {
+			span.Finish()
+		}
 		if err != nil {
 			log.Errorf(err.Error())
 			return &pb.Response{Type: pb.Type_NACK}, nil
@@ -207,6 +245,12 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 }
 
 func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*pb.Info, error) {
+	var span zipkin.Span
+	if s.Tracer != nil {
+		span, ctx = s.Tracer.StartSpanFromContext(ctx, "NodeInfoHandle")
+		defer span.Finish()
+	}
+
 	return &pb.Info{Height: s.Height}, nil
 }
 
@@ -227,10 +271,12 @@ func NewCommitServer(conf *config.Config, opts ...Option) (*Server, error) {
 		}
 	}
 
-	// get Zipkin tracer
-	server.Tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", conf.Role, conf.Nodeaddr), conf.Nodeaddr)
-	if err != nil {
-		return nil, err
+	if conf.WithTrace {
+		// get Zipkin tracer
+		server.Tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", conf.Role, conf.Nodeaddr), conf.Nodeaddr)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	for _, node := range conf.Followers {
@@ -282,7 +328,11 @@ func checkServerFields(server *Server) error {
 func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	var err error
 
-	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...), grpc.StatsHandler(zipkingrpc.NewServerHandler(s.Tracer)))
+	if s.Config.WithTrace {
+		s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...), grpc.StatsHandler(zipkingrpc.NewServerHandler(s.Tracer)))
+	} else {
+		s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
+	}
 	pb.RegisterCommitServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
