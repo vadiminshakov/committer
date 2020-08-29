@@ -15,7 +15,7 @@ _protocols description:_
 
 **Tracing**
 
-![tracer](https://github.com/vadimInshakov/committer/tree/tracer/trace.gif)
+![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.gif)
 
 <br>
 
