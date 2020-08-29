@@ -19,6 +19,7 @@ type Config struct {
 	Timeout     uint64
 	DBPath      string
 	Hooks       string
+	WithTrace   bool
 }
 
 type followers []string
@@ -58,6 +59,7 @@ func Get() *Config {
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
 	dbpath := flag.String("dbpath", "/tmp/badger", "database path on filesystem")
 	hooks := flag.String("hooks", "hooks/src/hooks.go", "path to hooks file on filesystem")
+	withTrace := flag.Bool("withtrace", true, "use distributed tracer or not (true/false)")
 
 	flag.Var(&followersArray, "follower", "follower address")
 	flag.Var(&whitelistArray, "whitelist", "allowed hosts")
@@ -74,7 +76,7 @@ func Get() *Config {
 		}
 		return &Config{*role, *nodeaddr, *coordinator,
 			followersArray, whitelistArray, *committype,
-			*timeout, *dbpath, *hooks}
+			*timeout, *dbpath, *hooks, *withTrace}
 	}
 
 	// viper configuration
@@ -103,5 +105,5 @@ func Get() *Config {
 	return &Config{configFromFile.Role, configFromFile.Nodeaddr,
 		configFromFile.Coordinator, configFromFile.Followers,
 		configFromFile.Whitelist, configFromFile.CommitType,
-		configFromFile.Timeout, configFromFile.DBPath, configFromFile.Hooks}
+		configFromFile.Timeout, configFromFile.DBPath, configFromFile.Hooks, configFromFile.WithTrace}
 }
