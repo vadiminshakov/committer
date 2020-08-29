@@ -13,6 +13,12 @@ _protocols description:_
 
 <br>
 
+**Tracing**
+
+![tracer](https://github.com/vadimInshakov/committer/tree/tracer/trace.gif)
+
+<br>
+
 **Configuring using config file**
 
 Use `./config/config.yaml` as configuration with command:
