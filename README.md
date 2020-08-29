@@ -2,7 +2,6 @@
 
 <p align="center">
 <img src="https://github.com/vadimInshakov/committer/blob/tracer/committer.png">
-  <p align="center">Commit it.</p>
 </p>
 
 # committer
