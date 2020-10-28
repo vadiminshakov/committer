@@ -102,8 +102,5 @@ func Get() *Config {
 		configFromFile.Whitelist = append(configFromFile.Whitelist, "127.0.0.1")
 	}
 
-	return &Config{configFromFile.Role, configFromFile.Nodeaddr,
-		configFromFile.Coordinator, configFromFile.Followers,
-		configFromFile.Whitelist, configFromFile.CommitType,
-		configFromFile.Timeout, configFromFile.DBPath, configFromFile.Hooks, configFromFile.WithTrace}
+	return &configFromFile
 }
