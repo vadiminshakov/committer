@@ -33,6 +33,7 @@ const (
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
+	pb.UnimplementedCommitServer
 	Addr                 string
 	Followers            []*peer.CommitClient
 	Config               *config.Config
@@ -54,18 +55,16 @@ func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Respo
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "ProposeHandle")
 		defer span.Finish()
 	}
-
-	s.SetCancelCache(req.Index, false)
-	return ProposeHandler(ctx, req, s.ProposeHook, s.NodeCache)
+	s.SetProgressForCommitPhase(req.Index, false)
+	return s.ProposeHandler(ctx, req, s.ProposeHook)
 }
 
 func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
-		span, ctx = s.Tracer.StartSpanFromContext(ctx, "PrecommitHandle")
+		span, _ = s.Tracer.StartSpanFromContext(ctx, "PrecommitHandle")
 		defer span.Finish()
 	}
-
 	if s.Config.CommitType == THREE_PHASE {
 		ctx, _ = context.WithTimeout(context.Background(), time.Duration(s.Config.Timeout)*time.Millisecond)
 		go func(ctx context.Context) {
@@ -75,7 +74,7 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 				case <-ctx.Done():
 					md := metadata.Pairs("mode", "autocommit")
 					ctx := metadata.NewOutgoingContext(context.Background(), md)
-					if !s.GetCancelCacheValue(req.Index) {
+					if !s.HasProgressForCommitPhase(req.Index) {
 						s.Commit(ctx, &pb.CommitRequest{Index: s.Height})
 						log.Println("commit without coordinator after timeout")
 					}
@@ -84,7 +83,7 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 			}
 		}(ctx)
 	}
-	return PrecommitHandler(ctx, req)
+	return s.PrecommitHandler(ctx, req)
 }
 
 func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Response, err error) {
@@ -103,8 +102,8 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Re
 		meta := md["mode"]
 
 		if len(meta) == 0 {
-			s.SetCancelCache(s.Height, true) // set flag for cancelling 'commit without coordinator' action, coz coordinator responded actually
-			resp, err = CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
+			s.SetProgressForCommitPhase(s.Height, true) // set flag for cancelling 'commit without coordinator' action, coz coordinator responded actually
+			resp, err = s.CommitHandler(ctx, req, s.CommitHook, s.DB)
 			if err != nil {
 				return nil, err
 			}
@@ -119,7 +118,7 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Re
 		}
 	} else {
 
-		resp, err = CommitHandler(ctx, req, s.CommitHook, s.DB, s.NodeCache)
+		resp, err = s.CommitHandler(ctx, req, s.CommitHook, s.DB)
 		if err != nil {
 			return
 		}
@@ -166,7 +165,6 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	}
 
 	// propose
-	s.NodeCache.Set(s.Height, req.Key, req.Value)
 	for _, follower := range s.Followers {
 		if s.Config.CommitType == THREE_PHASE {
 			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
@@ -181,10 +179,15 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if s.Tracer != nil && span != nil {
 			span.Finish()
 		}
+		if response.Index > s.Height {
+			log.Warnf("Coordinator has stale height [%d], update to [%d]", s.Height, response.Index)
+			s.Height = response.Index
+		}
 		if err != nil {
 			log.Errorf(err.Error())
 			return &pb.Response{Type: pb.Type_NACK}, nil
 		}
+		s.NodeCache.Set(s.Height, req.Key, req.Value)
 		if response.Type != pb.Type_ACK {
 			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
 		}
@@ -358,13 +361,13 @@ func (s *Server) rollback() {
 	s.NodeCache.Delete(s.Height)
 }
 
-func (s *Server) SetCancelCache(height uint64, docancel bool) {
+func (s *Server) SetProgressForCommitPhase(height uint64, docancel bool) {
 	s.mu.Lock()
 	s.cancelCommitOnHeight[height] = docancel
 	s.mu.Unlock()
 }
 
-func (s *Server) GetCancelCacheValue(height uint64) bool {
+func (s *Server) HasProgressForCommitPhase(height uint64) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.cancelCommitOnHeight[height]
