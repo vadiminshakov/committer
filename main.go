@@ -14,7 +14,7 @@ func main() {
 	signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	conf := config.Get()
-	hooks, err := hooks.Get(conf.Hooks)
+	hooks, err := hooks.Get()
 	if err != nil {
 		panic(err)
 	}
