@@ -1,6 +1,7 @@
 syntax = "proto3";
 package schema;
 import "google/protobuf/empty.proto";
+option go_package = "github.com/vadiminshakov/committer/proto";
 
 service Commit {
   rpc Propose(ProposeRequest) returns (Response);
@@ -29,7 +30,8 @@ enum Type {
 }
 
 message Response {
-  Type Type = 1;
+  Type type = 1;
+  uint64 index = 2;
 }
 
 message PrecommitRequest {
