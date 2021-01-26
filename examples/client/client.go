@@ -18,11 +18,18 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	resp, err := cli.Put(context.Background(), "1", []byte("2"))
+	resp, err := cli.Put(context.Background(), "key3", []byte("1111"))
 	if err != nil {
 		panic(err)
 	}
 	if resp.Type != pb.Type_ACK {
 		panic("msg is not acknowledged")
 	}
+
+	// read committed keys
+	//key, err := cli.Get(context.Background(), "key3")
+	//if err != nil {
+	//	panic(err)
+	//}
+	//fmt.Println(string(key.Value))
 }
