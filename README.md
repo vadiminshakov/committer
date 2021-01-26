@@ -42,7 +42,7 @@ All config parameters may be specified via command-line flags
 | committype  | two-phase or three-phase commit mode | *two-phase* or *three-phase* |  
 | timeout  | timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)  |  1000 |  
 | dbpath  |  database path on filesystem |  /tmp/badger |  
-| hooks | path to shared object file with hooks | hooks/src/hooks.go |
+| hooks | path to the hooks file | hooks/src/hooks.go |
 | withtrace | use distributed tracer or not (true/false) | *true* or *false* |
 
 <br>
