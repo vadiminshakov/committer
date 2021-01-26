@@ -6,10 +6,10 @@ prepare:
 	@mkdir /tmp/badger/follower
 
 run-example-coordinator:
-	@./committer -withtrace=true -role=coordinator -nodeaddr=localhost:3000 -follower=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
+	@./committer -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator -whitelist=127.0.0.1
 
 run-example-follower:
-	@./committer -withtrace=true -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/follower
+	@./committer -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=./badger -whitelist=127.0.0.1
 
 run-example-client:
 	@examples/client/client
