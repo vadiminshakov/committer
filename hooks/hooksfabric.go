@@ -9,7 +9,7 @@ import (
 type ProposeHook func(req *pb.ProposeRequest) bool
 type CommitHook func(req *pb.CommitRequest) bool
 
-func Get(hooksPath string) ([]server.Option, error) {
+func Get() ([]server.Option, error) {
 	proposeHook := func(f ProposeHook) func(*server.Server) error {
 		return func(server *server.Server) error {
 			server.ProposeHook = f
