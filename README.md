@@ -35,15 +35,15 @@ All config parameters may be specified via command-line flags
 
 | flag  |   description| example value  |  
 |---|---|---|
-| config  |  path to config |  config (means config.yaml in the ./config/ dir) |
 | role  |  role of the node (coordinator of follower) | *follower* or *coordinator*  | 
 | nodeaddr  | node address | localhost:3051 |   
 | coordinator  |  coordinator address |  localhost:3050 |   
 | committype  | two-phase or three-phase commit mode | *two-phase* or *three-phase* |  
 | timeout  | timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)  |  1000 |  
 | dbpath  |  database path on filesystem |  /tmp/badger |  
-| hooks | path to the hooks file | hooks/src/hooks.go |
 | withtrace | use distributed tracer or not (true/false) | *true* or *false* |
+| followers | comma-separated list of followers' addresses | localhost:3052,localhost:3053,localhost:3053 |
+| whitelist | comma-separated list of allowed hosts | 192.168.0.105,192.168.0.101 |
 
 <br>
 
@@ -54,7 +54,7 @@ example **follower**:
 
 example **coordinator**:
 ```
-./committer -withtrace=true -role=coordinator -nodeaddr=localhost:3000 -follower=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
+./committer -withtrace=true -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
 ```
 
 <br>
