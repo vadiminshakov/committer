@@ -24,9 +24,9 @@ func TestProposeHandler(t *testing.T) {
 	var propose = func(req *pb.ProposeRequest) bool {
 		return true
 	}
-	NodeCache := cache.New()
+	s := &Server{NodeCache: cache.New()}
 	req := &pb.ProposeRequest{Key: "testkey", Value: []byte("testvalue"), CommitType: pb.CommitType_THREE_PHASE_COMMIT}
-	response, err := ProposeHandler(context.Background(), req, propose, NodeCache)
+	response, err := s.ProposeHandler(context.Background(), req, propose)
 	assert.NoError(t, err, "ProposeHandler returned not nil error")
 	assert.Equal(t, response.Type, pb.Type_ACK, "response should contain ACK")
 }
@@ -40,7 +40,8 @@ func TestCommitHandler(t *testing.T) {
 	database, err := db.New(BADGER)
 	assert.NoError(t, err, "failed to create test database")
 	req := &pb.CommitRequest{Index: 1}
-	response, err := CommitHandler(context.Background(), req, commit, database, NodeCache)
+	s := &Server{NodeCache: NodeCache}
+	response, err := s.CommitHandler(context.Background(), req, commit, database)
 	assert.NoError(t, err, "CommitHandler returned not nil error")
 	assert.Equal(t, response.Type, pb.Type_ACK, "response should contain ACK")
 }
