@@ -22,17 +22,18 @@ _protocols description:_
 
 All config parameters may be specified via command-line flags
 
-| flag  |   description| example value  |  
-|---|---|---|
-| role  |  role of the node (coordinator of follower) | *follower* or *coordinator*  | 
-| nodeaddr  | node address | localhost:3051 |   
-| coordinator  |  coordinator address |  localhost:3050 |   
-| committype  | two-phase or three-phase commit mode | *two-phase* or *three-phase* |  
-| timeout  | timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)  |  1000 |  
-| dbpath  |  database path on filesystem |  /tmp/badger |  
-| withtrace | use distributed tracer or not (true/false) | *true* or *false* |
-| followers | comma-separated list of followers' addresses | localhost:3052,localhost:3053,localhost:3053 |
-| whitelist | comma-separated list of allowed hosts | 192.168.0.105,192.168.0.101 |
+| flag            |   description                                | default                           | example               |  
+|-----------------|----------------------------------------------|-----------------------------------|-----------------------|
+| role            |  role of the node (coordinator of follower)  | follower                          | -role=coordinator 
+| nodeaddr        | node address                                 | localhost:3050                    | -nodeaddr=localhost:3051  
+| coordinator     |  coordinator address                         |  ""                               | -coordinator=localhost:3050  
+| committype      | two-phase or three-phase commit mode         | three-phase                       | -committype=two-phase  
+| timeout         | timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)  |  1000 |  -timeout=500
+| dbpath          |  database path on filesystem                 |  ./badger                         |  -dbpath=/tmp/badger
+| withtrace       | use distributed tracer or not (true/false)   | false                             |  -withtrace=true
+| followers       | comma-separated list of followers' addresses | ""                                |  -followers=localhost:3052,localhost:3053,localhost:3053
+| whitelist       | comma-separated list of allowed hosts        | 127.0.0.1                         |  -whitelist=192.168.0.105,192.168.0.101
+
 
 <br>
 
