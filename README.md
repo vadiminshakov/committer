@@ -18,18 +18,7 @@ _protocols description:_
 
 <br>
 
-**Configuring using config file**
-
-Use `./config/config.yaml` as configuration with command:
- ```
- ./committer -config=config
-```
- 
-_(the committer looks for configuration files in the ./config directory)_
-
-<br>
-
-**Configuring using command-line flags**
+**Configuring**
 
 All config parameters may be specified via command-line flags
 
