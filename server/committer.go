@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/db"
 	pb "github.com/vadiminshakov/committer/proto"
-	"log"
 )
 
 func (s *Server) ProposeHandler(ctx context.Context, req *pb.ProposeRequest, hook func(req *pb.ProposeRequest) bool) (*pb.Response, error) {
 	var response *pb.Response
 	if hook(req) {
-		log.Printf("Received: %s=%s\n", req.Key, string(req.Value))
+		log.Infof("Received: %s=%s\n", req.Key, string(req.Value))
 		s.NodeCache.Set(req.Index, req.Key, req.Value)
 		response = &pb.Response{Type: pb.Type_ACK, Index: req.Index}
 	} else {

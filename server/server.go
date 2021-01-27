@@ -76,7 +76,7 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 					ctx := metadata.NewOutgoingContext(context.Background(), md)
 					if !s.HasProgressForCommitPhase(req.Index) {
 						s.Commit(ctx, &pb.CommitRequest{Index: s.Height})
-						log.Println("commit without coordinator after timeout")
+						log.Warn("commit without coordinator after timeout")
 					}
 					break ForLoop
 				}
@@ -303,9 +303,9 @@ func NewCommitServer(conf *config.Config, opts ...Option) (*Server, error) {
 	server.cancelCommitOnHeight = map[uint64]bool{}
 
 	if server.Config.CommitType == TWO_PHASE {
-		log.Println("Two-phase-commit mode enabled")
+		log.Info("Two-phase-commit mode enabled")
 	} else {
-		log.Println("Three-phase-commit mode enabled")
+		log.Info("Three-phase-commit mode enabled")
 	}
 	err = checkServerFields(server)
 	return server, err
@@ -342,19 +342,19 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	log.Printf("Listening on tcp://%s", s.Addr)
+	log.Infof("Listening on tcp://%s", s.Addr)
 
 	go s.GRPCServer.Serve(l)
 }
 
 // Stop stops server
 func (s *Server) Stop() {
-	log.Println("Stopping server")
+	log.Info("Stopping server")
 	s.GRPCServer.GracefulStop()
 	if err := s.DB.Close(); err != nil {
-		log.Printf("failed to close db, err: %s\n", err)
+		log.Infof("failed to close db, err: %s\n", err)
 	}
-	log.Println("Server stopped")
+	log.Info("Server stopped")
 }
 
 func (s *Server) rollback() {

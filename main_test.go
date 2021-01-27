@@ -64,15 +64,11 @@ var testtable = map[string][]byte{
 }
 
 func TestHappyPath(t *testing.T) {
+	log.SetLevel(log.FatalLevel)
+
 	done := make(chan struct{})
 	go startnodes(NOT_BLOCKING, done)
 	time.Sleep(6 * time.Second) // wait for coordinators and followers to start and establish connections
-
-	log.SetFormatter(&log.TextFormatter{
-		ForceColors:     true,
-		FullTimestamp:   true,
-		TimestampFormat: time.RFC822,
-	})
 
 	var height uint64 = 0
 	for _, coordConfig := range nodes[COORDINATOR_TYPE] {
@@ -142,15 +138,11 @@ func TestHappyPath(t *testing.T) {
 // 5 followers, 1 coordinator
 // on precommit stage all followers stops responding
 func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
+	log.SetLevel(log.FatalLevel)
+
 	done := make(chan struct{})
 	go startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS, done)
 	time.Sleep(10 * time.Second) // wait for coordinators and followers to start and establish connections
-
-	log.SetFormatter(&log.TextFormatter{
-		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
-		FullTimestamp:   true,
-		TimestampFormat: time.RFC822,
-	})
 
 	var (
 		tracer *zipkin.Tracer
@@ -177,16 +169,10 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 // 5 followers, 1 coordinator
 // on precommit stage coordinator stops responding
 func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
-
+	log.SetLevel(log.FatalLevel)
 	done := make(chan struct{})
 	go startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, done)
 	time.Sleep(10 * time.Second) // wait for coordinators and followers to start and establish connections
-
-	log.SetFormatter(&log.TextFormatter{
-		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
-		FullTimestamp:   true,
-		TimestampFormat: time.RFC822,
-	})
 
 	var (
 		tracer *zipkin.Tracer
