@@ -179,7 +179,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if s.Tracer != nil && span != nil {
 			span.Finish()
 		}
-		if response.Index > s.Height {
+		if response != nil && response.Index > s.Height {
 			log.Warnf("Coordinator has stale height [%d], update to [%d]", s.Height, response.Index)
 			s.Height = response.Index
 		}
