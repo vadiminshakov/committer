@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/openzipkin/zipkin-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/vadiminshakov/committer/config"
@@ -36,17 +37,17 @@ var (
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, WithTrace: false},
 			{Nodeaddr: "localhost:5000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, WithTrace: false},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
-			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
-			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
-			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
-			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, Hooks: "hooks/src/hooks.go", WithTrace: true},
+			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
 		},
 	}
 )
@@ -68,7 +69,7 @@ func TestHappyPath(t *testing.T) {
 	time.Sleep(6 * time.Second) // wait for coordinators and followers to start and establish connections
 
 	log.SetFormatter(&log.TextFormatter{
-		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
+		ForceColors:     true,
 		FullTimestamp:   true,
 		TimestampFormat: time.RFC822,
 	})
@@ -80,13 +81,23 @@ func TestHappyPath(t *testing.T) {
 		} else {
 			log.Println("***\nTEST IN THREE-PHASE MODE\n***")
 		}
-		tracer, err := trace.Tracer("client", coordConfig.Nodeaddr)
-		if err != nil {
-			t.Errorf("no tracer, err: %v", err)
+		var (
+			tracer *zipkin.Tracer
+			err    error
+		)
+		if coordConfig.WithTrace {
+			tracer, err = trace.Tracer("client", coordConfig.Nodeaddr)
+			if err != nil {
+				t.Errorf("no tracer, err: %v", err)
+			}
 		}
 		c, err := peer.New(coordConfig.Nodeaddr, tracer)
 		if err != nil {
 			t.Error(err)
+		}
+
+		if coordConfig.CommitType == "three-phase" {
+			c.Put(context.Background(), "1", []byte{}) // send one message for heights alignment after first round (we restarted coordinator, so it has 0 height, but followers have 1 height)
 		}
 
 		for key, val := range testtable {
@@ -103,9 +114,11 @@ func TestHappyPath(t *testing.T) {
 
 		// connect to followers and check that them added key-value
 		for _, node := range nodes[FOLLOWER_TYPE] {
-			tracer, err := trace.Tracer(fmt.Sprintf("%s:%s", coordConfig.Role, coordConfig.Nodeaddr), coordConfig.Nodeaddr)
-			if err != nil {
-				t.Errorf("no tracer, err: %v", err)
+			if coordConfig.WithTrace {
+				tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", coordConfig.Role, coordConfig.Nodeaddr), coordConfig.Nodeaddr)
+				if err != nil {
+					t.Errorf("no tracer, err: %v", err)
+				}
 			}
 			cli, err := peer.New(node.Nodeaddr, tracer)
 			assert.NoError(t, err, "err not nil")
@@ -129,7 +142,6 @@ func TestHappyPath(t *testing.T) {
 // 5 followers, 1 coordinator
 // on precommit stage all followers stops responding
 func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
-
 	done := make(chan struct{})
 	go startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS, done)
 	time.Sleep(10 * time.Second) // wait for coordinators and followers to start and establish connections
@@ -140,9 +152,15 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 		TimestampFormat: time.RFC822,
 	})
 
-	tracer, err := trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	if err != nil {
-		t.Errorf("no tracer, err: %v", err)
+	var (
+		tracer *zipkin.Tracer
+		err    error
+	)
+	if nodes[COORDINATOR_TYPE][1].WithTrace {
+		tracer, err = trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
+		if err != nil {
+			t.Errorf("no tracer, err: %v", err)
+		}
 	}
 	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
 	assert.NoError(t, err, "err not nil")
@@ -170,10 +188,17 @@ func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 		TimestampFormat: time.RFC822,
 	})
 
-	tracer, err := trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	if err != nil {
-		t.Errorf("no tracer, err: %v", err)
+	var (
+		tracer *zipkin.Tracer
+		err    error
+	)
+	if nodes[COORDINATOR_TYPE][1].WithTrace {
+		tracer, err = trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
+		if err != nil {
+			t.Errorf("no tracer, err: %v", err)
+		}
 	}
+
 	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
 	assert.NoError(t, err, "err not nil")
 
@@ -227,7 +252,7 @@ func startnodes(block int, done chan struct{}) {
 		os.Mkdir(node.DBPath, os.FileMode(0777))
 		node.DBPath = fmt.Sprintf("%s%s%s", FOLLOWER_BADGER, strconv.Itoa(i), "~")
 		// start follower
-		hooks, err := hooks.Get(node.Hooks)
+		hooks, err := hooks.Get()
 		if err != nil {
 			panic(err)
 		}
@@ -252,7 +277,7 @@ func startnodes(block int, done chan struct{}) {
 		os.Mkdir(coordConfig.DBPath, os.FileMode(0777))
 		coordConfig.DBPath = fmt.Sprintf("%s%s%s", COORDINATOR_BADGER, strconv.Itoa(i), "~")
 		// start coordinator
-		hooks, err := hooks.Get(coordConfig.Hooks)
+		hooks, err := hooks.Get()
 		if err != nil {
 			panic(err)
 		}
