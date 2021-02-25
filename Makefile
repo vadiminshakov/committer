@@ -1,4 +1,5 @@
 prepare:
+	@sudo rm -rf /tmp/badger
 	@go build
 	@cd examples/client && go build
 	@mkdir /tmp/badger
