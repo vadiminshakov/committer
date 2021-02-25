@@ -165,6 +165,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	}
 
 	// propose
+	log.Infof("propose key %s", req.Key)
 	for _, follower := range s.Followers {
 		if s.Config.CommitType == THREE_PHASE {
 			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
@@ -172,16 +173,22 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if s.Tracer != nil {
 			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Propose")
 		}
-		response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
-			Value:      req.Value,
-			CommitType: ctype,
-			Index:      s.Height})
-		if s.Tracer != nil && span != nil {
-			span.Finish()
-		}
-		if response != nil && response.Index > s.Height {
-			log.Warnf("Coordinator has stale height [%d], update to [%d]", s.Height, response.Index)
-			s.Height = response.Index
+		var (
+			response *pb.Response
+			err      error
+		)
+		for response == nil || response != nil && response.Type == pb.Type_NACK {
+			response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
+				Value:      req.Value,
+				CommitType: ctype,
+				Index:      s.Height})
+			if s.Tracer != nil && span != nil {
+				span.Finish()
+			}
+			if response != nil && response.Index > s.Height {
+				log.Warnf("сoordinator has stale height [%d], update to [%d] and try to send again", s.Height, response.Index)
+				s.Height = response.Index
+			}
 		}
 		if err != nil {
 			log.Errorf(err.Error())
@@ -194,6 +201,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	}
 
 	// precommit phase only for three-phase mode
+	log.Infof("precommit key %s", req.Key)
 	for _, follower := range s.Followers {
 		if s.Config.CommitType == THREE_PHASE {
 			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
@@ -224,6 +232,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	}
 
 	// commit
+	log.Infof("commit %s", req.Key)
 	for _, follower := range s.Followers {
 		if s.Tracer != nil {
 			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Commit")
@@ -240,7 +249,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
 		}
 	}
-
+	log.Infof("committed key %s", req.Key)
 	// increase height for next round
 	atomic.AddUint64(&s.Height, 1)
 
@@ -303,9 +312,9 @@ func NewCommitServer(conf *config.Config, opts ...Option) (*Server, error) {
 	server.cancelCommitOnHeight = map[uint64]bool{}
 
 	if server.Config.CommitType == TWO_PHASE {
-		log.Info("Two-phase-commit mode enabled")
+		log.Info("two-phase-commit mode enabled")
 	} else {
-		log.Info("Three-phase-commit mode enabled")
+		log.Info("three-phase-commit mode enabled")
 	}
 	err = checkServerFields(server)
 	return server, err
@@ -342,19 +351,19 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	log.Infof("Listening on tcp://%s", s.Addr)
+	log.Infof("listening on tcp://%s", s.Addr)
 
 	go s.GRPCServer.Serve(l)
 }
 
 // Stop stops server
 func (s *Server) Stop() {
-	log.Info("Stopping server")
+	log.Info("stopping server")
 	s.GRPCServer.GracefulStop()
 	if err := s.DB.Close(); err != nil {
 		log.Infof("failed to close db, err: %s\n", err)
 	}
-	log.Info("Server stopped")
+	log.Info("server stopped")
 }
 
 func (s *Server) rollback() {
