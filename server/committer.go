@@ -12,7 +12,7 @@ import (
 func (s *Server) ProposeHandler(ctx context.Context, req *pb.ProposeRequest, hook func(req *pb.ProposeRequest) bool) (*pb.Response, error) {
 	var response *pb.Response
 	if hook(req) {
-		log.Infof("Received: %s=%s\n", req.Key, string(req.Value))
+		log.Infof("received: %s=%s\n", req.Key, string(req.Value))
 		s.NodeCache.Set(req.Index, req.Key, req.Value)
 		response = &pb.Response{Type: pb.Type_ACK, Index: req.Index}
 	} else {
