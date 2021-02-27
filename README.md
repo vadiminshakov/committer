@@ -39,12 +39,12 @@ All config parameters may be specified via command-line flags
 
 example **follower**:
 ```
-./committer -withtrace=true -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/follower
+./committer -withtrace=false -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/follower
 ```
 
 example **coordinator**:
 ```
-./committer -withtrace=true -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
+./committer -withtrace=false -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
 ```
 
 <br>
