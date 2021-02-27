@@ -9,7 +9,7 @@ type BadgerDB struct {
 }
 
 func New(path string) (Database, error) {
-	db, err := badger.Open(badger.DefaultOptions(path))
+	db, err := badger.Open(badger.DefaultOptions(path).WithLogger(nil))
 	if err != nil {
 		return nil, err
 	}
