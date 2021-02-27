@@ -92,10 +92,6 @@ func TestHappyPath(t *testing.T) {
 			t.Error(err)
 		}
 
-		if coordConfig.CommitType == "three-phase" {
-			c.Put(context.Background(), "1", []byte{}) // send one message for heights alignment after first round (we restarted coordinator, so it has 0 height, but followers have 1 height)
-		}
-
 		for key, val := range testtable {
 			resp, err := c.Put(context.Background(), key, val)
 			if err != nil {
