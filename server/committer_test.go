@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"github.com/stretchr/testify/assert"
+	"github.com/vadiminshakov/committer/algoplagin"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/db"
+	"github.com/vadiminshakov/committer/entity"
 	pb "github.com/vadiminshakov/committer/proto"
 	"os"
 	"testing"
@@ -21,18 +23,20 @@ func TestMain(m *testing.M) {
 }
 
 func TestProposeHandler(t *testing.T) {
-	var propose = func(req *pb.ProposeRequest) bool {
+	var propose = func(req *entity.ProposeRequest) bool {
 		return true
 	}
-	s := &Server{NodeCache: cache.New()}
+	c := cache.New()
+	s := &Server{NodeCache: c, committer: algoplagin.NewCommitter(nil, c, propose, nil)}
+
 	req := &pb.ProposeRequest{Key: "testkey", Value: []byte("testvalue"), CommitType: pb.CommitType_THREE_PHASE_COMMIT}
-	response, err := s.ProposeHandler(context.Background(), req, propose)
+	response, err := s.ProposeHandler(context.Background(), req)
 	assert.NoError(t, err, "ProposeHandler returned not nil error")
 	assert.Equal(t, response.Type, pb.Type_ACK, "response should contain ACK")
 }
 
 func TestCommitHandler(t *testing.T) {
-	var commit = func(req *pb.CommitRequest) bool {
+	var commit = func(req *entity.CommitRequest) bool {
 		return true
 	}
 	NodeCache := cache.New()
@@ -40,8 +44,9 @@ func TestCommitHandler(t *testing.T) {
 	database, err := db.New(BADGER)
 	assert.NoError(t, err, "failed to create test database")
 	req := &pb.CommitRequest{Index: 1}
-	s := &Server{NodeCache: NodeCache}
-	response, err := s.CommitHandler(context.Background(), req, commit, database)
+
+	s := &Server{NodeCache: NodeCache, DB: database, committer: algoplagin.NewCommitter(database, NodeCache, nil, commit)}
+	response, err := s.CommitHandler(context.Background(), req)
 	assert.NoError(t, err, "CommitHandler returned not nil error")
 	assert.Equal(t, response.Type, pb.Type_ACK, "response should contain ACK")
 }
