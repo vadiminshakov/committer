@@ -6,8 +6,11 @@ import (
 	"github.com/openzipkin/zipkin-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/vadiminshakov/committer/algoplagin"
+	"github.com/vadiminshakov/committer/algoplagin/hooks/src"
+	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/hooks"
+	"github.com/vadiminshakov/committer/db"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/server"
@@ -38,7 +41,7 @@ var (
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
 				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, WithTrace: false},
-			{Nodeaddr: "localhost:5000", Role: "coordinator",
+			{Nodeaddr: "localhost:5001", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, WithTrace: false},
 		},
@@ -68,67 +71,67 @@ func TestHappyPath(t *testing.T) {
 
 	done := make(chan struct{})
 	go startnodes(NOT_BLOCKING, done)
-	time.Sleep(6 * time.Second) // wait for coordinators and followers to start and establish connections
+	time.Sleep(2 * time.Second) // wait for coordinators and followers to start and establish connections
 
 	var height uint64 = 0
-	for _, coordConfig := range nodes[COORDINATOR_TYPE] {
-		if coordConfig.CommitType == "two-phase" {
-			log.Println("***\nTEST IN TWO-PHASE MODE\n***")
-		} else {
-			log.Println("***\nTEST IN THREE-PHASE MODE\n***")
+	coordConfig := nodes[COORDINATOR_TYPE][0]
+	if coordConfig.CommitType == "two-phase" {
+		log.Println("***\nTEST IN TWO-PHASE MODE\n***")
+	} else {
+		log.Println("***\nTEST IN THREE-PHASE MODE\n***")
+	}
+	var (
+		tracer *zipkin.Tracer
+		err    error
+	)
+	if coordConfig.WithTrace {
+		tracer, err = trace.Tracer("client", coordConfig.Nodeaddr)
+		if err != nil {
+			t.Errorf("no tracer, err: %v", err)
 		}
-		var (
-			tracer *zipkin.Tracer
-			err    error
-		)
+	}
+	c, err := peer.New(coordConfig.Nodeaddr, tracer)
+	if err != nil {
+		t.Error(err)
+	}
+
+	for key, val := range testtable {
+		resp, err := c.Put(context.Background(), key, val)
+		if err != nil {
+			t.Error(err)
+		}
+		if resp.Type != pb.Type_ACK {
+			t.Error("msg is not acknowledged")
+		}
+		// ok, value is added, let's increment height counter
+		height++
+	}
+
+	// connect to followers and check that them added key-value
+	for _, node := range nodes[FOLLOWER_TYPE] {
 		if coordConfig.WithTrace {
-			tracer, err = trace.Tracer("client", coordConfig.Nodeaddr)
+			tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", coordConfig.Role, coordConfig.Nodeaddr), coordConfig.Nodeaddr)
 			if err != nil {
 				t.Errorf("no tracer, err: %v", err)
 			}
 		}
-		c, err := peer.New(coordConfig.Nodeaddr, tracer)
-		if err != nil {
-			t.Error(err)
-		}
-
+		cli, err := peer.New(node.Nodeaddr, tracer)
+		assert.NoError(t, err, "err not nil")
 		for key, val := range testtable {
-			resp, err := c.Put(context.Background(), key, val)
-			if err != nil {
-				t.Error(err)
-			}
-			if resp.Type != pb.Type_ACK {
-				t.Error("msg is not acknowledged")
-			}
-			// ok, value is added, let's increment height counter
-			height++
-		}
-
-		// connect to followers and check that them added key-value
-		for _, node := range nodes[FOLLOWER_TYPE] {
-			if coordConfig.WithTrace {
-				tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", coordConfig.Role, coordConfig.Nodeaddr), coordConfig.Nodeaddr)
-				if err != nil {
-					t.Errorf("no tracer, err: %v", err)
-				}
-			}
-			cli, err := peer.New(node.Nodeaddr, tracer)
+			// check values added by nodes
+			resp, err := cli.Get(context.Background(), key)
 			assert.NoError(t, err, "err not nil")
-			for key, val := range testtable {
-				// check values added by nodes
-				resp, err := cli.Get(context.Background(), key)
-				assert.NoError(t, err, "err not nil")
-				assert.Equal(t, resp.Value, val)
+			assert.Equal(t, resp.Value, val)
 
-				// check height of node
-				nodeInfo, err := cli.NodeInfo(context.Background())
-				assert.NoError(t, err, "err not nil")
-				assert.Equal(t, nodeInfo.Height, height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
-			}
+			// check height of node
+			nodeInfo, err := cli.NodeInfo(context.Background())
+			assert.NoError(t, err, "err not nil")
+			assert.Equal(t, nodeInfo.Height, height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
 		}
 	}
+
 	done <- struct{}{}
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 }
 
 // 5 followers, 1 coordinator
@@ -138,7 +141,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 
 	done := make(chan struct{})
 	go startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS, done)
-	time.Sleep(10 * time.Second) // wait for coordinators and followers to start and establish connections
+	time.Sleep(2 * time.Second) // wait for coordinators and followers to start and establish connections
 
 	var (
 		tracer *zipkin.Tracer
@@ -159,7 +162,6 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	}
 
 	done <- struct{}{}
-	time.Sleep(2 * time.Second)
 }
 
 // 5 followers, 1 coordinator
@@ -168,7 +170,7 @@ func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
 	done := make(chan struct{})
 	go startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, done)
-	time.Sleep(10 * time.Second) // wait for coordinators and followers to start and establish connections
+	time.Sleep(2 * time.Second) // wait for coordinators and followers to start and establish connections
 
 	var (
 		tracer *zipkin.Tracer
@@ -234,11 +236,13 @@ func startnodes(block int, done chan struct{}) {
 		os.Mkdir(node.DBPath, os.FileMode(0777))
 		node.DBPath = fmt.Sprintf("%s%s%s", FOLLOWER_BADGER, strconv.Itoa(i), "~")
 		// start follower
-		hooks, err := hooks.Get()
+		database, err := db.New(node.DBPath)
 		if err != nil {
 			panic(err)
 		}
-		followerServer, err := server.NewCommitServer(node, hooks...)
+
+		c := cache.New()
+		followerServer, err := server.NewCommitServer(node, algoplagin.NewCommitter(database, c, src.Propose, src.Commit), database, c)
 		if err != nil {
 			panic(err)
 		}
@@ -251,7 +255,7 @@ func startnodes(block int, done chan struct{}) {
 
 		defer followerServer.Stop()
 	}
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	// start coordinators (in two- and three-phase modes)
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
@@ -259,11 +263,13 @@ func startnodes(block int, done chan struct{}) {
 		os.Mkdir(coordConfig.DBPath, os.FileMode(0777))
 		coordConfig.DBPath = fmt.Sprintf("%s%s%s", COORDINATOR_BADGER, strconv.Itoa(i), "~")
 		// start coordinator
-		hooks, err := hooks.Get()
+		database, err := db.New(coordConfig.DBPath)
 		if err != nil {
 			panic(err)
 		}
-		coordServer, err := server.NewCommitServer(coordConfig, hooks...)
+
+		c := cache.New()
+		coordServer, err := server.NewCommitServer(coordConfig, algoplagin.NewCommitter(database, c, src.Propose, src.Commit), database, c)
 		if err != nil {
 			panic(err)
 		}

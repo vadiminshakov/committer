@@ -11,6 +11,7 @@ import (
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/db"
+	"github.com/vadiminshakov/committer/entity"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/trace"
@@ -31,9 +32,16 @@ const (
 	THREE_PHASE = "three-phase"
 )
 
+type committer interface {
+	Propose(ctx context.Context, req *entity.ProposeRequest, opts ...grpc.CallOption) (*entity.Response, error)
+	Precommit(ctx context.Context, height uint64, opts ...grpc.CallOption) (*entity.Response, error)
+	Commit(ctx context.Context, in *entity.CommitRequest, opts ...grpc.CallOption) (*entity.Response, error)
+}
+
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
 	pb.UnimplementedCommitServer
+	committer            committer
 	Addr                 string
 	Followers            []*peer.CommitClient
 	Config               *config.Config
@@ -56,7 +64,7 @@ func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Respo
 		defer span.Finish()
 	}
 	s.SetProgressForCommitPhase(req.Index, false)
-	return s.ProposeHandler(ctx, req, s.ProposeHook)
+	return s.ProposeHandler(ctx, req)
 }
 
 func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
@@ -103,7 +111,7 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Re
 
 		if len(meta) == 0 {
 			s.SetProgressForCommitPhase(s.Height, true) // set flag for cancelling 'commit without coordinator' action, coz coordinator responded actually
-			resp, err = s.CommitHandler(ctx, req, s.CommitHook, s.DB)
+			resp, err = s.CommitHandler(ctx, req)
 			if err != nil {
 				return nil, err
 			}
@@ -117,8 +125,7 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Re
 			s.rollback()
 		}
 	} else {
-
-		resp, err = s.CommitHandler(ctx, req, s.CommitHook, s.DB)
+		resp, err = s.CommitHandler(ctx, req)
 		if err != nil {
 			return
 		}
@@ -267,14 +274,14 @@ func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*pb.Info, erro
 }
 
 // NewCommitServer fabric func for Server
-func NewCommitServer(conf *config.Config, opts ...Option) (*Server, error) {
+func NewCommitServer(conf *config.Config, committer committer, database db.Database, nodecache *cache.Cache, opts ...Option) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
 		FullTimestamp:   true,
 		TimestampFormat: time.RFC822,
 	})
 
-	server := &Server{Addr: conf.Nodeaddr, DBPath: conf.DBPath}
+	server := &Server{Addr: conf.Nodeaddr, committer: committer, DB: database, NodeCache: nodecache}
 	var err error
 	for _, option := range opts {
 		err = option(server)
@@ -304,11 +311,6 @@ func NewCommitServer(conf *config.Config, opts ...Option) (*Server, error) {
 		server.Config.Coordinator = server.Addr
 	}
 
-	server.DB, err = db.New(conf.DBPath)
-	if err != nil {
-		return nil, err
-	}
-	server.NodeCache = cache.New()
 	server.cancelCommitOnHeight = map[uint64]bool{}
 
 	if server.Config.CommitType == TWO_PHASE {
