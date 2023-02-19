@@ -104,3 +104,6 @@ run example client:
 ```
 go run ./examples/client/client.go
 ```
+
+Planned:
+- implement coordinator-to-cohort votes broadcast on precommit phase in 3PC protocol implementation (now it's just a stub-phase).
