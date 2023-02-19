@@ -40,17 +40,17 @@ var (
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "two-phase", Timeout: 1000, WithTrace: false},
+				Whitelist: whitelist, CommitType: "two-phase", Timeout: 100, WithTrace: false},
 			{Nodeaddr: "localhost:5001", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
-				Whitelist: whitelist, CommitType: "three-phase", Timeout: 1000, WithTrace: false},
+				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100, WithTrace: false},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
-			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
-			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
-			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
-			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 1000, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, WithTrace: false},
+			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, WithTrace: false},
 		},
 	}
 )
@@ -69,9 +69,7 @@ var testtable = map[string][]byte{
 func TestHappyPath(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
 
-	done := make(chan struct{})
-	go startnodes(NOT_BLOCKING, done)
-	time.Sleep(2 * time.Second) // wait for coordinators and followers to start and establish connections
+	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR)
 
 	var height uint64 = 0
 	coordConfig := nodes[COORDINATOR_TYPE][0]
@@ -130,8 +128,7 @@ func TestHappyPath(t *testing.T) {
 		}
 	}
 
-	done <- struct{}{}
-	time.Sleep(3 * time.Second)
+	assert.NoError(t, canceller())
 }
 
 // 5 followers, 1 coordinator
@@ -139,9 +136,7 @@ func TestHappyPath(t *testing.T) {
 func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
 
-	done := make(chan struct{})
-	go startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS, done)
-	time.Sleep(2 * time.Second) // wait for coordinators and followers to start and establish connections
+	canceller := startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS)
 
 	var (
 		tracer *zipkin.Tracer
@@ -161,16 +156,15 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 		assert.NotEqual(t, resp.Type, pb.Type_ACK, "msg shouldn't be acknowledged")
 	}
 
-	done <- struct{}{}
+	assert.NoError(t, canceller())
 }
 
 // 5 followers, 1 coordinator
 // on precommit stage coordinator stops responding
 func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
-	done := make(chan struct{})
-	go startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, done)
-	time.Sleep(2 * time.Second) // wait for coordinators and followers to start and establish connections
+
+	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR)
 
 	var (
 		tracer *zipkin.Tracer
@@ -211,11 +205,10 @@ func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 		}
 	}
 
-	done <- struct{}{}
-	time.Sleep(2 * time.Second)
+	assert.NoError(t, canceller())
 }
 
-func startnodes(block int, done chan struct{}) {
+func startnodes(block int) func() error {
 	COORDINATOR_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "coordinator", time.Now().UnixNano())
 	FOLLOWER_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "follower", time.Now().UnixNano())
 
@@ -231,6 +224,7 @@ func startnodes(block int, done chan struct{}) {
 	}
 
 	// start followers
+	stopfuncs := make([]func(), 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
 	for i, node := range nodes[FOLLOWER_TYPE] {
 		// create db dir
 		os.Mkdir(node.DBPath, os.FileMode(0777))
@@ -253,9 +247,8 @@ func startnodes(block int, done chan struct{}) {
 			go followerServer.Run(server.WhiteListChecker, blocking)
 		}
 
-		defer followerServer.Stop()
+		stopfuncs = append(stopfuncs, followerServer.Stop)
 	}
-	time.Sleep(1 * time.Second)
 
 	// start coordinators (in two- and three-phase modes)
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
@@ -280,10 +273,13 @@ func startnodes(block int, done chan struct{}) {
 			go coordServer.Run(server.WhiteListChecker, blocking)
 		}
 
-		defer coordServer.Stop()
+		stopfuncs = append(stopfuncs, coordServer.Stop)
 	}
 
-	<-done
-	// prune
-	os.RemoveAll(BADGER_DIR)
+	return func() error {
+		for _, f := range stopfuncs {
+			f()
+		}
+		return os.RemoveAll(BADGER_DIR)
+	}
 }
