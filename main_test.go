@@ -133,6 +133,8 @@ func TestHappyPath(t *testing.T) {
 
 // 5 followers, 1 coordinator
 // on precommit stage all followers stops responding
+//
+// result: coordinator waits for followers up and continues voting.
 func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
 
@@ -161,6 +163,8 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 
 // 5 followers, 1 coordinator
 // on precommit stage coordinator stops responding
+//
+// result: followers wait for specified timeout, and then make autocommit without coordinator.
 func Test_3PC_6NODES_COORDINATORFAILURE_ON_PRECOMMIT(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
 
