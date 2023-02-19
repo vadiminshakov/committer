@@ -47,9 +47,8 @@ func PrecommitBlockALL(ctx context.Context,
 	req interface{},
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler) (interface{}, error) {
-
 	if info.FullMethod == "/schema.Commit/Precommit" {
-		time.Sleep(10000 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 	}
 
 	// Calls the handler
@@ -71,7 +70,7 @@ func PrecommitBlockCoordinator(ctx context.Context,
 
 	if server.Config.Role == "coordinator" {
 		if info.FullMethod == "/schema.Commit/Precommit" {
-			time.Sleep(10000 * time.Millisecond)
+			time.Sleep(1000 * time.Millisecond)
 		}
 	}
 
