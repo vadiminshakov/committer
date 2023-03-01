@@ -33,9 +33,9 @@ const (
 )
 
 type committer interface {
-	Propose(ctx context.Context, req *entity.ProposeRequest, opts ...grpc.CallOption) (*entity.Response, error)
-	Precommit(ctx context.Context, height uint64, opts ...grpc.CallOption) (*entity.Response, error)
-	Commit(ctx context.Context, in *entity.CommitRequest, opts ...grpc.CallOption) (*entity.Response, error)
+	Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.Response, error)
+	Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error)
+	Commit(ctx context.Context, in *entity.CommitRequest) (*entity.Response, error)
 }
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
@@ -43,7 +43,7 @@ type Server struct {
 	pb.UnimplementedCommitServer
 	committer            committer
 	Addr                 string
-	Followers            []*peer.CommitClient
+	Followers            map[string]*peer.CommitClient
 	Config               *config.Config
 	GRPCServer           *grpc.Server
 	DB                   db.Database
@@ -83,8 +83,12 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 					md := metadata.Pairs("mode", "autocommit")
 					ctx := metadata.NewOutgoingContext(context.Background(), md)
 					if !s.HasProgressForCommitPhase(req.Index) {
+						if !isAllNodesAccepted(s.NodeCache.GetVotes(s.Height)) {
+							s.rollback()
+							break ForLoop
+						}
 						s.Commit(ctx, &pb.CommitRequest{Index: s.Height})
-						log.Warn("commit without coordinator after timeout")
+						log.Warn("committed without coordinator after timeout")
 					}
 					break ForLoop
 				}
@@ -92,6 +96,16 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 		}(ctx)
 	}
 	return s.PrecommitHandler(ctx, req)
+}
+
+func isAllNodesAccepted(votes []*entity.Vote) bool {
+	for _, v := range votes {
+		if !v.IsAccepted {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Response, err error) {
@@ -173,7 +187,8 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 
 	// propose
 	log.Infof("propose key %s", req.Key)
-	for _, follower := range s.Followers {
+	votes := make([]*entity.Vote, 0, len(s.Followers))
+	for nodename, follower := range s.Followers {
 		if s.Config.CommitType == THREE_PHASE {
 			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
 		}
@@ -184,6 +199,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 			response *pb.Response
 			err      error
 		)
+		isAccepted := true
 		for response == nil || response != nil && response.Type == pb.Type_NACK {
 			response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
 				Value:      req.Value,
@@ -192,20 +208,28 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 			if s.Tracer != nil && span != nil {
 				span.Finish()
 			}
+			if err != nil {
+				log.Errorf(err.Error())
+				isAccepted = false
+			}
+			votes = append(votes, &entity.Vote{
+				Height:     s.Height,
+				Node:       nodename,
+				IsAccepted: isAccepted,
+			})
+
 			if response != nil && response.Index > s.Height {
 				log.Warnf("сoordinator has stale height [%d], update to [%d] and try to send again", s.Height, response.Index)
 				s.Height = response.Index
 			}
 		}
-		if err != nil {
-			log.Errorf(err.Error())
-			return &pb.Response{Type: pb.Type_NACK}, nil
-		}
 		s.NodeCache.Set(s.Height, req.Key, req.Value)
+		s.NodeCache.SetVotes(s.Height, votes)
 		if response.Type != pb.Type_ACK {
 			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
 		}
 	}
+	s.NodeCache.SetVotes(s.Height, votes)
 
 	// precommit phase only for three-phase mode
 	log.Infof("precommit key %s", req.Key)
@@ -216,7 +240,9 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		if s.Tracer != nil {
 			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Precommit")
 		}
-		response, err = follower.Precommit(ctx, &pb.PrecommitRequest{Index: s.Height})
+
+		votes := votesToProto(s.NodeCache.GetVotes(s.Height))
+		response, err = follower.Precommit(ctx, &pb.PrecommitRequest{Index: s.Height, Votes: votes})
 		if s.Tracer != nil && span != nil {
 			span.Finish()
 		}
@@ -263,6 +289,30 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	return &pb.Response{Type: pb.Type_ACK}, nil
 }
 
+func votesToProto(votes []*entity.Vote) []*pb.Vote {
+	pbvotes := make([]*pb.Vote, 0, len(votes))
+	for _, v := range votes {
+		pbvotes = append(pbvotes, &pb.Vote{
+			Node:       v.Node,
+			IsAccepted: v.IsAccepted,
+		})
+	}
+
+	return pbvotes
+}
+
+func protoTpVotes(votes []*pb.Vote) []*entity.Vote {
+	pbvotes := make([]*entity.Vote, 0, len(votes))
+	for _, v := range votes {
+		pbvotes = append(pbvotes, &entity.Vote{
+			Node:       v.Node,
+			IsAccepted: v.IsAccepted,
+		})
+	}
+
+	return pbvotes
+}
+
 func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*pb.Info, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
@@ -281,7 +331,7 @@ func NewCommitServer(conf *config.Config, committer committer, database db.Datab
 		TimestampFormat: time.RFC822,
 	})
 
-	server := &Server{Addr: conf.Nodeaddr, committer: committer, DB: database, NodeCache: nodecache}
+	server := &Server{Addr: conf.Nodeaddr, committer: committer, DB: database, NodeCache: nodecache, Followers: make(map[string]*peer.CommitClient)}
 	var err error
 	for _, option := range opts {
 		err = option(server)
@@ -303,7 +353,7 @@ func NewCommitServer(conf *config.Config, committer committer, database db.Datab
 		if err != nil {
 			return nil, err
 		}
-		server.Followers = append(server.Followers, cli)
+		server.Followers[node] = cli
 	}
 
 	server.Config = conf
