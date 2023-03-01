@@ -24,7 +24,7 @@ func (s *Server) ProposeHandler(ctx context.Context, req *pb.ProposeRequest) (*p
 }
 
 func (s *Server) PrecommitHandler(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
-	resp, err := s.committer.Precommit(ctx, req.Index)
+	resp, err := s.committer.Precommit(ctx, req.Index, protoTpVotes(req.Votes))
 	if err != nil {
 		return nil, err
 	}
