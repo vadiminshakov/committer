@@ -22,3 +22,9 @@ type Response struct {
 	ResponseType
 	Height uint64
 }
+
+type Vote struct {
+	Height     uint64
+	Node       string
+	IsAccepted bool
+}
