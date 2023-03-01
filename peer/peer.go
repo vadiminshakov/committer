@@ -81,7 +81,7 @@ func (client *CommitClient) Put(ctx context.Context, key string, value []byte) (
 	return client.Connection.Put(ctx, &pb.Entry{Key: key, Value: value})
 }
 
-// NodeInfo gets info about current node height
+// NodeInfo gets info about current node height.
 func (client *CommitClient) NodeInfo(ctx context.Context) (*pb.Info, error) {
 	var span zipkin.Span
 	if client.Tracer != nil {
