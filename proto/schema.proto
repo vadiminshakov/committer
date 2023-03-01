@@ -34,8 +34,14 @@ message Response {
   uint64 index = 2;
 }
 
+message Vote {
+  string node = 1;
+  bool isAccepted = 2;
+}
+
 message PrecommitRequest {
   uint64 index = 1;
+  repeated Vote votes = 2;
 }
 
 message CommitRequest {
