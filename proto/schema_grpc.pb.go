@@ -4,14 +4,15 @@ package proto
 
 import (
 	context "context"
-	empty "github.com/golang/protobuf/ptypes/empty"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
+// Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
 // CommitClient is the client API for Commit service.
@@ -23,7 +24,7 @@ type CommitClient interface {
 	Commit(ctx context.Context, in *CommitRequest, opts ...grpc.CallOption) (*Response, error)
 	Put(ctx context.Context, in *Entry, opts ...grpc.CallOption) (*Response, error)
 	Get(ctx context.Context, in *Msg, opts ...grpc.CallOption) (*Value, error)
-	NodeInfo(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*Info, error)
+	NodeInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*Info, error)
 }
 
 type commitClient struct {
@@ -79,7 +80,7 @@ func (c *commitClient) Get(ctx context.Context, in *Msg, opts ...grpc.CallOption
 	return out, nil
 }
 
-func (c *commitClient) NodeInfo(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*Info, error) {
+func (c *commitClient) NodeInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*Info, error) {
 	out := new(Info)
 	err := c.cc.Invoke(ctx, "/schema.Commit/NodeInfo", in, out, opts...)
 	if err != nil {
@@ -97,7 +98,7 @@ type CommitServer interface {
 	Commit(context.Context, *CommitRequest) (*Response, error)
 	Put(context.Context, *Entry) (*Response, error)
 	Get(context.Context, *Msg) (*Value, error)
-	NodeInfo(context.Context, *empty.Empty) (*Info, error)
+	NodeInfo(context.Context, *emptypb.Empty) (*Info, error)
 	mustEmbedUnimplementedCommitServer()
 }
 
@@ -120,7 +121,7 @@ func (UnimplementedCommitServer) Put(context.Context, *Entry) (*Response, error)
 func (UnimplementedCommitServer) Get(context.Context, *Msg) (*Value, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
 }
-func (UnimplementedCommitServer) NodeInfo(context.Context, *empty.Empty) (*Info, error) {
+func (UnimplementedCommitServer) NodeInfo(context.Context, *emptypb.Empty) (*Info, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NodeInfo not implemented")
 }
 func (UnimplementedCommitServer) mustEmbedUnimplementedCommitServer() {}
@@ -133,7 +134,7 @@ type UnsafeCommitServer interface {
 }
 
 func RegisterCommitServer(s grpc.ServiceRegistrar, srv CommitServer) {
-	s.RegisterService(&_Commit_serviceDesc, srv)
+	s.RegisterService(&Commit_ServiceDesc, srv)
 }
 
 func _Commit_Propose_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -227,7 +228,7 @@ func _Commit_Get_Handler(srv interface{}, ctx context.Context, dec func(interfac
 }
 
 func _Commit_NodeInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(empty.Empty)
+	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -239,12 +240,15 @@ func _Commit_NodeInfo_Handler(srv interface{}, ctx context.Context, dec func(int
 		FullMethod: "/schema.Commit/NodeInfo",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CommitServer).NodeInfo(ctx, req.(*empty.Empty))
+		return srv.(CommitServer).NodeInfo(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-var _Commit_serviceDesc = grpc.ServiceDesc{
+// Commit_ServiceDesc is the grpc.ServiceDesc for Commit service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var Commit_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "schema.Commit",
 	HandlerType: (*CommitServer)(nil),
 	Methods: []grpc.MethodDesc{
