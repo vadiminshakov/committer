@@ -7,7 +7,6 @@ import (
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/db"
 	"github.com/vadiminshakov/committer/entity"
-	"google.golang.org/grpc"
 )
 
 type Committer struct {
@@ -31,7 +30,7 @@ func NewCommitter(d db.Database, nodeCache *cache.Cache,
 	}
 }
 
-func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest, opts ...grpc.CallOption) (*entity.Response, error) {
+func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*entity.Response, error) {
 	var response *entity.Response
 	if c.proposeHook(req) {
 		log.Infof("received: %s=%s\n", req.Key, string(req.Value))
@@ -43,18 +42,27 @@ func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest, opts 
 	if c.height > req.Height {
 		response = &entity.Response{ResponseType: entity.ResponseTypeNack, Height: c.height}
 	}
+
 	return response, nil
 }
-func (c *Committer) Precommit(_ context.Context, height uint64, opts ...grpc.CallOption) (*entity.Response, error) {
+
+func (c *Committer) Precommit(_ context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error) {
+	for _, v := range c.nodeCache.GetVotes(index) {
+		if !v.IsAccepted {
+			log.Printf("Node %s is not accepted proposal with index %d\n", v.Node, v.Height)
+			return &entity.Response{ResponseType: entity.ResponseTypeNack}, nil
+		}
+	}
+
 	return &entity.Response{ResponseType: entity.ResponseTypeAck}, nil
 }
-func (c *Committer) Commit(_ context.Context, req *entity.CommitRequest, opts ...grpc.CallOption) (*entity.Response, error) {
+
+func (c *Committer) Commit(_ context.Context, req *entity.CommitRequest) (*entity.Response, error) {
 	var response *entity.Response
 	if c.commitHook(req) {
 		log.Printf("Committing on height: %d\n", req.Height)
 		key, value, ok := c.nodeCache.Get(req.Height)
 		if !ok {
-			c.nodeCache.Delete(req.Height)
 			return &entity.Response{ResponseType: entity.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
 		}
 
