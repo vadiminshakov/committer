@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/peer"
 	status "google.golang.org/grpc/status"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -77,5 +78,33 @@ func PrecommitBlockCoordinator(ctx context.Context,
 	// Calls the handler
 	h, err := handler(ctx, req)
 
+	return h, err
+}
+
+var once sync.Once
+
+func PrecommitOneFollowerFail(ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler) (interface{}, error) {
+	server, ok := info.Server.(*Server)
+	if !ok {
+		return nil, errors.New("failed to assert interface to Server type")
+	}
+
+	if server.Config.Role != "coordinator" {
+		if info.FullMethod == "/schema.Commit/Propose" {
+			var decline bool
+			once.Do(func() {
+				decline = true
+			})
+			if decline {
+				return nil, errors.New("")
+			}
+		}
+	}
+
+	// Calls the handler
+	h, err := handler(ctx, req)
 	return h, err
 }
