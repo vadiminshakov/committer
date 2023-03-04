@@ -167,6 +167,16 @@ func (s *Server) Get(ctx context.Context, req *pb.Msg) (*pb.Value, error) {
 }
 
 func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
+	var blocktime time.Duration
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		d, err := time.ParseDuration(md["blockcommit"][0])
+		if err != nil {
+			return nil, err
+		}
+		blocktime = d
+	}
+
 	var (
 		response *pb.Response
 		err      error
@@ -200,35 +210,34 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 			err      error
 		)
 		isAccepted := true
-		for response == nil || response != nil && response.Type == pb.Type_NACK {
-			response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
-				Value:      req.Value,
-				CommitType: ctype,
-				Index:      s.Height})
-			if s.Tracer != nil && span != nil {
-				span.Finish()
-			}
-			if err != nil {
-				log.Errorf(err.Error())
-				isAccepted = false
-			}
-			votes = append(votes, &entity.Vote{
-				Height:     s.Height,
-				Node:       nodename,
-				IsAccepted: isAccepted,
-			})
 
-			if response != nil && response.Index > s.Height {
-				log.Warnf("сoordinator has stale height [%d], update to [%d] and try to send again", s.Height, response.Index)
-				s.Height = response.Index
-			}
+		response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
+			Value:      req.Value,
+			CommitType: ctype,
+			Index:      s.Height})
+		if s.Tracer != nil && span != nil {
+			span.Finish()
 		}
-		s.NodeCache.Set(s.Height, req.Key, req.Value)
-		s.NodeCache.SetVotes(s.Height, votes)
-		if response.Type != pb.Type_ACK {
-			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
+		if err != nil {
+			log.Errorf(err.Error())
+			isAccepted = false
+		}
+		votes = append(votes, &entity.Vote{
+			Height:     s.Height,
+			Node:       nodename,
+			IsAccepted: isAccepted,
+		})
+
+		if response != nil && response.Index > s.Height {
+			log.Warnf("сoordinator has stale height [%d], update to [%d] and try to send again", s.Height, response.Index)
+			s.Height = response.Index
+		}
+
+		if response == nil || response.Type != pb.Type_ACK {
+			log.Warnf("follower %s not acknowledged msg %v", nodename, req)
 		}
 	}
+	s.NodeCache.Set(s.Height, req.Key, req.Value)
 	s.NodeCache.SetVotes(s.Height, votes)
 
 	// precommit phase only for three-phase mode
@@ -267,6 +276,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 	// commit
 	log.Infof("commit %s", req.Key)
 	for _, follower := range s.Followers {
+		time.Sleep(blocktime)
 		if s.Tracer != nil {
 			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Commit")
 		}
