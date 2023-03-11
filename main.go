@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/vadiminshakov/committer/algoplagin"
-	"github.com/vadiminshakov/committer/algoplagin/hooks/src"
+	"github.com/vadiminshakov/committer/algorithm"
+	"github.com/vadiminshakov/committer/algorithm/hooks/src"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
+	"github.com/vadiminshakov/committer/coordinator"
 	"github.com/vadiminshakov/committer/db"
 	"github.com/vadiminshakov/committer/server"
 	"os"
@@ -24,7 +25,12 @@ func main() {
 	}
 
 	c := cache.New()
-	s, err := server.NewCommitServer(conf, algoplagin.NewCommitter(database, c, src.Propose, src.Commit), database, c)
+	coord, err := coordinator.New(conf, c, database)
+	if err != nil {
+		panic(err)
+	}
+
+	s, err := server.New(conf, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
 	if err != nil {
 		panic(err)
 	}
