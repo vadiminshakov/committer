@@ -24,7 +24,21 @@ type Response struct {
 }
 
 type Vote struct {
-	Height     uint64
 	Node       string
 	IsAccepted bool
+}
+
+const (
+	ResponseAck = iota
+	ResponseNack
+)
+
+type BroadcastRequest struct {
+	Key   string
+	Value []byte
+}
+
+type BroadcastResponse struct {
+	Type  int32
+	Index uint64
 }
