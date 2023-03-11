@@ -1,4 +1,4 @@
-package algoplagin
+package algorithm
 
 import (
 	"context"
@@ -7,6 +7,10 @@ import (
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/db"
 	"github.com/vadiminshakov/committer/entity"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"sync/atomic"
 )
 
 type Committer struct {
@@ -16,6 +20,7 @@ type Committer struct {
 	height        uint64
 	db            db.Database
 	nodeCache     *cache.Cache
+	noAutoCommit  map[uint64]struct{}
 }
 
 func NewCommitter(d db.Database, nodeCache *cache.Cache,
@@ -27,7 +32,12 @@ func NewCommitter(d db.Database, nodeCache *cache.Cache,
 		commitHook:    commitHook,
 		db:            d,
 		nodeCache:     nodeCache,
+		noAutoCommit:  make(map[uint64]struct{}),
 	}
+}
+
+func (c *Committer) Height() uint64 {
+	return c.height
 }
 
 func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*entity.Response, error) {
@@ -46,10 +56,30 @@ func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*ent
 	return response, nil
 }
 
-func (c *Committer) Precommit(_ context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error) {
-	for _, v := range c.nodeCache.GetVotes(index) {
+func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error) {
+	go func(ctx context.Context) {
+	ForLoop:
+		for {
+			select {
+			case <-ctx.Done():
+				if _, ok := c.noAutoCommit[index]; ok {
+					return
+				}
+				md := metadata.Pairs("mode", "autocommit")
+				ctx := metadata.NewOutgoingContext(context.Background(), md)
+				if !isAllNodesAccepted(votes) {
+					c.rollback()
+					break ForLoop
+				}
+				c.Commit(ctx, &entity.CommitRequest{Height: index})
+				log.Warn("committed without coordinator after timeout")
+				break ForLoop
+			}
+		}
+	}(ctx)
+	for _, v := range votes {
 		if !v.IsAccepted {
-			log.Printf("Node %s is not accepted proposal with index %d\n", v.Node, v.Height)
+			log.Printf("Node %s is not accepted proposal with index %d\n", v.Node, index)
 			return &entity.Response{ResponseType: entity.ResponseTypeNack}, nil
 		}
 	}
@@ -57,8 +87,26 @@ func (c *Committer) Precommit(_ context.Context, index uint64, votes []*entity.V
 	return &entity.Response{ResponseType: entity.ResponseTypeAck}, nil
 }
 
-func (c *Committer) Commit(_ context.Context, req *entity.CommitRequest) (*entity.Response, error) {
+func isAllNodesAccepted(votes []*entity.Vote) bool {
+	for _, v := range votes {
+		if !v.IsAccepted {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*entity.Response, error) {
+	c.noAutoCommit[req.Height] = struct{}{}
+	if req.IsRollback {
+		c.rollback()
+	}
+
 	var response *entity.Response
+	if req.Height < c.height {
+		return nil, status.Errorf(codes.AlreadyExists, "stale commit proposed by coordinator (got %d, but actual height is %d)", req.Height, c.height)
+	}
 	if c.commitHook(req) {
 		log.Printf("Committing on height: %d\n", req.Height)
 		key, value, ok := c.nodeCache.Get(req.Height)
@@ -74,5 +122,15 @@ func (c *Committer) Commit(_ context.Context, req *entity.CommitRequest) (*entit
 		c.nodeCache.Delete(req.Height)
 		response = &entity.Response{ResponseType: entity.ResponseTypeNack}
 	}
+
+	if response.ResponseType == entity.ResponseTypeAck {
+		fmt.Println("ack cohort", c.height)
+		atomic.AddUint64(&c.height, 1)
+	}
+
 	return response, nil
+}
+
+func (c *Committer) rollback() {
+	c.nodeCache.Delete(c.height)
 }
