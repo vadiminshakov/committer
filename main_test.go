@@ -6,10 +6,11 @@ import (
 	"github.com/openzipkin/zipkin-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"github.com/vadiminshakov/committer/algoplagin"
-	"github.com/vadiminshakov/committer/algoplagin/hooks/src"
+	"github.com/vadiminshakov/committer/algorithm"
+	"github.com/vadiminshakov/committer/algorithm/hooks/src"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
+	"github.com/vadiminshakov/committer/coordinator"
 	"github.com/vadiminshakov/committer/db"
 	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
@@ -43,7 +44,7 @@ var (
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
 				Whitelist: whitelist, CommitType: "two-phase", Timeout: 100, WithTrace: false},
-			{Nodeaddr: "localhost:5001", Role: "coordinator",
+			{Nodeaddr: "localhost:5002", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100, WithTrace: false},
 		},
@@ -69,7 +70,7 @@ var testtable = map[string][]byte{
 }
 
 func TestHappyPath(t *testing.T) {
-	log.SetLevel(log.FatalLevel)
+	log.SetLevel(log.InfoLevel)
 
 	var canceller func() error
 
@@ -128,7 +129,7 @@ func TestHappyPath(t *testing.T) {
 			// check height of node
 			nodeInfo, err := cli.NodeInfo(context.Background())
 			assert.NoError(t, err, "err not nil")
-			assert.Equal(t, nodeInfo.Height, height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
+			assert.Equal(t, height, nodeInfo.Height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, nodeInfo.Height-height, nodeInfo.Height)
 		}
 	}
 
@@ -170,7 +171,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 //
 // result: followers wait for specified timeout, and then make autocommit without coordinator.
 func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
-	log.SetLevel(log.FatalLevel)
+	log.SetLevel(log.InfoLevel)
 
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
 
@@ -192,7 +193,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
 		assert.NoError(t, err, "err not nil")
-		assert.Equal(t, resp.Type, pb.Type_ACK, "msg should be acknowledged")
+		assert.Equal(t, resp.Type, pb.Type_NACK, "msg should not be acknowledged")
 		height += 1
 	}
 
@@ -209,7 +210,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 			// check height of node
 			nodeInfo, err := cli.NodeInfo(context.Background())
 			assert.NoError(t, err, "err not nil")
-			assert.Equal(t, nodeInfo.Height, height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
+			assert.Equal(t, int(height), int(nodeInfo.Height), "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
 		}
 	}
 
@@ -299,7 +300,7 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		}
 
 		c := cache.New()
-		followerServer, err := server.NewCommitServer(node, algoplagin.NewCommitter(database, c, src.Propose, src.Commit), database, c)
+		followerServer, err := server.New(node, algorithm.NewCommitter(database, c, src.Propose, src.Commit), nil, database)
 		if err != nil {
 			panic(err)
 		}
@@ -325,7 +326,11 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		}
 
 		c := cache.New()
-		coordServer, err := server.NewCommitServer(coordConfig, algoplagin.NewCommitter(database, c, src.Propose, src.Commit), database, c)
+		coord, err := coordinator.New(coordConfig, c, database)
+		if err != nil {
+			panic(err)
+		}
+		coordServer, err := server.New(coordConfig, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
 		if err != nil {
 			panic(err)
 		}
