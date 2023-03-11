@@ -8,20 +8,13 @@ import (
 	"github.com/openzipkin/zipkin-go"
 	zipkingrpc "github.com/openzipkin/zipkin-go/middleware/grpc"
 	log "github.com/sirupsen/logrus"
-	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/db"
 	"github.com/vadiminshakov/committer/entity"
-	"github.com/vadiminshakov/committer/peer"
 	pb "github.com/vadiminshakov/committer/proto"
 	"github.com/vadiminshakov/committer/trace"
 	"google.golang.org/grpc"
-	codes "google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	status "google.golang.org/grpc/status"
 	"net"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -32,29 +25,31 @@ const (
 	THREE_PHASE = "three-phase"
 )
 
-type committer interface {
+type Cohort interface {
 	Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.Response, error)
 	Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error)
 	Commit(ctx context.Context, in *entity.CommitRequest) (*entity.Response, error)
+	Height() uint64
+}
+
+type Coordinator interface {
+	Broadcast(ctx context.Context, req entity.BroadcastRequest) (*entity.BroadcastResponse, error)
+	Height() uint64
 }
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
 	pb.UnimplementedCommitServer
-	committer            committer
-	Addr                 string
-	Followers            map[string]*peer.CommitClient
-	Config               *config.Config
-	GRPCServer           *grpc.Server
-	DB                   db.Database
-	DBPath               string
-	ProposeHook          func(req *pb.ProposeRequest) bool
-	CommitHook           func(req *pb.CommitRequest) bool
-	NodeCache            *cache.Cache
-	Height               uint64
-	cancelCommitOnHeight map[uint64]bool
-	mu                   sync.RWMutex
-	Tracer               *zipkin.Tracer
+	Addr        string
+	GRPCServer  *grpc.Server
+	DB          db.Database
+	DBPath      string
+	ProposeHook func(req *pb.ProposeRequest) bool
+	CommitHook  func(req *pb.CommitRequest) bool
+	Tracer      *zipkin.Tracer
+	Config      *config.Config
+	coordinator Coordinator
+	cohort      Cohort
 }
 
 func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
@@ -63,8 +58,8 @@ func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Respo
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "ProposeHandle")
 		defer span.Finish()
 	}
-	s.SetProgressForCommitPhase(req.Index, false)
-	return s.ProposeHandler(ctx, req)
+	resp, err := s.cohort.Propose(ctx, proposeRequestPbToEntity(req))
+	return entityResponseToPb(resp), err
 }
 
 func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
@@ -73,83 +68,19 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 		span, _ = s.Tracer.StartSpanFromContext(ctx, "PrecommitHandle")
 		defer span.Finish()
 	}
-	if s.Config.CommitType == THREE_PHASE {
-		ctx, _ = context.WithTimeout(context.Background(), time.Duration(s.Config.Timeout)*time.Millisecond)
-		go func(ctx context.Context) {
-		ForLoop:
-			for {
-				select {
-				case <-ctx.Done():
-					md := metadata.Pairs("mode", "autocommit")
-					ctx := metadata.NewOutgoingContext(context.Background(), md)
-					if !s.HasProgressForCommitPhase(req.Index) {
-						if !isAllNodesAccepted(s.NodeCache.GetVotes(s.Height)) {
-							s.rollback()
-							break ForLoop
-						}
-						s.Commit(ctx, &pb.CommitRequest{Index: s.Height})
-						log.Warn("committed without coordinator after timeout")
-					}
-					break ForLoop
-				}
-			}
-		}(ctx)
-	}
-	return s.PrecommitHandler(ctx, req)
+	resp, err := s.cohort.Precommit(ctx, req.Index, votesPbToEntity(req.Votes))
+	return entityResponseToPb(resp), err
 }
 
-func isAllNodesAccepted(votes []*entity.Vote) bool {
-	for _, v := range votes {
-		if !v.IsAccepted {
-			return false
-		}
-	}
-
-	return true
-}
-
-func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (resp *pb.Response, err error) {
+func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (*pb.Response, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "CommitHandle")
 		defer span.Finish()
 	}
 
-	if s.Config.CommitType == THREE_PHASE {
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Errorf(codes.Internal, "no metadata")
-		}
-
-		meta := md["mode"]
-
-		if len(meta) == 0 {
-			s.SetProgressForCommitPhase(s.Height, true) // set flag for cancelling 'commit without coordinator' action, coz coordinator responded actually
-			resp, err = s.CommitHandler(ctx, req)
-			if err != nil {
-				return nil, err
-			}
-			if resp.Type == pb.Type_ACK {
-				atomic.AddUint64(&s.Height, 1)
-			}
-			return
-		}
-
-		if req.IsRollback {
-			s.rollback()
-		}
-	} else {
-		resp, err = s.CommitHandler(ctx, req)
-		if err != nil {
-			return
-		}
-
-		if resp.Type == pb.Type_ACK {
-			atomic.AddUint64(&s.Height, 1)
-		}
-		return
-	}
-	return
+	resp, err := s.cohort.Commit(ctx, commitRequestPbToEntity(req))
+	return entityResponseToPb(resp), err
 }
 
 func (s *Server) Get(ctx context.Context, req *pb.Msg) (*pb.Value, error) {
@@ -167,151 +98,21 @@ func (s *Server) Get(ctx context.Context, req *pb.Msg) (*pb.Value, error) {
 }
 
 func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
-	var blocktime time.Duration
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		d, err := time.ParseDuration(md["blockcommit"][0])
-		if err != nil {
-			return nil, err
-		}
-		blocktime = d
+	resp, err := s.coordinator.Broadcast(ctx, entity.BroadcastRequest{
+		Key:   req.Key,
+		Value: req.Value,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	var (
-		response *pb.Response
-		err      error
-		span     zipkin.Span
-	)
-
-	if s.Tracer != nil {
-		span, ctx = s.Tracer.StartSpanFromContext(ctx, "PutHandle")
-		defer span.Finish()
-	}
-
-	var ctype pb.CommitType
-	if s.Config.CommitType == THREE_PHASE {
-		ctype = pb.CommitType_THREE_PHASE_COMMIT
-	} else {
-		ctype = pb.CommitType_TWO_PHASE_COMMIT
-	}
-
-	// propose
-	log.Infof("propose key %s", req.Key)
-	votes := make([]*entity.Vote, 0, len(s.Followers))
-	for nodename, follower := range s.Followers {
-		if s.Config.CommitType == THREE_PHASE {
-			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
-		}
-		if s.Tracer != nil {
-			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Propose")
-		}
-		var (
-			response *pb.Response
-			err      error
-		)
-		isAccepted := true
-
-		response, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
-			Value:      req.Value,
-			CommitType: ctype,
-			Index:      s.Height})
-		if s.Tracer != nil && span != nil {
-			span.Finish()
-		}
-		if err != nil {
-			log.Errorf(err.Error())
-			isAccepted = false
-		}
-		votes = append(votes, &entity.Vote{
-			Height:     s.Height,
-			Node:       nodename,
-			IsAccepted: isAccepted,
-		})
-
-		if response != nil && response.Index > s.Height {
-			log.Warnf("сoordinator has stale height [%d], update to [%d] and try to send again", s.Height, response.Index)
-			s.Height = response.Index
-		}
-
-		if response == nil || response.Type != pb.Type_ACK {
-			log.Warnf("follower %s not acknowledged msg %v", nodename, req)
-		}
-	}
-	s.NodeCache.Set(s.Height, req.Key, req.Value)
-	s.NodeCache.SetVotes(s.Height, votes)
-
-	// precommit phase only for three-phase mode
-	log.Infof("precommit key %s", req.Key)
-	for _, follower := range s.Followers {
-		if s.Config.CommitType == THREE_PHASE {
-			ctx, _ = context.WithTimeout(ctx, time.Duration(s.Config.Timeout)*time.Millisecond)
-		}
-		if s.Tracer != nil {
-			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Precommit")
-		}
-
-		votes := votesToProto(s.NodeCache.GetVotes(s.Height))
-		response, err = follower.Precommit(ctx, &pb.PrecommitRequest{Index: s.Height, Votes: votes})
-		if s.Tracer != nil && span != nil {
-			span.Finish()
-		}
-		if err != nil {
-			log.Errorf(err.Error())
-			return &pb.Response{Type: pb.Type_NACK}, nil
-		}
-		if response.Type != pb.Type_ACK {
-			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
-		}
-	}
-
-	// the coordinator got all the answers, so it's time to persist msg and send commit command to followers
-	key, value, ok := s.NodeCache.Get(s.Height)
-	if !ok {
-		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
-	}
-	if err = s.DB.Put(key, value); err != nil {
-		return &pb.Response{Type: pb.Type_NACK}, status.Error(codes.Internal, "failed to save msg on coordinator")
-	}
-
-	// commit
-	log.Infof("commit %s", req.Key)
-	for _, follower := range s.Followers {
-		time.Sleep(blocktime)
-		if s.Tracer != nil {
-			span, ctx = s.Tracer.StartSpanFromContext(ctx, "Commit")
-		}
-		response, err = follower.Commit(ctx, &pb.CommitRequest{Index: s.Height})
-		if s.Tracer != nil && span != nil {
-			span.Finish()
-		}
-		if err != nil {
-			log.Errorf(err.Error())
-			return &pb.Response{Type: pb.Type_NACK}, nil
-		}
-		if response.Type != pb.Type_ACK {
-			return nil, status.Error(codes.Internal, "follower not acknowledged msg")
-		}
-	}
-	log.Infof("committed key %s", req.Key)
-	// increase height for next round
-	atomic.AddUint64(&s.Height, 1)
-
-	return &pb.Response{Type: pb.Type_ACK}, nil
+	return &pb.Response{
+		Type:  pb.Type(resp.Type),
+		Index: resp.Index,
+	}, nil
 }
 
-func votesToProto(votes []*entity.Vote) []*pb.Vote {
-	pbvotes := make([]*pb.Vote, 0, len(votes))
-	for _, v := range votes {
-		pbvotes = append(pbvotes, &pb.Vote{
-			Node:       v.Node,
-			IsAccepted: v.IsAccepted,
-		})
-	}
-
-	return pbvotes
-}
-
-func protoTpVotes(votes []*pb.Vote) []*entity.Vote {
+func protoToVotes(votes []*pb.Vote) []*entity.Vote {
 	pbvotes := make([]*entity.Vote, 0, len(votes))
 	for _, v := range votes {
 		pbvotes = append(pbvotes, &entity.Vote{
@@ -330,18 +131,19 @@ func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*pb.Info, erro
 		defer span.Finish()
 	}
 
-	return &pb.Info{Height: s.Height}, nil
+	return &pb.Info{Height: s.cohort.Height()}, nil
 }
 
-// NewCommitServer fabric func for Server
-func NewCommitServer(conf *config.Config, committer committer, database db.Database, nodecache *cache.Cache, opts ...Option) (*Server, error) {
+// New fabric func for Server
+func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database db.Database, opts ...Option) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
 		FullTimestamp:   true,
 		TimestampFormat: time.RFC822,
 	})
 
-	server := &Server{Addr: conf.Nodeaddr, committer: committer, DB: database, NodeCache: nodecache, Followers: make(map[string]*peer.CommitClient)}
+	server := &Server{Addr: conf.Nodeaddr, cohort: cohort, coordinator: coordinator,
+		DB: database, Config: conf}
 	var err error
 	for _, option := range opts {
 		err = option(server)
@@ -357,21 +159,6 @@ func NewCommitServer(conf *config.Config, committer committer, database db.Datab
 			return nil, err
 		}
 	}
-
-	for _, node := range conf.Followers {
-		cli, err := peer.New(node, server.Tracer)
-		if err != nil {
-			return nil, err
-		}
-		server.Followers[node] = cli
-	}
-
-	server.Config = conf
-	if conf.Role == "coordinator" {
-		server.Config.Coordinator = server.Addr
-	}
-
-	server.cancelCommitOnHeight = map[uint64]bool{}
 
 	if server.Config.CommitType == TWO_PHASE {
 		log.Info("two-phase-commit mode enabled")
@@ -426,20 +213,4 @@ func (s *Server) Stop() {
 		log.Infof("failed to close db, err: %s\n", err)
 	}
 	log.Info("server stopped")
-}
-
-func (s *Server) rollback() {
-	s.NodeCache.Delete(s.Height)
-}
-
-func (s *Server) SetProgressForCommitPhase(height uint64, docancel bool) {
-	s.mu.Lock()
-	s.cancelCommitOnHeight[height] = docancel
-	s.mu.Unlock()
-}
-
-func (s *Server) HasProgressForCommitPhase(height uint64) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.cancelCommitOnHeight[height]
 }
