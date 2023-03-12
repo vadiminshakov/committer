@@ -1,7 +1,7 @@
 package cache
 
 import (
-	"github.com/vadiminshakov/committer/entity"
+	"github.com/vadiminshakov/committer/core/entity"
 	"sync"
 )
 
