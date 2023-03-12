@@ -2,7 +2,7 @@ package src
 
 import (
 	log "github.com/sirupsen/logrus"
-	"github.com/vadiminshakov/committer/entity"
+	"github.com/vadiminshakov/committer/core/entity"
 )
 
 func Propose(req *entity.ProposeRequest) bool {
