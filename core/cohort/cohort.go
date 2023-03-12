@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"github.com/openzipkin/zipkin-go"
-	"github.com/vadiminshakov/committer/algorithm"
-	"github.com/vadiminshakov/committer/entity"
-	pb "github.com/vadiminshakov/committer/proto"
+	"github.com/vadiminshakov/committer/core/algorithm"
+	"github.com/vadiminshakov/committer/core/entity"
+	pb "github.com/vadiminshakov/committer/io/proto"
 )
 
 type Cohort struct {
