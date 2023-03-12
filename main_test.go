@@ -6,16 +6,16 @@ import (
 	"github.com/openzipkin/zipkin-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"github.com/vadiminshakov/committer/algorithm"
-	"github.com/vadiminshakov/committer/algorithm/hooks/src"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/coordinator"
-	"github.com/vadiminshakov/committer/db"
-	"github.com/vadiminshakov/committer/peer"
-	pb "github.com/vadiminshakov/committer/proto"
-	"github.com/vadiminshakov/committer/server"
-	"github.com/vadiminshakov/committer/trace"
+	"github.com/vadiminshakov/committer/core/algorithm"
+	"github.com/vadiminshakov/committer/core/algorithm/hooks/src"
+	"github.com/vadiminshakov/committer/core/coordinator"
+	"github.com/vadiminshakov/committer/io/db"
+	"github.com/vadiminshakov/committer/io/peer"
+	pb "github.com/vadiminshakov/committer/io/proto"
+	server2 "github.com/vadiminshakov/committer/io/server"
+	"github.com/vadiminshakov/committer/io/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"os"
@@ -44,7 +44,7 @@ var (
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
 				Whitelist: whitelist, CommitType: "two-phase", Timeout: 100, WithTrace: false},
-			{Nodeaddr: "localhost:5002", Role: "coordinator",
+			{Nodeaddr: "localhost:5003", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100, WithTrace: false},
 		},
@@ -277,11 +277,11 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 	var blocking grpc.UnaryServerInterceptor
 	switch block {
 	case BLOCK_ON_PRECOMMIT_FOLLOWERS:
-		blocking = server.PrecommitBlockALL
+		blocking = server2.PrecommitBlockALL
 	case BLOCK_ON_PRECOMMIT_COORDINATOR:
-		blocking = server.PrecommitBlockCoordinator
+		blocking = server2.PrecommitBlockCoordinator
 	case BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL:
-		blocking = server.PrecommitOneFollowerFail
+		blocking = server2.PrecommitOneFollowerFail
 	}
 
 	// start followers
@@ -300,15 +300,15 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		}
 
 		c := cache.New()
-		followerServer, err := server.New(node, algorithm.NewCommitter(database, c, src.Propose, src.Commit), nil, database)
+		followerServer, err := server2.New(node, algorithm.NewCommitter(database, c, src.Propose, src.Commit), nil, database)
 		if err != nil {
 			panic(err)
 		}
 
 		if block == 0 {
-			go followerServer.Run(server.WhiteListChecker)
+			go followerServer.Run(server2.WhiteListChecker)
 		} else {
-			go followerServer.Run(server.WhiteListChecker, blocking)
+			go followerServer.Run(server2.WhiteListChecker, blocking)
 		}
 
 		stopfuncs = append(stopfuncs, followerServer.Stop)
@@ -330,15 +330,15 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		if err != nil {
 			panic(err)
 		}
-		coordServer, err := server.New(coordConfig, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
+		coordServer, err := server2.New(coordConfig, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
 		if err != nil {
 			panic(err)
 		}
 
 		if block == 0 {
-			go coordServer.Run(server.WhiteListChecker)
+			go coordServer.Run(server2.WhiteListChecker)
 		} else {
-			go coordServer.Run(server.WhiteListChecker, blocking)
+			go coordServer.Run(server2.WhiteListChecker, blocking)
 		}
 
 		stopfuncs = append(stopfuncs, coordServer.Stop)

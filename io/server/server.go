@@ -9,10 +9,10 @@ import (
 	zipkingrpc "github.com/openzipkin/zipkin-go/middleware/grpc"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/db"
-	"github.com/vadiminshakov/committer/entity"
-	pb "github.com/vadiminshakov/committer/proto"
-	"github.com/vadiminshakov/committer/trace"
+	"github.com/vadiminshakov/committer/core/entity"
+	db2 "github.com/vadiminshakov/committer/io/db"
+	"github.com/vadiminshakov/committer/io/proto"
+	"github.com/vadiminshakov/committer/io/trace"
 	"google.golang.org/grpc"
 	"net"
 	"time"
@@ -39,20 +39,20 @@ type Coordinator interface {
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
-	pb.UnimplementedCommitServer
+	proto.UnimplementedCommitServer
 	Addr        string
 	GRPCServer  *grpc.Server
-	DB          db.Database
+	DB          db2.Database
 	DBPath      string
-	ProposeHook func(req *pb.ProposeRequest) bool
-	CommitHook  func(req *pb.CommitRequest) bool
+	ProposeHook func(req *proto.ProposeRequest) bool
+	CommitHook  func(req *proto.CommitRequest) bool
 	Tracer      *zipkin.Tracer
 	Config      *config.Config
 	coordinator Coordinator
 	cohort      Cohort
 }
 
-func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Response, error) {
+func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "ProposeHandle")
@@ -62,7 +62,7 @@ func (s *Server) Propose(ctx context.Context, req *pb.ProposeRequest) (*pb.Respo
 	return entityResponseToPb(resp), err
 }
 
-func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.Response, error) {
+func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, _ = s.Tracer.StartSpanFromContext(ctx, "PrecommitHandle")
@@ -72,7 +72,7 @@ func (s *Server) Precommit(ctx context.Context, req *pb.PrecommitRequest) (*pb.R
 	return entityResponseToPb(resp), err
 }
 
-func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (*pb.Response, error) {
+func (s *Server) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "CommitHandle")
@@ -83,7 +83,7 @@ func (s *Server) Commit(ctx context.Context, req *pb.CommitRequest) (*pb.Respons
 	return entityResponseToPb(resp), err
 }
 
-func (s *Server) Get(ctx context.Context, req *pb.Msg) (*pb.Value, error) {
+func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "GetHandle")
@@ -94,10 +94,10 @@ func (s *Server) Get(ctx context.Context, req *pb.Msg) (*pb.Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &pb.Value{Value: value}, nil
+	return &proto.Value{Value: value}, nil
 }
 
-func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
+func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, error) {
 	resp, err := s.coordinator.Broadcast(ctx, entity.BroadcastRequest{
 		Key:   req.Key,
 		Value: req.Value,
@@ -106,13 +106,13 @@ func (s *Server) Put(ctx context.Context, req *pb.Entry) (*pb.Response, error) {
 		return nil, err
 	}
 
-	return &pb.Response{
-		Type:  pb.Type(resp.Type),
+	return &proto.Response{
+		Type:  proto.Type(resp.Type),
 		Index: resp.Index,
 	}, nil
 }
 
-func protoToVotes(votes []*pb.Vote) []*entity.Vote {
+func protoToVotes(votes []*proto.Vote) []*entity.Vote {
 	pbvotes := make([]*entity.Vote, 0, len(votes))
 	for _, v := range votes {
 		pbvotes = append(pbvotes, &entity.Vote{
@@ -124,18 +124,18 @@ func protoToVotes(votes []*pb.Vote) []*entity.Vote {
 	return pbvotes
 }
 
-func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*pb.Info, error) {
+func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*proto.Info, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "NodeInfoHandle")
 		defer span.Finish()
 	}
 
-	return &pb.Info{Height: s.cohort.Height()}, nil
+	return &proto.Info{Height: s.cohort.Height()}, nil
 }
 
 // New fabric func for Server
-func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database db.Database, opts ...Option) (*Server, error) {
+func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database db2.Database, opts ...Option) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
 		FullTimestamp:   true,
@@ -173,7 +173,7 @@ func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database d
 func WithBadgerDB(path string) func(*Server) error {
 	return func(server *Server) error {
 		var err error
-		server.DB, err = db.New(path)
+		server.DB, err = db2.New(path)
 		return err
 	}
 }
@@ -194,7 +194,7 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	} else {
 		s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
 	}
-	pb.RegisterCommitServer(s.GRPCServer, s)
+	proto.RegisterCommitServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
 	if err != nil {
