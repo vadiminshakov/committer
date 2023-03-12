@@ -1,8 +1,8 @@
 package server
 
 import (
-	"github.com/vadiminshakov/committer/entity"
-	"github.com/vadiminshakov/committer/proto"
+	"github.com/vadiminshakov/committer/core/entity"
+	"github.com/vadiminshakov/committer/io/proto"
 )
 
 func proposeRequestPbToEntity(request *proto.ProposeRequest) *entity.ProposeRequest {
