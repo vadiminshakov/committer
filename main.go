@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/vadiminshakov/committer/algorithm"
-	"github.com/vadiminshakov/committer/algorithm/hooks/src"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/coordinator"
-	"github.com/vadiminshakov/committer/db"
-	"github.com/vadiminshakov/committer/server"
+	"github.com/vadiminshakov/committer/core/algorithm"
+	"github.com/vadiminshakov/committer/core/algorithm/hooks/src"
+	"github.com/vadiminshakov/committer/core/coordinator"
+	"github.com/vadiminshakov/committer/io/db"
+	server2 "github.com/vadiminshakov/committer/io/server"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,12 +30,12 @@ func main() {
 		panic(err)
 	}
 
-	s, err := server.New(conf, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
+	s, err := server2.New(conf, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
 	if err != nil {
 		panic(err)
 	}
 
-	s.Run(server.WhiteListChecker)
+	s.Run(server2.WhiteListChecker)
 	<-ch
 	s.Stop()
 }
