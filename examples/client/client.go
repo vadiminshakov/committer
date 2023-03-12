@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"github.com/vadiminshakov/committer/peer"
-	pb "github.com/vadiminshakov/committer/proto"
-	"github.com/vadiminshakov/committer/trace"
+	"github.com/vadiminshakov/committer/io/peer"
+	pb "github.com/vadiminshakov/committer/io/proto"
+	"github.com/vadiminshakov/committer/io/trace"
 )
 
 const addr = "localhost:3000"
