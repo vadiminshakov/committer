@@ -1,7 +1,7 @@
 package hooks
 
 import (
-	"github.com/vadiminshakov/committer/entity"
+	"github.com/vadiminshakov/committer/core/entity"
 )
 
 type ProposeHook func(req *entity.ProposeRequest) bool
