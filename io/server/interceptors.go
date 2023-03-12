@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"github.com/vadiminshakov/committer/helpers"
 	"google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -29,7 +28,7 @@ func WhiteListChecker(ctx context.Context,
 	}
 
 	serv := info.Server.(*Server)
-	if !helpers.Includes(serv.Config.Whitelist, host) {
+	if !includes(serv.Config.Whitelist, host) {
 		return nil, status.Errorf(codes.PermissionDenied, "host %s is not in whitelist", host)
 	}
 
@@ -37,6 +36,16 @@ func WhiteListChecker(ctx context.Context,
 	h, err := handler(ctx, req)
 
 	return h, err
+}
+
+// includes checks that the 'arr' includes 'value'
+func includes(arr []string, value string) bool {
+	for i := range arr {
+		if arr[i] == value {
+			return true
+		}
+	}
+	return false
 }
 
 /*
