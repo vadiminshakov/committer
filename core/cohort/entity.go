@@ -1,6 +1,8 @@
 package cohort
 
-import "github.com/vadiminshakov/committer/entity"
+import (
+	"github.com/vadiminshakov/committer/core/entity"
+)
 
 type PrecommitRequest struct {
 	Index uint64         `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
