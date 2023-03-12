@@ -2,7 +2,6 @@ package config
 
 import (
 	"flag"
-	"github.com/vadiminshakov/committer/helpers"
 	"strings"
 )
 
@@ -56,7 +55,7 @@ func Get() *Config {
 
 	followersArray := strings.Split(*followers, ",")
 	if *role != "coordinator" {
-		if !helpers.Includes(followersArray, *nodeaddr) {
+		if !includes(followersArray, *nodeaddr) {
 			followersArray = append(followersArray, *nodeaddr)
 		}
 	}
@@ -65,4 +64,14 @@ func Get() *Config {
 		followersArray, whitelistArray, *committype,
 		*timeout, *dbpath, *withTrace}
 
+}
+
+// includes checks that the 'arr' includes 'value'
+func includes(arr []string, value string) bool {
+	for i := range arr {
+		if arr[i] == value {
+			return true
+		}
+	}
+	return false
 }
