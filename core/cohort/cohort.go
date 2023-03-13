@@ -6,7 +6,7 @@ import (
 	"github.com/openzipkin/zipkin-go"
 	"github.com/vadiminshakov/committer/core/algorithm"
 	"github.com/vadiminshakov/committer/core/entity"
-	pb "github.com/vadiminshakov/committer/io/proto"
+	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 )
 
 type Cohort struct {
