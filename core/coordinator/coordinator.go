@@ -9,9 +9,9 @@ import (
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/entity"
 	"github.com/vadiminshakov/committer/io/db"
-	"github.com/vadiminshakov/committer/io/peer"
-	pb "github.com/vadiminshakov/committer/io/proto"
-	"github.com/vadiminshakov/committer/io/server"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
+	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -21,15 +21,15 @@ import (
 )
 
 type coordinatorImpl struct {
-	followers map[string]*peer.CommitClient
+	followers map[string]*client.CommitClient
 	tracer    *zipkin.Tracer
 	config    *config.Config
 	height    uint64
 	nodeCache *cache.Cache
-	database  db.Database
+	database  db.Repository
 }
 
-func New(conf *config.Config, nodeCache *cache.Cache, database db.Database) (*coordinatorImpl, error) {
+func New(conf *config.Config, nodeCache *cache.Cache, database db.Repository) (*coordinatorImpl, error) {
 	var tracer *zipkin.Tracer
 	var err error
 	if conf.WithTrace {
@@ -40,9 +40,9 @@ func New(conf *config.Config, nodeCache *cache.Cache, database db.Database) (*co
 		}
 	}
 
-	flwrs := make(map[string]*peer.CommitClient, len(conf.Followers))
+	flwrs := make(map[string]*client.CommitClient, len(conf.Followers))
 	for _, f := range conf.Followers {
-		client, err := peer.New(f, tracer)
+		client, err := client.New(f, tracer)
 		if err != nil {
 			return nil, err
 		}
