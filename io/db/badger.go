@@ -8,7 +8,7 @@ type BadgerDB struct {
 	db *badger.DB
 }
 
-func New(path string) (Database, error) {
+func New(path string) (Repository, error) {
 	db, err := badger.Open(badger.DefaultOptions(path).WithLogger(nil))
 	if err != nil {
 		return nil, err
