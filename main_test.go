@@ -12,9 +12,9 @@ import (
 	"github.com/vadiminshakov/committer/core/algorithm/hooks/src"
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
-	"github.com/vadiminshakov/committer/io/peer"
-	pb "github.com/vadiminshakov/committer/io/proto"
-	server2 "github.com/vadiminshakov/committer/io/server"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
+	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -93,7 +93,7 @@ func TestHappyPath(t *testing.T) {
 			t.Errorf("no tracer, err: %v", err)
 		}
 	}
-	c, err := peer.New(coordConfig.Nodeaddr, tracer)
+	c, err := client.New(coordConfig.Nodeaddr, tracer)
 	if err != nil {
 		t.Error(err)
 	}
@@ -118,7 +118,7 @@ func TestHappyPath(t *testing.T) {
 				t.Errorf("no tracer, err: %v", err)
 			}
 		}
-		cli, err := peer.New(node.Nodeaddr, tracer)
+		cli, err := client.New(node.Nodeaddr, tracer)
 		assert.NoError(t, err, "err not nil")
 		for key, val := range testtable {
 			// check values added by nodes
@@ -155,7 +155,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 			t.Errorf("no tracer, err: %v", err)
 		}
 	}
-	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
+	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
 	assert.NoError(t, err, "err not nil")
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
@@ -186,7 +186,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 		}
 	}
 
-	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
+	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
 	assert.NoError(t, err, "err not nil")
 
 	var height uint64 = 0
@@ -199,7 +199,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 
 	// connect to follower and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := peer.New(node.Nodeaddr, tracer)
+		cli, err := client.New(node.Nodeaddr, tracer)
 		assert.NoError(t, err, "err not nil")
 		for key, val := range testtable {
 			// check values added by nodes
@@ -238,7 +238,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 		}
 	}
 
-	c, err := peer.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
+	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
 	assert.NoError(t, err, "err not nil")
 
 	for key, val := range testtable {
@@ -249,7 +249,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 
 	// connect to follower and check that them NOT added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := peer.New(node.Nodeaddr, tracer)
+		cli, err := client.New(node.Nodeaddr, tracer)
 		assert.NoError(t, err, "err not nil")
 		for key, _ := range testtable {
 			// check values NOT added by nodes
@@ -277,11 +277,11 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 	var blocking grpc.UnaryServerInterceptor
 	switch block {
 	case BLOCK_ON_PRECOMMIT_FOLLOWERS:
-		blocking = server2.PrecommitBlockALL
+		blocking = server.PrecommitBlockALL
 	case BLOCK_ON_PRECOMMIT_COORDINATOR:
-		blocking = server2.PrecommitBlockCoordinator
+		blocking = server.PrecommitBlockCoordinator
 	case BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL:
-		blocking = server2.PrecommitOneFollowerFail
+		blocking = server.PrecommitOneFollowerFail
 	}
 
 	// start followers
@@ -300,15 +300,15 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		}
 
 		c := cache.New()
-		followerServer, err := server2.New(node, algorithm.NewCommitter(database, c, src.Propose, src.Commit), nil, database)
+		followerServer, err := server.New(node, algorithm.NewCommitter(database, c, src.Propose, src.Commit), nil, database)
 		if err != nil {
 			panic(err)
 		}
 
 		if block == 0 {
-			go followerServer.Run(server2.WhiteListChecker)
+			go followerServer.Run(server.WhiteListChecker)
 		} else {
-			go followerServer.Run(server2.WhiteListChecker, blocking)
+			go followerServer.Run(server.WhiteListChecker, blocking)
 		}
 
 		stopfuncs = append(stopfuncs, followerServer.Stop)
@@ -330,15 +330,15 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		if err != nil {
 			panic(err)
 		}
-		coordServer, err := server2.New(coordConfig, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
+		coordServer, err := server.New(coordConfig, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
 		if err != nil {
 			panic(err)
 		}
 
 		if block == 0 {
-			go coordServer.Run(server2.WhiteListChecker)
+			go coordServer.Run(server.WhiteListChecker)
 		} else {
-			go coordServer.Run(server2.WhiteListChecker, blocking)
+			go coordServer.Run(server.WhiteListChecker, blocking)
 		}
 
 		stopfuncs = append(stopfuncs, coordServer.Stop)
