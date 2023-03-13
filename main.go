@@ -7,7 +7,7 @@ import (
 	"github.com/vadiminshakov/committer/core/algorithm/hooks/src"
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
-	server2 "github.com/vadiminshakov/committer/io/server"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,12 +30,12 @@ func main() {
 		panic(err)
 	}
 
-	s, err := server2.New(conf, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
+	s, err := server.New(conf, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
 	if err != nil {
 		panic(err)
 	}
 
-	s.Run(server2.WhiteListChecker)
+	s.Run(server.WhiteListChecker)
 	<-ch
 	s.Stop()
 }
