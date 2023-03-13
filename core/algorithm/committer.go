@@ -18,12 +18,12 @@ type Committer struct {
 	precommitHook func(height uint64) bool
 	commitHook    func(req *entity.CommitRequest) bool
 	height        uint64
-	db            db.Database
+	db            db.Repository
 	nodeCache     *cache.Cache
 	noAutoCommit  map[uint64]struct{}
 }
 
-func NewCommitter(d db.Database, nodeCache *cache.Cache,
+func NewCommitter(d db.Repository, nodeCache *cache.Cache,
 	proposeHook func(req *entity.ProposeRequest) bool,
 	commitHook func(req *entity.CommitRequest) bool) *Committer {
 	return &Committer{
