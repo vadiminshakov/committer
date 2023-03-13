@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"github.com/vadiminshakov/committer/io/peer"
-	pb "github.com/vadiminshakov/committer/io/proto"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
+	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/trace"
 )
 
@@ -14,7 +14,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	cli, err := peer.New(addr, tracer)
+	cli, err := client.New(addr, tracer)
 	if err != nil {
 		panic(err)
 	}
