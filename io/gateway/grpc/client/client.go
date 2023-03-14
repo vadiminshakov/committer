@@ -6,7 +6,7 @@ import (
 	"github.com/openzipkin/zipkin-go"
 	zipkingrpc "github.com/openzipkin/zipkin-go/middleware/grpc"
 	"github.com/pkg/errors"
-	proto2 "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials/insecure"
@@ -14,7 +14,7 @@ import (
 )
 
 type CommitClient struct {
-	Connection proto2.CommitClient
+	Connection proto.CommitClient
 	Tracer     *zipkin.Tracer
 }
 
@@ -41,10 +41,10 @@ func New(addr string, tracer *zipkin.Tracer) (*CommitClient, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect")
 	}
-	return &CommitClient{Connection: proto2.NewCommitClient(conn), Tracer: tracer}, nil
+	return &CommitClient{Connection: proto.NewCommitClient(conn), Tracer: tracer}, nil
 }
 
-func (client *CommitClient) Propose(ctx context.Context, req *proto2.ProposeRequest) (*proto2.Response, error) {
+func (client *CommitClient) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if client.Tracer != nil {
 		span, ctx = client.Tracer.StartSpanFromContext(ctx, "Propose")
@@ -53,7 +53,7 @@ func (client *CommitClient) Propose(ctx context.Context, req *proto2.ProposeRequ
 	return client.Connection.Propose(ctx, req)
 }
 
-func (client *CommitClient) Precommit(ctx context.Context, req *proto2.PrecommitRequest) (*proto2.Response, error) {
+func (client *CommitClient) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if client.Tracer != nil {
 		span, ctx = client.Tracer.StartSpanFromContext(ctx, "Precommit")
@@ -62,7 +62,7 @@ func (client *CommitClient) Precommit(ctx context.Context, req *proto2.Precommit
 	return client.Connection.Precommit(ctx, req)
 }
 
-func (client *CommitClient) Commit(ctx context.Context, req *proto2.CommitRequest) (*proto2.Response, error) {
+func (client *CommitClient) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if client.Tracer != nil {
 		span, ctx = client.Tracer.StartSpanFromContext(ctx, "Commit")
@@ -73,17 +73,17 @@ func (client *CommitClient) Commit(ctx context.Context, req *proto2.CommitReques
 
 // Put sends key/value pair to peer (it should be a coordinator).
 // The coordinator reaches consensus and all peers commit the value.
-func (client *CommitClient) Put(ctx context.Context, key string, value []byte) (*proto2.Response, error) {
+func (client *CommitClient) Put(ctx context.Context, key string, value []byte) (*proto.Response, error) {
 	var span zipkin.Span
 	if client.Tracer != nil {
 		span, ctx = client.Tracer.StartSpanFromContext(ctx, "Put")
 		defer span.Finish()
 	}
-	return client.Connection.Put(ctx, &proto2.Entry{Key: key, Value: value})
+	return client.Connection.Put(ctx, &proto.Entry{Key: key, Value: value})
 }
 
 // NodeInfo gets info about current node height.
-func (client *CommitClient) NodeInfo(ctx context.Context) (*proto2.Info, error) {
+func (client *CommitClient) NodeInfo(ctx context.Context) (*proto.Info, error) {
 	var span zipkin.Span
 	if client.Tracer != nil {
 		span, ctx = client.Tracer.StartSpanFromContext(ctx, "NodeInfo")
@@ -93,11 +93,11 @@ func (client *CommitClient) NodeInfo(ctx context.Context) (*proto2.Info, error) 
 }
 
 // Get queries value of specific key
-func (client *CommitClient) Get(ctx context.Context, key string) (*proto2.Value, error) {
+func (client *CommitClient) Get(ctx context.Context, key string) (*proto.Value, error) {
 	var span zipkin.Span
 	if client.Tracer != nil {
 		span, ctx = client.Tracer.StartSpanFromContext(ctx, "Get")
 		defer span.Finish()
 	}
-	return client.Connection.Get(ctx, &proto2.Msg{Key: key})
+	return client.Connection.Get(ctx, &proto.Msg{Key: key})
 }
