@@ -44,7 +44,7 @@ var (
 			{Nodeaddr: "localhost:3000", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
 				Whitelist: whitelist, CommitType: "two-phase", Timeout: 100, WithTrace: false},
-			{Nodeaddr: "localhost:5003", Role: "coordinator",
+			{Nodeaddr: "localhost:5002", Role: "coordinator",
 				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100, WithTrace: false},
 		},
@@ -340,7 +340,7 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		} else {
 			go coordServer.Run(server.WhiteListChecker, blocking)
 		}
-
+		time.Sleep(100 * time.Millisecond)
 		stopfuncs = append(stopfuncs, coordServer.Stop)
 	}
 
