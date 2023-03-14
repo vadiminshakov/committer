@@ -1,4 +1,4 @@
-![](https://github.com/vadiminshakov/committer/workflows/unit-tests/badge.svg) ![](https://github.com/vadiminshakov/committer/workflows/functional-tests/badge.svg)
+![](https://github.com/vadiminshakov/committer/workflows/tests/badge.svg)
 
 <p align="center">
 <img src="https://github.com/vadimInshakov/committer/blob/master/committer.png">
