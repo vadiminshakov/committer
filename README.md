@@ -55,9 +55,9 @@ Hooks for requests checking on Propose and Commit stage.
 It's just a function that receives *pb.ProposeRequest or *pb.CommitRequest and returns true or false.
 Function body incorporate all validation logic. 
 
-Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/hooks/src/hooks.go).
+Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go).
  
-You can replace code in the [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
+You can replace code in the [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
 
 **Tracing**
 
@@ -78,9 +78,7 @@ Start committer, open [http://localhost:9411/zipkin](http://localhost:9411/zipki
 
 **Testing**
 
-functional tests: `make functional-tests`
-
-unit-tests: `make unit-tests`
+functional tests: `make tests`
 
 <br>
 
@@ -104,6 +102,3 @@ run example client:
 ```
 go run ./examples/client/client.go
 ```
-
-Planned:
-- implement coordinator-to-cohort votes broadcast on precommit phase in 3PC protocol implementation (now it's just a stub-phase).
