@@ -9,6 +9,6 @@ type PrecommitRequest struct {
 	Votes []*entity.Vote `protobuf:"bytes,2,rep,name=votes,proto3" json:"votes,omitempty"`
 }
 
-type mode string
+type Mode string
 
-const THREE_PHASE mode = "three-phase"
+const THREE_PHASE Mode = "three-phase"
