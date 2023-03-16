@@ -4,34 +4,51 @@ import (
 	"context"
 	"errors"
 	"github.com/openzipkin/zipkin-go"
-	"github.com/vadiminshakov/committer/core/algorithm"
+	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
 	"github.com/vadiminshakov/committer/core/entity"
-	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 )
 
-type Cohort struct {
-	committer  algorithm.Committer
-	Tracer     *zipkin.Tracer
-	CommitType mode
+type Cohort interface {
+	Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.Response, error)
+	Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error)
+	Commit(ctx context.Context, in *entity.CommitRequest) (*entity.Response, error)
+	Height() uint64
+}
+
+type CohortImpl struct {
+	committer  *commitalgo.Committer
+	tracer     *zipkin.Tracer
+	commitType Mode
 	height     uint64
 }
 
-func (c *Cohort) Height() uint64 {
-	return c.height
+func NewCohort(
+	tracer *zipkin.Tracer,
+	committer *commitalgo.Committer,
+	commitType Mode) *CohortImpl {
+	return &CohortImpl{
+		committer:  committer,
+		tracer:     tracer,
+		commitType: commitType,
+	}
 }
 
-func (c *Cohort) Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.Response, error) {
+func (c *CohortImpl) Height() uint64 {
+	return c.committer.Height()
+}
+
+func (c *CohortImpl) Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.Response, error) {
 	return c.committer.Propose(ctx, req)
 }
 
-func (s *Cohort) Precommit(ctx context.Context, req *PrecommitRequest) (*entity.Response, error) {
-	if s.CommitType != THREE_PHASE {
+func (s *CohortImpl) Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error) {
+	if s.commitType != THREE_PHASE {
 		return nil, errors.New("precommit is allowed for 3PC mode only")
 	}
 
-	return s.committer.Precommit(ctx, req.Index, req.Votes)
+	return s.committer.Precommit(ctx, index, votes)
 }
 
-func (c *Cohort) Commit(ctx context.Context, req *entity.CommitRequest) (resp *pb.Response, err error) {
-	return c.Commit(ctx, req)
+func (c *CohortImpl) Commit(ctx context.Context, in *entity.CommitRequest) (resp *entity.Response, err error) {
+	return c.committer.Commit(ctx, in)
 }
