@@ -9,9 +9,9 @@ import (
 )
 
 type Cohort interface {
-	Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.Response, error)
-	Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error)
-	Commit(ctx context.Context, in *entity.CommitRequest) (*entity.Response, error)
+	Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.CohortResponse, error)
+	Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.CohortResponse, error)
+	Commit(ctx context.Context, in *entity.CommitRequest) (*entity.CohortResponse, error)
 	Height() uint64
 }
 
@@ -37,11 +37,11 @@ func (c *CohortImpl) Height() uint64 {
 	return c.committer.Height()
 }
 
-func (c *CohortImpl) Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.Response, error) {
+func (c *CohortImpl) Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.CohortResponse, error) {
 	return c.committer.Propose(ctx, req)
 }
 
-func (s *CohortImpl) Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error) {
+func (s *CohortImpl) Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.CohortResponse, error) {
 	if s.commitType != THREE_PHASE {
 		return nil, errors.New("precommit is allowed for 3PC mode only")
 	}
@@ -49,6 +49,6 @@ func (s *CohortImpl) Precommit(ctx context.Context, index uint64, votes []*entit
 	return s.committer.Precommit(ctx, index, votes)
 }
 
-func (c *CohortImpl) Commit(ctx context.Context, in *entity.CommitRequest) (resp *entity.Response, err error) {
+func (c *CohortImpl) Commit(ctx context.Context, in *entity.CommitRequest) (resp *entity.CohortResponse, err error) {
 	return c.committer.Commit(ctx, in)
 }
