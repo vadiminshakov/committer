@@ -40,23 +40,23 @@ func (c *Committer) Height() uint64 {
 	return c.height
 }
 
-func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*entity.Response, error) {
-	var response *entity.Response
+func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*entity.CohortResponse, error) {
+	var response *entity.CohortResponse
 	if c.proposeHook(req) {
 		log.Infof("received: %s=%s\n", req.Key, string(req.Value))
 		c.nodeCache.Set(req.Height, req.Key, req.Value)
-		response = &entity.Response{ResponseType: entity.ResponseTypeAck, Height: req.Height}
+		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeAck, Height: req.Height}
 	} else {
-		response = &entity.Response{ResponseType: entity.ResponseTypeNack, Height: req.Height}
+		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack, Height: req.Height}
 	}
 	if c.height > req.Height {
-		response = &entity.Response{ResponseType: entity.ResponseTypeNack, Height: c.height}
+		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack, Height: c.height}
 	}
 
 	return response, nil
 }
 
-func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error) {
+func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.CohortResponse, error) {
 	go func(ctx context.Context) {
 	ForLoop:
 		for {
@@ -80,11 +80,11 @@ func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*entity
 	for _, v := range votes {
 		if !v.IsAccepted {
 			log.Printf("Node %s is not accepted proposal with index %d\n", v.Node, index)
-			return &entity.Response{ResponseType: entity.ResponseTypeNack}, nil
+			return &entity.CohortResponse{ResponseType: entity.ResponseTypeNack}, nil
 		}
 	}
 
-	return &entity.Response{ResponseType: entity.ResponseTypeAck}, nil
+	return &entity.CohortResponse{ResponseType: entity.ResponseTypeAck}, nil
 }
 
 func isAllNodesAccepted(votes []*entity.Vote) bool {
@@ -97,13 +97,13 @@ func isAllNodesAccepted(votes []*entity.Vote) bool {
 	return true
 }
 
-func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*entity.Response, error) {
+func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*entity.CohortResponse, error) {
 	c.noAutoCommit[req.Height] = struct{}{}
 	if req.IsRollback {
 		c.rollback()
 	}
 
-	var response *entity.Response
+	var response *entity.CohortResponse
 	if req.Height < c.height {
 		return nil, status.Errorf(codes.AlreadyExists, "stale commit proposed by coordinator (got %d, but actual height is %d)", req.Height, c.height)
 	}
@@ -111,16 +111,16 @@ func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*ent
 		log.Printf("Committing on height: %d\n", req.Height)
 		key, value, ok := c.nodeCache.Get(req.Height)
 		if !ok {
-			return &entity.Response{ResponseType: entity.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
+			return &entity.CohortResponse{ResponseType: entity.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
 		}
 
 		if err := c.db.Put(key, value); err != nil {
 			return nil, err
 		}
-		response = &entity.Response{ResponseType: entity.ResponseTypeAck}
+		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeAck}
 	} else {
 		c.nodeCache.Delete(req.Height)
-		response = &entity.Response{ResponseType: entity.ResponseTypeNack}
+		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack}
 	}
 
 	if response.ResponseType == entity.ResponseTypeAck {
