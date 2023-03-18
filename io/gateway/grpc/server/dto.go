@@ -28,7 +28,7 @@ func commitRequestPbToEntity(request *proto.CommitRequest) *entity.CommitRequest
 	}
 }
 
-func entityResponseToPb(e *entity.Response) *proto.Response {
+func cohortResponseToProto(e *entity.CohortResponse) *proto.Response {
 	if e == nil {
 		return nil
 	}
