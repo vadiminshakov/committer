@@ -3,16 +3,15 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/openzipkin/zipkin-go"
 	zipkingrpc "github.com/openzipkin/zipkin-go/middleware/grpc"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
+	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/entity"
-	db2 "github.com/vadiminshakov/committer/io/db"
-	proto2 "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
-	"github.com/vadiminshakov/committer/io/trace"
+	"github.com/vadiminshakov/committer/io/db"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 	"net"
 	"time"
@@ -25,13 +24,6 @@ const (
 	THREE_PHASE = "three-phase"
 )
 
-type Cohort interface {
-	Propose(ctx context.Context, req *entity.ProposeRequest) (*entity.Response, error)
-	Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.Response, error)
-	Commit(ctx context.Context, in *entity.CommitRequest) (*entity.Response, error)
-	Height() uint64
-}
-
 type Coordinator interface {
 	Broadcast(ctx context.Context, req entity.BroadcastRequest) (*entity.BroadcastResponse, error)
 	Height() uint64
@@ -39,20 +31,20 @@ type Coordinator interface {
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
-	proto2.UnimplementedCommitServer
+	proto.UnimplementedCommitServer
 	Addr        string
 	GRPCServer  *grpc.Server
-	DB          db2.Repository
+	DB          db.Repository
 	DBPath      string
-	ProposeHook func(req *proto2.ProposeRequest) bool
-	CommitHook  func(req *proto2.CommitRequest) bool
+	ProposeHook func(req *proto.ProposeRequest) bool
+	CommitHook  func(req *proto.CommitRequest) bool
 	Tracer      *zipkin.Tracer
 	Config      *config.Config
 	coordinator Coordinator
-	cohort      Cohort
+	cohort      cohort.Cohort
 }
 
-func (s *Server) Propose(ctx context.Context, req *proto2.ProposeRequest) (*proto2.Response, error) {
+func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "ProposeHandle")
@@ -62,7 +54,7 @@ func (s *Server) Propose(ctx context.Context, req *proto2.ProposeRequest) (*prot
 	return entityResponseToPb(resp), err
 }
 
-func (s *Server) Precommit(ctx context.Context, req *proto2.PrecommitRequest) (*proto2.Response, error) {
+func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, _ = s.Tracer.StartSpanFromContext(ctx, "PrecommitHandle")
@@ -72,7 +64,7 @@ func (s *Server) Precommit(ctx context.Context, req *proto2.PrecommitRequest) (*
 	return entityResponseToPb(resp), err
 }
 
-func (s *Server) Commit(ctx context.Context, req *proto2.CommitRequest) (*proto2.Response, error) {
+func (s *Server) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.Response, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "CommitHandle")
@@ -83,7 +75,7 @@ func (s *Server) Commit(ctx context.Context, req *proto2.CommitRequest) (*proto2
 	return entityResponseToPb(resp), err
 }
 
-func (s *Server) Get(ctx context.Context, req *proto2.Msg) (*proto2.Value, error) {
+func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "GetHandle")
@@ -94,10 +86,10 @@ func (s *Server) Get(ctx context.Context, req *proto2.Msg) (*proto2.Value, error
 	if err != nil {
 		return nil, err
 	}
-	return &proto2.Value{Value: value}, nil
+	return &proto.Value{Value: value}, nil
 }
 
-func (s *Server) Put(ctx context.Context, req *proto2.Entry) (*proto2.Response, error) {
+func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, error) {
 	resp, err := s.coordinator.Broadcast(ctx, entity.BroadcastRequest{
 		Key:   req.Key,
 		Value: req.Value,
@@ -106,13 +98,13 @@ func (s *Server) Put(ctx context.Context, req *proto2.Entry) (*proto2.Response, 
 		return nil, err
 	}
 
-	return &proto2.Response{
-		Type:  proto2.Type(resp.Type),
+	return &proto.Response{
+		Type:  proto.Type(resp.Type),
 		Index: resp.Index,
 	}, nil
 }
 
-func protoToVotes(votes []*proto2.Vote) []*entity.Vote {
+func protoToVotes(votes []*proto.Vote) []*entity.Vote {
 	pbvotes := make([]*entity.Vote, 0, len(votes))
 	for _, v := range votes {
 		pbvotes = append(pbvotes, &entity.Vote{
@@ -124,18 +116,18 @@ func protoToVotes(votes []*proto2.Vote) []*entity.Vote {
 	return pbvotes
 }
 
-func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*proto2.Info, error) {
+func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*proto.Info, error) {
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "NodeInfoHandle")
 		defer span.Finish()
 	}
 
-	return &proto2.Info{Height: s.cohort.Height()}, nil
+	return &proto.Info{Height: s.cohort.Height()}, nil
 }
 
 // New fabric func for Server
-func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database db2.Repository, opts ...Option) (*Server, error) {
+func New(conf *config.Config, tracer *zipkin.Tracer, cohort cohort.Cohort, coordinator Coordinator, database db.Repository, opts ...Option) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
 		FullTimestamp:   true,
@@ -143,18 +135,10 @@ func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database d
 	})
 
 	server := &Server{Addr: conf.Nodeaddr, cohort: cohort, coordinator: coordinator,
-		DB: database, Config: conf}
+		DB: database, Config: conf, Tracer: tracer}
 	var err error
 	for _, option := range opts {
 		err = option(server)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if conf.WithTrace {
-		// get Zipkin tracer
-		server.Tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", conf.Role, conf.Nodeaddr), conf.Nodeaddr)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +157,7 @@ func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database d
 func WithBadgerDB(path string) func(*Server) error {
 	return func(server *Server) error {
 		var err error
-		server.DB, err = db2.New(path)
+		server.DB, err = db.New(path)
 		return err
 	}
 }
@@ -194,7 +178,7 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	} else {
 		s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
 	}
-	proto2.RegisterCommitServer(s.GRPCServer, s)
+	proto.RegisterCommitServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
 	if err != nil {
