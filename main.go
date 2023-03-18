@@ -1,13 +1,17 @@
 package main
 
 import (
+	"fmt"
+	"github.com/openzipkin/zipkin-go"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/core/algorithm"
-	"github.com/vadiminshakov/committer/core/algorithm/hooks/src"
+	"github.com/vadiminshakov/committer/core/cohort"
+	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
+	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks/src"
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
+	"github.com/vadiminshakov/committer/io/trace"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,12 +29,23 @@ func main() {
 	}
 
 	c := cache.New()
-	coord, err := coordinator.New(conf, c, database)
+	coordImpl, err := coordinator.New(conf, c, database)
 	if err != nil {
 		panic(err)
 	}
 
-	s, err := server.New(conf, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
+	var tracer *zipkin.Tracer
+	if conf.WithTrace {
+		tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", conf.Role, conf.Nodeaddr), conf.Nodeaddr)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	committer := commitalgo.NewCommitter(database, c, src.Propose, src.Commit)
+	cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(conf.CommitType))
+
+	s, err := server.New(conf, tracer, cohortImpl, coordImpl, database)
 	if err != nil {
 		panic(err)
 	}
