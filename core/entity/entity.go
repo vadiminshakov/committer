@@ -18,7 +18,7 @@ const (
 	ResponseTypeNack
 )
 
-type Response struct {
+type CohortResponse struct {
 	ResponseType
 	Height uint64
 }
