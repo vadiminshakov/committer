@@ -8,8 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/core/algorithm"
-	"github.com/vadiminshakov/committer/core/algorithm/hooks/src"
+	"github.com/vadiminshakov/committer/core/cohort"
+	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
+	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks/src"
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
@@ -118,8 +119,10 @@ func TestHappyPath(t *testing.T) {
 				t.Errorf("no tracer, err: %v", err)
 			}
 		}
+
 		cli, err := client.New(node.Nodeaddr, tracer)
 		assert.NoError(t, err, "err not nil")
+
 		for key, val := range testtable {
 			// check values added by nodes
 			resp, err := cli.Get(context.Background(), key)
@@ -299,8 +302,20 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 			panic(err)
 		}
 
+		var tracer *zipkin.Tracer
+
+		if node.WithTrace {
+			tracer, err = trace.Tracer("client", node.Nodeaddr)
+			if err != nil {
+				panic(err)
+			}
+		}
+
 		c := cache.New()
-		followerServer, err := server.New(node, algorithm.NewCommitter(database, c, src.Propose, src.Commit), nil, database)
+		committer := commitalgo.NewCommitter(database, c, src.Propose, src.Commit)
+		cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(node.CommitType))
+
+		followerServer, err := server.New(node, tracer, cohortImpl, nil, database)
 		if err != nil {
 			panic(err)
 		}
@@ -330,7 +345,17 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		if err != nil {
 			panic(err)
 		}
-		coordServer, err := server.New(coordConfig, algorithm.NewCommitter(database, c, src.Propose, src.Commit), coord, database)
+
+		var tracer *zipkin.Tracer
+
+		if coordConfig.WithTrace {
+			tracer, err = trace.Tracer("server", coordConfig.Nodeaddr)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		coordServer, err := server.New(coordConfig, tracer, nil, coord, database)
 		if err != nil {
 			panic(err)
 		}
