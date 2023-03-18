@@ -51,7 +51,7 @@ func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto
 		defer span.Finish()
 	}
 	resp, err := s.cohort.Propose(ctx, proposeRequestPbToEntity(req))
-	return entityResponseToPb(resp), err
+	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*proto.Response, error) {
@@ -61,7 +61,7 @@ func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*p
 		defer span.Finish()
 	}
 	resp, err := s.cohort.Precommit(ctx, req.Index, votesPbToEntity(req.Votes))
-	return entityResponseToPb(resp), err
+	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.Response, error) {
@@ -72,7 +72,7 @@ func (s *Server) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.R
 	}
 
 	resp, err := s.cohort.Commit(ctx, commitRequestPbToEntity(req))
-	return entityResponseToPb(resp), err
+	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) {
