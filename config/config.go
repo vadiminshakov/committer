@@ -45,7 +45,7 @@ func Get() *Config {
 	role := flag.String("role", "follower", "role (coordinator of follower)")
 	nodeaddr := flag.String("nodeaddr", "localhost:3050", "node address")
 	coordinator := flag.String("coordinator", "", "coordinator address")
-	committype := flag.String("committype", "three-phase", "two-phase or three-phase commit mode")
+	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
 	dbpath := flag.String("dbpath", "./badger", "database path on filesystem")
 	withTrace := flag.Bool("withtrace", false, "use distributed tracer or not (true/false)")
