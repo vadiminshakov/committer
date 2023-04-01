@@ -1,4 +1,4 @@
-package src
+package hooks
 
 import (
 	log "github.com/sirupsen/logrus"

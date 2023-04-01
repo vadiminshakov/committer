@@ -10,7 +10,7 @@ import (
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
-	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks/src"
+	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
@@ -312,7 +312,7 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		}
 
 		c := cache.New()
-		committer := commitalgo.NewCommitter(database, c, src.Propose, src.Commit)
+		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit)
 		cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(node.CommitType))
 
 		followerServer, err := server.New(node, tracer, cohortImpl, nil, database)
