@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/core/entity"
 	"github.com/vadiminshakov/committer/io/db"
+	"github.com/vadiminshakov/committer/voteslog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -19,11 +19,11 @@ type Committer struct {
 	commitHook    func(req *entity.CommitRequest) bool
 	height        uint64
 	db            db.Repository
-	nodeCache     *cache.Cache
+	nodeCache     *voteslog.VotesLog
 	noAutoCommit  map[uint64]struct{}
 }
 
-func NewCommitter(d db.Repository, nodeCache *cache.Cache,
+func NewCommitter(d db.Repository, nodeCache *voteslog.VotesLog,
 	proposeHook func(req *entity.ProposeRequest) bool,
 	commitHook func(req *entity.CommitRequest) bool) *Committer {
 	return &Committer{
