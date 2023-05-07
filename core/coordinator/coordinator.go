@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/openzipkin/zipkin-go"
 	log "github.com/sirupsen/logrus"
-	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/entity"
 	"github.com/vadiminshakov/committer/io/db"
@@ -13,6 +12,7 @@ import (
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/trace"
+	"github.com/vadiminshakov/committer/voteslog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -25,11 +25,11 @@ type coordinatorImpl struct {
 	tracer    *zipkin.Tracer
 	config    *config.Config
 	height    uint64
-	nodeCache *cache.Cache
+	nodeCache *voteslog.VotesLog
 	database  db.Repository
 }
 
-func New(conf *config.Config, nodeCache *cache.Cache, database db.Repository) (*coordinatorImpl, error) {
+func New(conf *config.Config, vlog *voteslog.VotesLog, database db.Repository) (*coordinatorImpl, error) {
 	var tracer *zipkin.Tracer
 	var err error
 	if conf.WithTrace {
@@ -53,7 +53,7 @@ func New(conf *config.Config, nodeCache *cache.Cache, database db.Repository) (*
 		followers: flwrs,
 		tracer:    tracer,
 		height:    0,
-		nodeCache: nodeCache,
+		nodeCache: vlog,
 		database:  database,
 		config:    conf,
 	}, nil
