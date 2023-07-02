@@ -33,10 +33,11 @@ func New(addr string, tracer *zipkin.Tracer) (*CommitClient, error) {
 		},
 		MinConnectTimeout: 200 * time.Millisecond,
 	}
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	if tracer != nil {
-		conn, err = grpc.Dial(addr, grpc.WithConnectParams(connParams), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(zipkingrpc.NewClientHandler(tracer)))
+		conn, err = grpc.DialContext(ctx, addr, grpc.WithConnectParams(connParams), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(zipkingrpc.NewClientHandler(tracer)))
 	} else {
-		conn, err = grpc.Dial(addr, grpc.WithConnectParams(connParams), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err = grpc.DialContext(ctx, addr, grpc.WithConnectParams(connParams), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect")
