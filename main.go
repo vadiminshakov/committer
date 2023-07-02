@@ -42,7 +42,7 @@ func main() {
 		}
 	}
 
-	committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit)
+	committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, conf.Timeout)
 	cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(conf.CommitType))
 
 	s, err := server.New(conf, tracer, cohortImpl, coordImpl, database)
