@@ -6,7 +6,6 @@ import (
 	"github.com/openzipkin/zipkin-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
@@ -17,6 +16,7 @@ import (
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/trace"
+	"github.com/vadiminshakov/committer/voteslog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"os"
@@ -250,6 +250,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 		c.Put(ctx, key, val)
 	}
 
+	time.Sleep(3 * time.Second)
 	// connect to follower and check that them NOT added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
 		cli, err := client.New(node.Nodeaddr, tracer)
@@ -311,7 +312,7 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 			}
 		}
 
-		c := cache.New()
+		c := voteslog.New()
 		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit)
 		cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(node.CommitType))
 
@@ -340,7 +341,7 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 			panic(err)
 		}
 
-		c := cache.New()
+		c := voteslog.New()
 		coord, err := coordinator.New(coordConfig, c, database)
 		if err != nil {
 			panic(err)

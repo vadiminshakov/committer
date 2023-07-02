@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"github.com/openzipkin/zipkin-go"
-	"github.com/vadiminshakov/committer/cache"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
@@ -12,6 +11,7 @@ import (
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/trace"
+	"github.com/vadiminshakov/committer/voteslog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -28,7 +28,7 @@ func main() {
 		panic(err)
 	}
 
-	c := cache.New()
+	c := voteslog.New()
 	coordImpl, err := coordinator.New(conf, c, database)
 	if err != nil {
 		panic(err)
