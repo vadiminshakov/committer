@@ -275,6 +275,22 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 	COORDINATOR_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "coordinator", time.Now().UnixNano())
 	FOLLOWER_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "follower", time.Now().UnixNano())
 
+	// check dir exists
+	if _, err := os.Stat(COORDINATOR_BADGER); !os.IsNotExist(err) {
+		// del dir
+		err := os.RemoveAll(COORDINATOR_BADGER)
+		if err != nil {
+			panic(err)
+		}
+	}
+	if _, err := os.Stat(FOLLOWER_BADGER); !os.IsNotExist(err) {
+		// del dir
+		err := os.RemoveAll(FOLLOWER_BADGER)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	os.Mkdir(COORDINATOR_BADGER, os.FileMode(0777))
 	os.Mkdir(FOLLOWER_BADGER, os.FileMode(0777))
 
