@@ -1,19 +1,19 @@
 prepare:
-	@sudo rm -rf /tmp/badger
-	@go build
-	@cd examples/client && go build
-	@mkdir /tmp/badger
-	@mkdir /tmp/badger/coordinator
-	@mkdir /tmp/badger/follower
+	@rm -rf ./badger
+	@mkdir ./badger
+	@mkdir ./badger/coordinator
+	@mkdir ./badger/follower
 
 run-example-coordinator:
-	@./committer -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator -whitelist=127.0.0.1
+	@rm -rf ./badger/coordinator
+	@go run . -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=./badger/coordinator -whitelist=127.0.0.1
 
 run-example-follower:
-	@./committer -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=./badger -whitelist=127.0.0.1
+	@rm -rf ./badger/follower
+	@go run . -role=follower -coordinator=localhost:3000 -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=./badger/follower -whitelist=127.0.0.1
 
 run-example-client:
-	@examples/client/client
+	@go run ./examples/client
 
 tests:
 	@go test ./...
