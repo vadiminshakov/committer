@@ -14,7 +14,6 @@ import (
 	"github.com/vadiminshakov/committer/io/trace"
 	"github.com/vadiminshakov/committer/voteslog"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"sync/atomic"
 	"time"
@@ -60,19 +59,6 @@ func New(conf *config.Config, vlog *voteslog.VotesLog, database db.Repository) (
 }
 
 func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastRequest) (*entity.BroadcastResponse, error) {
-	var blocktime time.Duration
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		blockcommitdur, found := md["blockcommit"]
-		if found {
-			d, err := time.ParseDuration(blockcommitdur[0])
-			if err != nil {
-				return nil, err
-			}
-			blocktime = d
-		}
-	}
-
 	var (
 		err  error
 		span zipkin.Span
@@ -94,9 +80,6 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 	log.Infof("propose key %s", req.Key)
 	votes := make([]*entity.Vote, 0, len(c.followers))
 	for nodename, follower := range c.followers {
-		if c.config.CommitType == server.THREE_PHASE {
-			ctx, _ = context.WithTimeout(ctx, time.Duration(c.config.Timeout)*time.Millisecond)
-		}
 		if c.tracer != nil {
 			span, ctx = c.tracer.StartSpanFromContext(ctx, "Propose")
 		}
@@ -141,7 +124,6 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 	if c.config.CommitType == server.THREE_PHASE {
 		log.Infof("precommit key %s", req.Key)
 		for _, follower := range c.followers {
-			ctx, _ = context.WithTimeout(ctx, time.Duration(c.config.Timeout)*time.Millisecond)
 			if c.tracer != nil {
 				span, ctx = c.tracer.StartSpanFromContext(ctx, "Precommit")
 			}
@@ -159,6 +141,21 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 				return nil, status.Error(codes.Internal, "follower not acknowledged msg")
 			}
 		}
+
+		// block after precommit if needs
+		{
+			blockPrecommit, ok := ctx.Value("block").(string)
+			blockt, okblocktime := ctx.Value("blocktime").(string)
+			if ok && okblocktime {
+				if blockPrecommit == "precommit" {
+					dur, err := time.ParseDuration(blockt)
+					if err != nil {
+						return nil, err
+					}
+					time.Sleep(dur)
+				}
+			}
+		}
 	}
 
 	// the coordinator got all the answers, so it's time to persist msg and send commit command to followers
@@ -173,7 +170,6 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 	// commit
 	log.Infof("commit %s", req.Key)
 	for _, follower := range c.followers {
-		time.Sleep(blocktime)
 		if c.tracer != nil {
 			span, ctx = c.tracer.StartSpanFromContext(ctx, "Commit")
 		}
@@ -182,7 +178,7 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 			span.Finish()
 		}
 		if err != nil {
-			log.Errorf(err.Error())
+			log.Errorf("coordinator failed to commit: %s", err.Error())
 			return &entity.BroadcastResponse{Type: entity.ResponseNack}, nil
 		}
 		if r.Type != pb.Type_ACK {
@@ -192,7 +188,6 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 	log.Infof("coordinator got ack from all cohorts, committed key %s", req.Key)
 	// increase height for next round
 	atomic.AddUint64(&c.height, 1)
-	fmt.Println("coordinator height", c.height)
 
 	return &entity.BroadcastResponse{entity.ResponseAck, c.height}, nil
 }
