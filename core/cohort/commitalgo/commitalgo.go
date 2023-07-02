@@ -2,6 +2,7 @@ package commitalgo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/entity"
@@ -42,15 +43,15 @@ func (c *Committer) Height() uint64 {
 
 func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*entity.CohortResponse, error) {
 	var response *entity.CohortResponse
+	if c.height > req.Height {
+		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack, Height: c.height}
+	}
 	if c.proposeHook(req) {
 		log.Infof("received: %s=%s\n", req.Key, string(req.Value))
 		c.nodeCache.Set(req.Height, req.Key, req.Value)
 		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeAck, Height: req.Height}
 	} else {
 		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack, Height: req.Height}
-	}
-	if c.height > req.Height {
-		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack, Height: c.height}
 	}
 
 	return response, nil
@@ -62,6 +63,9 @@ func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*entity
 		for {
 			select {
 			case <-ctx.Done():
+				if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					return
+				}
 				if _, ok := c.noAutoCommit[index]; ok {
 					return
 				}
