@@ -71,6 +71,15 @@ Set `--withtrace true` command-line flag or `withtrace: true` config option in c
 
 Start committer, open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
 
+**Example trace with 3 followers and 1 coordinator**
+
+```
+make show-trace -j
+```
+
+open [http://localhost:9411/zipkin/dependency](http://localhost:9411/zipkin/dependency)
+
+
 ![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.gif)
 ![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.png)
 
