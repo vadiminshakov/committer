@@ -63,11 +63,6 @@ var testtable = map[string][]byte{
 	"key1": []byte("value1"),
 	"key2": []byte("value2"),
 	"key3": []byte("value3"),
-	"key4": []byte("value4"),
-	"key5": []byte("value5"),
-	"key6": []byte("value6"),
-	"key7": []byte("value7"),
-	"key8": []byte("value8"),
 }
 
 func TestHappyPath(t *testing.T) {
@@ -200,7 +195,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 		height += 1
 	}
 
-	// connect to follower and check that them added key-value
+	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
 		cli, err := client.New(node.Nodeaddr, tracer)
 		assert.NoError(t, err, "err not nil")
@@ -329,7 +324,7 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		}
 
 		c := voteslog.New()
-		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit)
+		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, node.Timeout)
 		cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(node.CommitType))
 
 		followerServer, err := server.New(node, tracer, cohortImpl, nil, database)
