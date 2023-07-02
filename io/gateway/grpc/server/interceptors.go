@@ -67,22 +67,14 @@ func PrecommitBlockALL(ctx context.Context,
 	return h, err
 }
 
-// PrecommitBlockCoordinator blocks execution of coordinator on precommit stage for 10s
+// PrecommitBlockCoordinator blocks execution of coordinator on precommit stage for 1s
 func PrecommitBlockCoordinator(ctx context.Context,
 	req interface{},
-	info *grpc.UnaryServerInfo,
+	_ *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler) (interface{}, error) {
 
-	server, ok := info.Server.(*Server)
-	if !ok {
-		return nil, errors.New("failed to assert interface to Server type")
-	}
-
-	if server.Config.Role == "coordinator" {
-		if info.FullMethod == "/schema.Commit/Precommit" {
-			time.Sleep(1000 * time.Millisecond)
-		}
-	}
+	ctx = context.WithValue(ctx, "block", "precommit")
+	ctx = context.WithValue(ctx, "blocktime", "200ms")
 
 	// Calls the handler
 	h, err := handler(ctx, req)
