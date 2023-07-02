@@ -2,7 +2,6 @@ package commitalgo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/entity"
@@ -11,7 +10,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Committer struct {
@@ -22,11 +23,62 @@ type Committer struct {
 	db            db.Repository
 	nodeCache     *voteslog.VotesLog
 	noAutoCommit  map[uint64]struct{}
+	timeout       uint64
+	precommitDone pendingPrecommit
+}
+
+type pendingPrecommit struct {
+	done map[uint64]chan struct{}
+	mu   sync.RWMutex
+}
+
+func newPendingPrecommit() pendingPrecommit {
+	return pendingPrecommit{
+		done: make(map[uint64]chan struct{}),
+	}
+}
+
+func (p *pendingPrecommit) add(height uint64) {
+	p.mu.Lock()
+	p.done[height] = make(chan struct{})
+	p.mu.Unlock()
+}
+
+func (p *pendingPrecommit) remove(height uint64) {
+	p.mu.RLock()
+	ch := p.done[height]
+	p.mu.RUnlock()
+	close(ch)
+
+	p.mu.Lock()
+	delete(p.done, height)
+	p.mu.Unlock()
+}
+
+func (p *pendingPrecommit) wait(height uint64) chan struct{} {
+	p.mu.RLock()
+	waitch := p.done[height]
+	p.mu.RUnlock()
+
+	return waitch
+}
+
+func (p *pendingPrecommit) signalToChan(height uint64) {
+	p.mu.RLock()
+	ch := p.done[height]
+	p.mu.RUnlock()
+
+	select {
+	case ch <- struct{}{}:
+	default:
+
+	}
 }
 
 func NewCommitter(d db.Repository, nodeCache *voteslog.VotesLog,
 	proposeHook func(req *entity.ProposeRequest) bool,
-	commitHook func(req *entity.CommitRequest) bool) *Committer {
+	commitHook func(req *entity.CommitRequest) bool,
+	timeout uint64) *Committer {
 	return &Committer{
 		proposeHook:   proposeHook,
 		precommitHook: nil,
@@ -34,6 +86,8 @@ func NewCommitter(d db.Repository, nodeCache *voteslog.VotesLog,
 		db:            d,
 		nodeCache:     nodeCache,
 		noAutoCommit:  make(map[uint64]struct{}),
+		timeout:       timeout,
+		precommitDone: newPendingPrecommit(),
 	}
 }
 
@@ -43,9 +97,10 @@ func (c *Committer) Height() uint64 {
 
 func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*entity.CohortResponse, error) {
 	var response *entity.CohortResponse
-	if c.height > req.Height {
-		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack, Height: c.height}
+	if atomic.LoadUint64(&c.height) > req.Height {
+		return &entity.CohortResponse{ResponseType: entity.ResponseTypeNack, Height: atomic.LoadUint64(&c.height)}, nil
 	}
+
 	if c.proposeHook(req) {
 		log.Infof("received: %s=%s\n", req.Key, string(req.Value))
 		c.nodeCache.Set(req.Height, req.Key, req.Value)
@@ -58,14 +113,17 @@ func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*ent
 }
 
 func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*entity.Vote) (*entity.CohortResponse, error) {
+	c.precommitDone.add(index)
+
 	go func(ctx context.Context) {
+		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
 	ForLoop:
 		for {
 			select {
-			case <-ctx.Done():
-				if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-					return
-				}
+			case <-c.precommitDone.wait(index):
+				break ForLoop
+			case <-deadline:
+				c.precommitDone.remove(index)
 				if _, ok := c.noAutoCommit[index]; ok {
 					return
 				}
@@ -102,13 +160,15 @@ func isAllNodesAccepted(votes []*entity.Vote) bool {
 }
 
 func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*entity.CohortResponse, error) {
+	c.precommitDone.signalToChan(atomic.LoadUint64(&c.height))
+
 	c.noAutoCommit[req.Height] = struct{}{}
 	if req.IsRollback {
 		c.rollback()
 	}
 
 	var response *entity.CohortResponse
-	if req.Height < c.height {
+	if req.Height < atomic.LoadUint64(&c.height) {
 		return nil, status.Errorf(codes.AlreadyExists, "stale commit proposed by coordinator (got %d, but actual height is %d)", req.Height, c.height)
 	}
 	if c.commitHook(req) {
@@ -128,10 +188,9 @@ func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*ent
 	}
 
 	if response.ResponseType == entity.ResponseTypeAck {
-		fmt.Println("ack cohort", c.height)
+		fmt.Println("ack cohort", atomic.LoadUint64(&c.height))
 		atomic.AddUint64(&c.height, 1)
 	}
-
 	return response, nil
 }
 
