@@ -2,23 +2,29 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/trace"
 )
 
-const addr = "localhost:3000"
+const coordinatorAddr = "localhost:3000"
 
 func main() {
-	tracer, err := trace.Tracer("client", addr)
+	key, value := "somekey", []byte("somevalue")
+	tracer, err := trace.Tracer("client", coordinatorAddr)
 	if err != nil {
 		panic(err)
 	}
-	cli, err := client.New(addr, tracer)
+
+	// create a client for interaction with coordinator
+	cli, err := client.New(coordinatorAddr, tracer)
 	if err != nil {
 		panic(err)
 	}
-	resp, err := cli.Put(context.Background(), "key3", []byte("1111"))
+
+	// put a key-value pair
+	resp, err := cli.Put(context.Background(), key, value)
 	if err != nil {
 		panic(err)
 	}
@@ -26,10 +32,10 @@ func main() {
 		panic("msg is not acknowledged")
 	}
 
-	// read committed keys
-	//key, err := cli.Get(context.Background(), "key3")
-	//if err != nil {
-	//	panic(err)
-	//}
-	//fmt.Println(string(key.Value))
+	// read committed key
+	v, err := cli.Get(context.Background(), key)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("got value for key '%s': %s", key, v.Value)
 }
