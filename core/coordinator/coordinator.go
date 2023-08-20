@@ -158,15 +158,6 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 		}
 	}
 
-	// the coordinator got all the answers, so it's time to persist msg and send commit command to followers
-	key, value, ok := c.nodeCache.Get(c.height)
-	if !ok {
-		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
-	}
-	if err = c.database.Put(key, value); err != nil {
-		return &entity.BroadcastResponse{Type: entity.ResponseNack}, status.Error(codes.Internal, "failed to save msg on coordinator")
-	}
-
 	// commit
 	log.Infof("commit %s", req.Key)
 	for _, follower := range c.followers {
@@ -186,6 +177,16 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 		}
 	}
 	log.Infof("coordinator got ack from all cohorts, committed key %s", req.Key)
+
+	// the coordinator got all the answers, so it's time to persist msg and send commit command to followers
+	key, value, ok := c.nodeCache.Get(c.height)
+	if !ok {
+		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
+	}
+	if err = c.database.Put(key, value); err != nil {
+		return &entity.BroadcastResponse{Type: entity.ResponseNack}, status.Error(codes.Internal, "failed to save msg on coordinator")
+	}
+
 	// increase height for next round
 	atomic.AddUint64(&c.height, 1)
 
