@@ -80,8 +80,8 @@ make show-trace -j
 open [http://localhost:9411/zipkin/dependency](http://localhost:9411/zipkin/dependency)
 
 
-![tracer](https://github.com/vadiminshakov/committer/blob/tracer/trace.gif)
-![tracer](https://github.com/vadiminshakov/committer/blob/tracer/trace.png)
+![tracer](https://github.com/vadiminshakov/committer/blob/trace.gif)
+![tracer](https://github.com/vadiminshakov/committer/blob/trace.png)
 
 <br>
 
