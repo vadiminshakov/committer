@@ -1,7 +1,7 @@
 ![](https://github.com/vadiminshakov/committer/workflows/tests/badge.svg)
 
 <p align="center">
-<img src="https://github.com/vadimInshakov/committer/blob/master/committer.png">
+<img src="https://github.com/vadiminshakov/committer/blob/master/committer.png">
 </p>
 
 # committer
@@ -55,9 +55,9 @@ Hooks for requests checking on Propose and Commit stage.
 It's just a function that receives *pb.ProposeRequest or *pb.CommitRequest and returns true or false.
 Function body incorporate all validation logic. 
 
-Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go).
+Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go).
  
-You can replace code in the [hooks/src/hooks.go](https://github.com/vadimInshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
+You can replace code in the [hooks/src/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
 
 **Tracing**
 
@@ -80,8 +80,8 @@ make show-trace -j
 open [http://localhost:9411/zipkin/dependency](http://localhost:9411/zipkin/dependency)
 
 
-![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.gif)
-![tracer](https://github.com/vadimInshakov/committer/blob/tracer/trace.png)
+![tracer](https://github.com/vadiminshakov/committer/blob/tracer/trace.gif)
+![tracer](https://github.com/vadiminshakov/committer/blob/tracer/trace.png)
 
 <br>
 
