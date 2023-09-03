@@ -2,6 +2,7 @@ package voteslog
 
 import (
 	"github.com/stretchr/testify/require"
+	"github.com/vadiminshakov/committer/core/entity"
 	"os"
 	"strconv"
 	"testing"
@@ -25,7 +26,7 @@ func TestSetGet(t *testing.T) {
 	require.NoError(t, os.RemoveAll("./testlogdata"))
 }
 
-func TestLoadIndex(t *testing.T) {
+func TestLoadIndexMsg(t *testing.T) {
 	log, err := NewOnDiskLog("./testlogdata")
 	require.NoError(t, err)
 
@@ -36,12 +37,33 @@ func TestLoadIndex(t *testing.T) {
 	stat, err := log.msgs.Stat()
 	require.NoError(t, err)
 
-	index, err := loadIndexes(log.msgs, stat)
+	index, err := loadIndexesMsg(log.msgs, stat)
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
 		require.Equal(t, "key"+strconv.Itoa(i), index[uint64(i)].Key)
 		require.Equal(t, "value"+strconv.Itoa(i), string(index[uint64(i)].Value))
+	}
+
+	require.NoError(t, os.RemoveAll("./testlogdata"))
+}
+
+func TestLoadIndexVotes(t *testing.T) {
+	log, err := NewOnDiskLog("./testlogdata")
+	require.NoError(t, err)
+
+	for i := 0; i < 10; i++ {
+		require.NoError(t, log.SetVotes(uint64(i), []*entity.Vote{{"node" + strconv.Itoa(i), true}}))
+	}
+
+	stat, err := log.votes.Stat()
+	require.NoError(t, err)
+
+	index, err := loadIndexesVotes(log.votes, stat)
+	require.NoError(t, err)
+
+	for i := 0; i < 10; i++ {
+		require.Equal(t, entity.Vote{"node" + strconv.Itoa(i), true}, *index[uint64(i)].Votes[0])
 	}
 
 	require.NoError(t, os.RemoveAll("./testlogdata"))

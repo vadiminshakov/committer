@@ -21,8 +21,10 @@ type FileVotesLog struct {
 	// index that matches height of votes round record with offset in file
 	indexVotes map[uint64]votesMsg
 
-	enc *gob.Encoder
-	buf *bytes.Buffer
+	encMsgs  *gob.Encoder
+	encVotes *gob.Encoder
+	bufMsgs  *bytes.Buffer
+	bufVotes *bytes.Buffer
 
 	lastOffsetMsgs  int64
 	lastOffsetVotes int64
@@ -48,25 +50,30 @@ func NewOnDiskLog(dir string) (*FileVotesLog, error) {
 		return nil, errors.Wrap(err, "failed to open votes log file")
 	}
 
-	statVotes, err := msgs.Stat()
+	statVotes, err := votes.Stat()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read votes log file stat")
 	}
-	_ = statVotes
 
-	msgsIndex, err := loadIndexes(msgs, statMsgs)
+	msgsIndex, err := loadIndexesMsg(msgs, statMsgs)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to load indexes from msg log file")
 	}
+	votesIndex, err := loadIndexesVotes(msgs, statMsgs)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load indexes from votes log file")
+	}
 
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
+	var bufMsgs bytes.Buffer
+	encMsgs := gob.NewEncoder(&bufMsgs)
+	var bufVotes bytes.Buffer
+	encVotes := gob.NewEncoder(&bufVotes)
 
-	return &FileVotesLog{msgs: msgs, votes: votes, indexMsgs: msgsIndex, buf: &buf, enc: enc,
-		lastOffsetMsgs: statMsgs.Size(), lastOffsetVotes: statVotes.Size()}, nil
+	return &FileVotesLog{msgs: msgs, votes: votes, indexMsgs: msgsIndex, indexVotes: votesIndex, bufMsgs: &bufMsgs, bufVotes: &bufVotes,
+		encMsgs: encMsgs, encVotes: encVotes, lastOffsetMsgs: statMsgs.Size(), lastOffsetVotes: statVotes.Size()}, nil
 }
 
-func loadIndexes(file *os.File, stat os.FileInfo) (map[uint64]msg, error) {
+func loadIndexesMsg(file *os.File, stat os.FileInfo) (map[uint64]msg, error) {
 	buf := make([]byte, stat.Size())
 	if n, err := file.Read(buf); err != nil {
 		if len(buf) == 0 && n == 0 && err == io.EOF {
@@ -99,21 +106,54 @@ func loadIndexes(file *os.File, stat os.FileInfo) (map[uint64]msg, error) {
 	return index, nil
 }
 
+func loadIndexesVotes(file *os.File, stat os.FileInfo) (map[uint64]votesMsg, error) {
+	buf := make([]byte, stat.Size())
+	if n, err := file.Read(buf); err != nil {
+		if len(buf) == 0 && n == 0 && err == io.EOF {
+			return make(map[uint64]votesMsg), nil
+		} else if err != io.EOF {
+			return nil, errors.Wrap(err, "failed to read log file")
+		}
+	}
+
+	var msgs []votesMsg
+	dec := gob.NewDecoder(bytes.NewReader(buf))
+	for {
+		var msgIndexed votesMsg
+		if err := dec.Decode(&msgIndexed); err != nil {
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return nil, errors.Wrap(err, "failed to decode indexed msg from log")
+			}
+		}
+		msgs = append(msgs, msgIndexed)
+	}
+
+	index := make(map[uint64]votesMsg, len(msgs))
+	for _, idxMsg := range msgs {
+		index[idxMsg.Index] = idxMsg
+	}
+
+	return index, nil
+}
+
 func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 	if _, ok := c.indexMsgs[index]; ok {
 		return ErrExists
 	}
 	// gob encode key and value
-	if err := c.enc.Encode(msg{index, key, value}); err != nil {
+	if err := c.encMsgs.Encode(msg{index, key, value}); err != nil {
 		return errors.Wrap(err, "failed to encode msg for log")
 	}
 	// write to log at last offset
-	_, err := c.msgs.WriteAt(c.buf.Bytes(), c.lastOffsetMsgs)
+	_, err := c.msgs.WriteAt(c.bufMsgs.Bytes(), c.lastOffsetMsgs)
 	if err != nil {
 		return errors.Wrap(err, "failed to write msg to log")
 	}
-	c.lastOffsetMsgs += int64(c.buf.Len())
-	c.buf.Reset()
+	c.lastOffsetMsgs += int64(c.bufMsgs.Len())
+	c.bufMsgs.Reset()
 	// update index
 	c.indexMsgs[index] = msg{index, key, value}
 	return nil
@@ -137,15 +177,16 @@ func (c *FileVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
 		return ErrExists
 	}
 	// gob encode key and value
-	if err := c.enc.Encode(votesMsg{index, votes}); err != nil {
+	if err := c.encVotes.Encode(votesMsg{index, votes}); err != nil {
 		return errors.Wrap(err, "failed to encode msg for log")
 	}
 	// write to log at last offset
-	_, err := c.msgs.WriteAt(c.buf.Bytes(), c.lastOffsetVotes)
+	_, err := c.votes.WriteAt(c.bufVotes.Bytes(), c.lastOffsetVotes)
 	if err != nil {
 		return errors.Wrap(err, "failed to write msg to log")
 	}
-	c.lastOffsetVotes += int64(c.buf.Len())
+	c.lastOffsetVotes += int64(c.bufVotes.Len())
+	c.bufVotes.Reset()
 	// update index
 	c.indexVotes[index] = votesMsg{index, votes}
 	return nil
