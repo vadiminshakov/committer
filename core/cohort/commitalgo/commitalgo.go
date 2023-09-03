@@ -21,7 +21,7 @@ type Committer struct {
 	commitHook    func(req *entity.CommitRequest) bool
 	height        uint64
 	db            db.Repository
-	nodeCache     *voteslog.VotesLog
+	nodeCache     *voteslog.FileVotesLog
 	noAutoCommit  map[uint64]struct{}
 	timeout       uint64
 	precommitDone pendingPrecommit
@@ -75,7 +75,7 @@ func (p *pendingPrecommit) signalToChan(height uint64) {
 	}
 }
 
-func NewCommitter(d db.Repository, nodeCache *voteslog.VotesLog,
+func NewCommitter(d db.Repository, nodeCache *voteslog.FileVotesLog,
 	proposeHook func(req *entity.ProposeRequest) bool,
 	commitHook func(req *entity.CommitRequest) bool,
 	timeout uint64) *Committer {

@@ -323,7 +323,10 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 			}
 		}
 
-		c := voteslog.New()
+		c, err := voteslog.NewOnDiskLog("./tmp/cohort/" + strconv.Itoa(i) + "~")
+		if err != nil {
+			panic(err)
+		}
 		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, node.Timeout)
 		cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(node.CommitType))
 
@@ -352,7 +355,10 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 			panic(err)
 		}
 
-		c := voteslog.New()
+		c, err := voteslog.NewOnDiskLog("./tmp/coord/" + strconv.Itoa(i) + "~")
+		if err != nil {
+			panic(err)
+		}
 		coord, err := coordinator.New(coordConfig, c, database)
 		if err != nil {
 			panic(err)
@@ -384,6 +390,9 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 	return func() error {
 		for _, f := range stopfuncs {
 			f()
+		}
+		if err := os.RemoveAll("./tmp"); err != nil {
+			return err
 		}
 		return os.RemoveAll(BADGER_DIR)
 	}

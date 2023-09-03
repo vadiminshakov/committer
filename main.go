@@ -28,7 +28,10 @@ func main() {
 		panic(err)
 	}
 
-	c := voteslog.New()
+	c, err := voteslog.NewOnDiskLog("./logdata")
+	if err != nil {
+		panic(err)
+	}
 	coordImpl, err := coordinator.New(conf, c, database)
 	if err != nil {
 		panic(err)
