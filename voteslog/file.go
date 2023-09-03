@@ -9,6 +9,8 @@ import (
 	"os"
 )
 
+var ErrExists = errors.New("msg with such index already exists")
+
 type FileVotesLog struct {
 	// append-only log with proposed messages that node consumed
 	msgs *os.File
@@ -98,6 +100,9 @@ func loadIndexes(file *os.File, stat os.FileInfo) (map[uint64]msg, error) {
 }
 
 func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
+	if _, ok := c.indexMsgs[index]; ok {
+		return ErrExists
+	}
 	// gob encode key and value
 	if err := c.enc.Encode(msg{index, key, value}); err != nil {
 		return errors.Wrap(err, "failed to encode msg for log")
