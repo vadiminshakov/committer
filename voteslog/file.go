@@ -152,6 +152,10 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to write msg to log")
 	}
+	if err := c.msgs.Sync(); err != nil {
+		return errors.Wrap(err, "failed to sync msg log file")
+	}
+
 	c.lastOffsetMsgs += int64(c.bufMsgs.Len())
 	c.bufMsgs.Reset()
 	// update index
@@ -185,6 +189,10 @@ func (c *FileVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to write msg to log")
 	}
+	if err := c.votes.Sync(); err != nil {
+		return errors.Wrap(err, "failed to sync votes log file")
+	}
+
 	c.lastOffsetVotes += int64(c.bufVotes.Len())
 	c.bufVotes.Reset()
 	// update index
