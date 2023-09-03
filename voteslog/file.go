@@ -172,10 +172,6 @@ func (c *FileVotesLog) Get(index uint64) (string, []byte, bool) {
 	return msg.Key, msg.Value, true
 }
 
-func (c *FileVotesLog) Delete(index uint64) {
-	panic("delete on append only log is not supported")
-}
-
 func (c *FileVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
 	if _, ok := c.indexVotes[index]; ok {
 		return ErrExists
@@ -207,12 +203,6 @@ func (c *FileVotesLog) GetVotes(index uint64) []*entity.Vote {
 	}
 
 	return msg.Votes
-}
-
-func (c *FileVotesLog) DelVotes(index uint64) {
-	//c.muVotes.Lock()
-	//delete(c.votes, index)
-	//c.muVotes.Unlock()
 }
 
 func (c *FileVotesLog) Close() error {
