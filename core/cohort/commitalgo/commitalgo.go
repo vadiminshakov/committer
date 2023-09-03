@@ -21,7 +21,7 @@ type Committer struct {
 	commitHook    func(req *entity.CommitRequest) bool
 	height        uint64
 	db            db.Repository
-	nodeCache     *voteslog.FileVotesLog
+	vlog          *voteslog.FileVotesLog
 	noAutoCommit  map[uint64]struct{}
 	timeout       uint64
 	precommitDone pendingPrecommit
@@ -75,7 +75,7 @@ func (p *pendingPrecommit) signalToChan(height uint64) {
 	}
 }
 
-func NewCommitter(d db.Repository, nodeCache *voteslog.FileVotesLog,
+func NewCommitter(d db.Repository, vlog *voteslog.FileVotesLog,
 	proposeHook func(req *entity.ProposeRequest) bool,
 	commitHook func(req *entity.CommitRequest) bool,
 	timeout uint64) *Committer {
@@ -84,7 +84,7 @@ func NewCommitter(d db.Repository, nodeCache *voteslog.FileVotesLog,
 		precommitHook: nil,
 		commitHook:    commitHook,
 		db:            d,
-		nodeCache:     nodeCache,
+		vlog:          vlog,
 		noAutoCommit:  make(map[uint64]struct{}),
 		timeout:       timeout,
 		precommitDone: newPendingPrecommit(),
@@ -103,7 +103,7 @@ func (c *Committer) Propose(_ context.Context, req *entity.ProposeRequest) (*ent
 
 	if c.proposeHook(req) {
 		log.Infof("received: %s=%s\n", req.Key, string(req.Value))
-		c.nodeCache.Set(req.Height, req.Key, req.Value)
+		c.vlog.Set(req.Height, req.Key, req.Value)
 		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeAck, Height: req.Height}
 	} else {
 		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack, Height: req.Height}
@@ -130,7 +130,6 @@ func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*entity
 				md := metadata.Pairs("mode", "autocommit")
 				ctx := metadata.NewOutgoingContext(context.Background(), md)
 				if !isAllNodesAccepted(votes) {
-					c.rollback()
 					break ForLoop
 				}
 				c.Commit(ctx, &entity.CommitRequest{Height: index})
@@ -163,9 +162,6 @@ func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*ent
 	c.precommitDone.signalToChan(atomic.LoadUint64(&c.height))
 
 	c.noAutoCommit[req.Height] = struct{}{}
-	if req.IsRollback {
-		c.rollback()
-	}
 
 	var response *entity.CohortResponse
 	if req.Height < atomic.LoadUint64(&c.height) {
@@ -173,7 +169,7 @@ func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*ent
 	}
 	if c.commitHook(req) {
 		log.Printf("Committing on height: %d\n", req.Height)
-		key, value, ok := c.nodeCache.Get(req.Height)
+		key, value, ok := c.vlog.Get(req.Height)
 		if !ok {
 			return &entity.CohortResponse{ResponseType: entity.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
 		}
@@ -183,7 +179,6 @@ func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*ent
 		}
 		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeAck}
 	} else {
-		c.nodeCache.Delete(req.Height)
 		response = &entity.CohortResponse{ResponseType: entity.ResponseTypeNack}
 	}
 
@@ -192,8 +187,4 @@ func (c *Committer) Commit(ctx context.Context, req *entity.CommitRequest) (*ent
 		atomic.AddUint64(&c.height, 1)
 	}
 	return response, nil
-}
-
-func (c *Committer) rollback() {
-	c.nodeCache.Delete(c.height)
 }

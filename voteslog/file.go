@@ -19,7 +19,7 @@ type FileVotesLog struct {
 	// index that matches height of msg record with offset in file
 	indexMsgs map[uint64]msg
 	// index that matches height of votes round record with offset in file
-	indexVotes map[uint64][]entity.Vote
+	indexVotes map[uint64]votesMsg
 
 	enc *gob.Encoder
 	buf *bytes.Buffer
@@ -112,7 +112,8 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to write msg to log")
 	}
-	c.lastOffsetVotes += int64(c.buf.Len())
+	c.lastOffsetMsgs += int64(c.buf.Len())
+	c.buf.Reset()
 	// update index
 	c.indexMsgs[index] = msg{index, key, value}
 	return nil
@@ -128,19 +129,35 @@ func (c *FileVotesLog) Get(index uint64) (string, []byte, bool) {
 }
 
 func (c *FileVotesLog) Delete(index uint64) {
+	panic("delete on append only log is not supported")
 }
 
-func (c *FileVotesLog) SetVotes(index uint64, votes []*entity.Vote) {
-	//c.muVotes.Lock()
-	//defer c.muVotes.Unlock()
-	//c.votes[index] = append(c.votes[index], votes...)
+func (c *FileVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
+	if _, ok := c.indexVotes[index]; ok {
+		return ErrExists
+	}
+	// gob encode key and value
+	if err := c.enc.Encode(votesMsg{index, votes}); err != nil {
+		return errors.Wrap(err, "failed to encode msg for log")
+	}
+	// write to log at last offset
+	_, err := c.msgs.WriteAt(c.buf.Bytes(), c.lastOffsetVotes)
+	if err != nil {
+		return errors.Wrap(err, "failed to write msg to log")
+	}
+	c.lastOffsetVotes += int64(c.buf.Len())
+	// update index
+	c.indexVotes[index] = votesMsg{index, votes}
+	return nil
 }
 
 func (c *FileVotesLog) GetVotes(index uint64) []*entity.Vote {
-	//c.muVotes.RLock()
-	//defer c.muVotes.RUnlock()
-	//return c.votes[index]
-	return nil
+	msg, ok := c.indexVotes[index]
+	if !ok {
+		return nil
+	}
+
+	return msg.Votes
 }
 
 func (c *FileVotesLog) DelVotes(index uint64) {
