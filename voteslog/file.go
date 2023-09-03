@@ -3,10 +3,19 @@ package voteslog
 import (
 	"bytes"
 	"encoding/gob"
+	"fmt"
 	"github.com/pkg/errors"
 	"github.com/vadiminshakov/committer/core/entity"
 	"io"
 	"os"
+	"path"
+	"strconv"
+	"strings"
+)
+
+const (
+	segmentThreshold        = 20
+	tmpIndexBufferThreshold = 10
 )
 
 var ErrExists = errors.New("msg with such index already exists")
@@ -17,7 +26,8 @@ type FileVotesLog struct {
 	// append-only log with cohort votes on proposal
 	votes *os.File
 	// index that matches height of msg record with offset in file
-	indexMsgs map[uint64]msg
+	indexMsgs    map[uint64]msg
+	tmpIndexMsgs map[uint64]msg
 	// index that matches height of votes round record with offset in file
 	indexVotes map[uint64]votesMsg
 
@@ -28,6 +38,8 @@ type FileVotesLog struct {
 
 	lastOffsetMsgs  int64
 	lastOffsetVotes int64
+
+	pathToLogsDir string
 }
 
 func NewOnDiskLog(dir string) (*FileVotesLog, error) {
@@ -36,7 +48,7 @@ func NewOnDiskLog(dir string) (*FileVotesLog, error) {
 			return nil, errors.Wrap(err, "failed to create dir for votes log")
 		}
 	}
-	msgs, err := os.OpenFile(dir+"/msgs", os.O_RDWR|os.O_CREATE, 0755)
+	msgs, err := os.OpenFile(dir+"/msgs_0", os.O_RDWR|os.O_CREATE, 0755)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to open msg log file")
 	}
@@ -69,8 +81,8 @@ func NewOnDiskLog(dir string) (*FileVotesLog, error) {
 	var bufVotes bytes.Buffer
 	encVotes := gob.NewEncoder(&bufVotes)
 
-	return &FileVotesLog{msgs: msgs, votes: votes, indexMsgs: msgsIndex, indexVotes: votesIndex, bufMsgs: &bufMsgs, bufVotes: &bufVotes,
-		encMsgs: encMsgs, encVotes: encVotes, lastOffsetMsgs: statMsgs.Size(), lastOffsetVotes: statVotes.Size()}, nil
+	return &FileVotesLog{msgs: msgs, votes: votes, indexMsgs: msgsIndex, tmpIndexMsgs: make(map[uint64]msg), indexVotes: votesIndex, bufMsgs: &bufMsgs, bufVotes: &bufVotes,
+		encMsgs: encMsgs, encVotes: encVotes, lastOffsetMsgs: statMsgs.Size(), lastOffsetVotes: statVotes.Size(), pathToLogsDir: dir}, nil
 }
 
 func loadIndexesMsg(file *os.File, stat os.FileInfo) (map[uint64]msg, error) {
@@ -143,6 +155,30 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 	if _, ok := c.indexMsgs[index]; ok {
 		return ErrExists
 	}
+
+	if len(c.indexMsgs) == segmentThreshold {
+		// rotate
+		c.bufMsgs.Reset()
+		c.encMsgs = gob.NewEncoder(c.bufMsgs)
+		if err := c.msgs.Close(); err != nil {
+			return errors.Wrap(err, "failed to close msgs log file")
+		}
+
+		_, suffix, ok := strings.Cut(c.msgs.Name(), "_")
+		if !ok {
+			return fmt.Errorf("failed to cut suffix from msgs log file name %s", c.msgs.Name())
+		}
+		i, err := strconv.Atoi(suffix)
+		if err != nil {
+			return fmt.Errorf("failed to convert suffix %s to int", suffix)
+		}
+		c.msgs, err = os.OpenFile(path.Join(c.pathToLogsDir, "msgs_"+strconv.Itoa(i+1)), os.O_RDWR|os.O_CREATE, 0755)
+		if err = os.Remove(c.msgs.Name()); err != nil {
+			return errors.Wrapf(err, "failed to remove old segment %s", c.msgs.Name())
+		}
+		c.lastOffsetMsgs = 0
+	}
+
 	// gob encode key and value
 	if err := c.encMsgs.Encode(msg{index, key, value}); err != nil {
 		return errors.Wrap(err, "failed to encode msg for log")
@@ -160,6 +196,14 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 	c.bufMsgs.Reset()
 	// update index
 	c.indexMsgs[index] = msg{index, key, value}
+	if len(c.indexMsgs) > segmentThreshold {
+		if len(c.tmpIndexMsgs) == tmpIndexBufferThreshold {
+			c.indexMsgs = c.tmpIndexMsgs
+			c.tmpIndexMsgs = make(map[uint64]msg)
+			return nil
+		}
+		c.tmpIndexMsgs[index] = msg{index, key, value}
+	}
 	return nil
 }
 
