@@ -94,18 +94,9 @@ func NewOnDiskLog(dir string) (*FileVotesLog, error) {
 	msgsIndex := make(map[uint64]msg)
 	var msgs *os.File
 	var statMsgs os.FileInfo
+	var idxFromSegment map[uint64]msg
 	for _, segindex := range msgSegmentsNumbers {
-		msgs, err = os.OpenFile(dir+"/msgs_"+strconv.Itoa(segindex), os.O_RDWR|os.O_CREATE, 0755)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to open msg log file")
-		}
-
-		statMsgs, err = msgs.Stat()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to read msg log file stat")
-		}
-
-		idxFromSegment, err := loadIndexesMsg(msgs, statMsgs)
+		msgs, statMsgs, idxFromSegment, err = loadSegment(dir + "/msgs_" + strconv.Itoa(segindex))
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to load indexes from msg log file")
 		}
@@ -135,6 +126,25 @@ func NewOnDiskLog(dir string) (*FileVotesLog, error) {
 
 	return &FileVotesLog{msgs: msgs, votes: votes, indexMsgs: msgsIndex, tmpIndexMsgs: make(map[uint64]msg), indexVotes: votesIndex, bufMsgs: &bufMsgs, bufVotes: &bufVotes,
 		encMsgs: encMsgs, encVotes: encVotes, lastOffsetMsgs: statMsgs.Size(), lastOffsetVotes: statVotes.Size(), pathToLogsDir: dir}, nil
+}
+
+func loadSegment(path string) (fd *os.File, fileinfo os.FileInfo, index map[uint64]msg, err error) {
+	fd, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0755)
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "failed to open log segment file")
+	}
+
+	fileinfo, err = fd.Stat()
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "failed to read log segment file stat")
+	}
+
+	index, err = loadIndexesMsg(fd, fileinfo)
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "failed to build index from log segment")
+	}
+
+	return fd, fileinfo, index, nil
 }
 
 func loadIndexesMsg(file *os.File, stat os.FileInfo) (map[uint64]msg, error) {
