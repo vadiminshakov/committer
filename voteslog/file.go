@@ -7,8 +7,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/vadiminshakov/committer/core/entity"
 	"io"
+	"maps"
 	"os"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -54,18 +56,61 @@ type FileVotesLog struct {
 }
 
 func NewOnDiskLog(dir string) (*FileVotesLog, error) {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+	_, err := os.Stat(dir)
+	if os.IsNotExist(err) {
 		if err := os.Mkdir(dir, 0755); err != nil {
 			return nil, errors.Wrap(err, "failed to create dir for votes log")
 		}
 	}
-	msgs, err := os.OpenFile(dir+"/msgs_0", os.O_RDWR|os.O_CREATE, 0755)
+	de, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to open msg log file")
+		return nil, errors.Wrap(err, "failed to read dir for votes log")
 	}
-	statMsgs, err := msgs.Stat()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to read msg log file stat")
+
+	msgSegmentsNumbers := make([]int, 0)
+	for _, d := range de {
+		if d.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(d.Name(), "msgs_") {
+			i, err := extractSegmentNum(d.Name())
+			if err != nil {
+				return nil, errors.Wrap(err, "initialization failed: failed to extract segment number from msgs log file name")
+			}
+
+			msgSegmentsNumbers = append(msgSegmentsNumbers, i)
+		}
+	}
+
+	sort.Slice(msgSegmentsNumbers, func(i, j int) bool {
+		return msgSegmentsNumbers[i] < msgSegmentsNumbers[j]
+	})
+
+	if len(msgSegmentsNumbers) == 0 {
+		msgSegmentsNumbers = append(msgSegmentsNumbers, 0)
+	}
+
+	// load them segments into mem
+	msgsIndex := make(map[uint64]msg)
+	var msgs *os.File
+	var statMsgs os.FileInfo
+	for _, segindex := range msgSegmentsNumbers {
+		msgs, err = os.OpenFile(dir+"/msgs_"+strconv.Itoa(segindex), os.O_RDWR|os.O_CREATE, 0755)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to open msg log file")
+		}
+
+		statMsgs, err = msgs.Stat()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to read msg log file stat")
+		}
+
+		idxFromSegment, err := loadIndexesMsg(msgs, statMsgs)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to load indexes from msg log file")
+		}
+
+		maps.Copy(msgsIndex, idxFromSegment)
 	}
 
 	votes, err := os.OpenFile(dir+"/votes", os.O_RDWR|os.O_CREATE, 0755)
@@ -78,11 +123,7 @@ func NewOnDiskLog(dir string) (*FileVotesLog, error) {
 		return nil, errors.Wrap(err, "failed to read votes log file stat")
 	}
 
-	msgsIndex, err := loadIndexesMsg(msgs, statMsgs)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to load indexes from msg log file")
-	}
-	votesIndex, err := loadIndexesVotes(msgs, statMsgs)
+	votesIndex, err := loadIndexesVotes(votes, statVotes)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to load indexes from votes log file")
 	}
@@ -175,15 +216,12 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 		}
 		c.oldMsgsSegmentName = c.msgs.Name()
 
-		_, suffix, ok := strings.Cut(c.msgs.Name(), "_")
-		if !ok {
-			return fmt.Errorf("failed to cut suffix from msgs log file name %s", c.msgs.Name())
-		}
-		i, err := strconv.Atoi(suffix)
+		segmentIndex, err := extractSegmentNum(c.msgs.Name())
 		if err != nil {
-			return fmt.Errorf("failed to convert suffix %s to int", suffix)
+			return errors.Wrap(err, "failed to extract segment number from msgs log file name")
 		}
-		c.msgs, err = os.OpenFile(path.Join(c.pathToLogsDir, "msgs_"+strconv.Itoa(i+1)), os.O_RDWR|os.O_CREATE, 0755)
+
+		c.msgs, err = os.OpenFile(path.Join(c.pathToLogsDir, "msgs_"+strconv.Itoa(segmentIndex+1)), os.O_RDWR|os.O_CREATE, 0755)
 
 		c.lastOffsetMsgs = 0
 	}
@@ -222,6 +260,19 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 		c.tmpIndexMsgs[index] = msg{index, key, value}
 	}
 	return nil
+}
+
+func extractSegmentNum(segmentName string) (int, error) {
+	_, suffix, ok := strings.Cut(segmentName, "_")
+	if !ok {
+		return 0, fmt.Errorf("failed to cut suffix from msgs log file name %s", segmentName)
+	}
+	i, err := strconv.Atoi(suffix)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert suffix %s to int", suffix)
+	}
+
+	return i, nil
 }
 
 func (c *FileVotesLog) Get(index uint64) (string, []byte, bool) {

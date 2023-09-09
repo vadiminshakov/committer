@@ -70,6 +70,28 @@ func TestSegmentRotationForMsgs(t *testing.T) {
 	require.NoError(t, os.RemoveAll("./testlogdata"))
 }
 
+// create two segments, app down, up and repair index.
+func TestServiceDownUpAndRepairIndex(t *testing.T) {
+	log, err := NewOnDiskLog("./testlogdata")
+	require.NoError(t, err)
+
+	for i := 0; i < 26; i++ {
+		require.NoError(t, log.Set(uint64(i), "key"+strconv.Itoa(i), []byte("value"+strconv.Itoa(i))))
+	}
+
+	require.NoError(t, log.Close())
+
+	log, err = NewOnDiskLog("./testlogdata")
+	require.NoError(t, err)
+
+	for i := 0; i < 26; i++ {
+		require.Equal(t, "key"+strconv.Itoa(i), log.indexMsgs[uint64(i)].Key)
+		require.Equal(t, "value"+strconv.Itoa(i), string(log.indexMsgs[uint64(i)].Value))
+	}
+
+	require.NoError(t, os.RemoveAll("./testlogdata"))
+}
+
 func TestLoadIndexVotes(t *testing.T) {
 	log, err := NewOnDiskLog("./testlogdata")
 	require.NoError(t, err)
