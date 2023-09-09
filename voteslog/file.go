@@ -31,15 +31,26 @@ type FileVotesLog struct {
 	// index that matches height of votes round record with offset in file
 	indexVotes map[uint64]votesMsg
 
-	encMsgs  *gob.Encoder
+	// gob encoder for proposed messages
+	encMsgs *gob.Encoder
+	// gob encoder for cohort votes
 	encVotes *gob.Encoder
-	bufMsgs  *bytes.Buffer
+
+	// buffer for proposed messages
+	bufMsgs *bytes.Buffer
+	// buffer for cohort votes
 	bufVotes *bytes.Buffer
 
-	lastOffsetMsgs  int64
+	// offset of last msg record in file
+	lastOffsetMsgs int64
+	// offset of last votes round record in file
 	lastOffsetVotes int64
 
+	// path to directory with logs
 	pathToLogsDir string
+
+	// name of the old segment for msgs log
+	oldMsgsSegmentName string
 }
 
 func NewOnDiskLog(dir string) (*FileVotesLog, error) {
@@ -100,12 +111,10 @@ func loadIndexesMsg(file *os.File, stat os.FileInfo) (map[uint64]msg, error) {
 	for {
 		var msgIndexed msg
 		if err := dec.Decode(&msgIndexed); err != nil {
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				return nil, errors.Wrap(err, "failed to decode indexed msg from log")
+			if err == io.EOF {
+				break
 			}
+			return nil, errors.Wrap(err, "failed to decode indexed msg from log")
 		}
 		msgs = append(msgs, msgIndexed)
 	}
@@ -156,13 +165,15 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 		return ErrExists
 	}
 
+	// rotate segment if threshold is reached
+	// (close current segment, open new one with incremented suffix in name, remove old segment)
 	if len(c.indexMsgs) == segmentThreshold {
-		// rotate
 		c.bufMsgs.Reset()
 		c.encMsgs = gob.NewEncoder(c.bufMsgs)
 		if err := c.msgs.Close(); err != nil {
 			return errors.Wrap(err, "failed to close msgs log file")
 		}
+		c.oldMsgsSegmentName = c.msgs.Name()
 
 		_, suffix, ok := strings.Cut(c.msgs.Name(), "_")
 		if !ok {
@@ -173,9 +184,7 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 			return fmt.Errorf("failed to convert suffix %s to int", suffix)
 		}
 		c.msgs, err = os.OpenFile(path.Join(c.pathToLogsDir, "msgs_"+strconv.Itoa(i+1)), os.O_RDWR|os.O_CREATE, 0755)
-		if err = os.Remove(c.msgs.Name()); err != nil {
-			return errors.Wrapf(err, "failed to remove old segment %s", c.msgs.Name())
-		}
+
 		c.lastOffsetMsgs = 0
 	}
 
@@ -194,12 +203,20 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 
 	c.lastOffsetMsgs += int64(c.bufMsgs.Len())
 	c.bufMsgs.Reset()
+
 	// update index
 	c.indexMsgs[index] = msg{index, key, value}
+
+	// if threshold is reached, start writing to tmp index buffer
 	if len(c.indexMsgs) > segmentThreshold {
+		// if tmp index buffer is full, flush it to index and rm old segment and associated index file
 		if len(c.tmpIndexMsgs) == tmpIndexBufferThreshold {
 			c.indexMsgs = c.tmpIndexMsgs
 			c.tmpIndexMsgs = make(map[uint64]msg)
+
+			if err = os.Remove(c.oldMsgsSegmentName); err != nil {
+				return errors.Wrapf(err, "failed to remove old segment %s", c.msgs.Name())
+			}
 			return nil
 		}
 		c.tmpIndexMsgs[index] = msg{index, key, value}
