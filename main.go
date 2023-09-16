@@ -28,11 +28,17 @@ func main() {
 		panic(err)
 	}
 
-	c, err := voteslog.NewOnDiskLog("./logdata")
-	if err != nil {
-		panic(err)
+	var l voteslog.Log
+	if t := os.Getenv("LOG"); t == "disk" {
+		l, err = voteslog.NewOnDiskLog("./logdata")
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		l = voteslog.NewInmemLog()
 	}
-	coordImpl, err := coordinator.New(conf, c, database)
+
+	coordImpl, err := coordinator.New(conf, l, database)
 	if err != nil {
 		panic(err)
 	}
@@ -45,7 +51,7 @@ func main() {
 		}
 	}
 
-	committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, conf.Timeout)
+	committer := commitalgo.NewCommitter(database, l, hooks.Propose, hooks.Commit, conf.Timeout)
 	cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(conf.CommitType))
 
 	s, err := server.New(conf, tracer, cohortImpl, coordImpl, database)
