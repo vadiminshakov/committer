@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/openzipkin/zipkin-go"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/entity"
@@ -24,11 +25,11 @@ type coordinatorImpl struct {
 	tracer    *zipkin.Tracer
 	config    *config.Config
 	height    uint64
-	nodeCache *voteslog.VotesLog
+	vlog      voteslog.Log
 	database  db.Repository
 }
 
-func New(conf *config.Config, vlog *voteslog.VotesLog, database db.Repository) (*coordinatorImpl, error) {
+func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coordinatorImpl, error) {
 	var tracer *zipkin.Tracer
 	var err error
 	if conf.WithTrace {
@@ -52,7 +53,7 @@ func New(conf *config.Config, vlog *voteslog.VotesLog, database db.Repository) (
 		followers: flwrs,
 		tracer:    tracer,
 		height:    0,
-		nodeCache: vlog,
+		vlog:      vlog,
 		database:  database,
 		config:    conf,
 	}, nil
@@ -117,8 +118,10 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 			}
 		}
 	}
-	c.nodeCache.Set(c.height, req.Key, req.Value)
-	c.nodeCache.SetVotes(c.height, votes)
+	if err := c.vlog.Set(c.height, req.Key, req.Value); err != nil {
+		return nil, errors.Wrap(err, "failed to save msg in the coordinator's log")
+	}
+	c.vlog.SetVotes(c.height, votes)
 
 	// precommit phase only for three-phase mode
 	if c.config.CommitType == server.THREE_PHASE {
@@ -128,7 +131,7 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 				span, ctx = c.tracer.StartSpanFromContext(ctx, "Precommit")
 			}
 
-			votes := votesToProto(c.nodeCache.GetVotes(c.height))
+			votes := votesToProto(c.vlog.GetVotes(c.height))
 			resp, err := follower.Precommit(ctx, &pb.PrecommitRequest{Index: c.height, Votes: votes})
 			if c.tracer != nil && span != nil {
 				span.Finish()
@@ -179,7 +182,7 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 	log.Infof("coordinator got ack from all cohorts, committed key %s", req.Key)
 
 	// the coordinator got all the answers, so it's time to persist msg and send commit command to followers
-	key, value, ok := c.nodeCache.Get(c.height)
+	key, value, ok := c.vlog.Get(c.height)
 	if !ok {
 		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
 	}
