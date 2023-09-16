@@ -25,11 +25,11 @@ type coordinatorImpl struct {
 	tracer    *zipkin.Tracer
 	config    *config.Config
 	height    uint64
-	vlog      *voteslog.FileVotesLog
+	vlog      voteslog.Log
 	database  db.Repository
 }
 
-func New(conf *config.Config, vlog *voteslog.FileVotesLog, database db.Repository) (*coordinatorImpl, error) {
+func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coordinatorImpl, error) {
 	var tracer *zipkin.Tracer
 	var err error
 	if conf.WithTrace {
