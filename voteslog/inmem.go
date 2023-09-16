@@ -17,10 +17,12 @@ func NewInmemLog() *InmemVotesLog {
 	return &InmemVotesLog{kv: kvstore, votes: votesstore}
 }
 
-func (c *InmemVotesLog) Set(index uint64, key string, value []byte) {
+func (c *InmemVotesLog) Set(index uint64, key string, value []byte) error {
 	c.muKv.Lock()
 	defer c.muKv.Unlock()
 	c.kv[index] = msg{index, key, value}
+
+	return nil
 }
 
 func (c *InmemVotesLog) Get(index uint64) (string, []byte, bool) {
@@ -30,14 +32,20 @@ func (c *InmemVotesLog) Get(index uint64) (string, []byte, bool) {
 	return message.Key, message.Value, ok
 }
 
-func (c *InmemVotesLog) SetVotes(index uint64, votes []*entity.Vote) {
+func (c *InmemVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
 	c.muVotes.Lock()
 	defer c.muVotes.Unlock()
 	c.votes[index] = append(c.votes[index], votes...)
+
+	return nil
 }
 
 func (c *InmemVotesLog) GetVotes(index uint64) []*entity.Vote {
 	c.muVotes.RLock()
 	defer c.muVotes.RUnlock()
 	return c.votes[index]
+}
+
+func (c *InmemVotesLog) Close() error {
+	return nil
 }
