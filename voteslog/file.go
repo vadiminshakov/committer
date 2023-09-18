@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	segmentThreshold        = 20
-	tmpIndexBufferThreshold = 10
+	segmentThreshold        = 1000
+	tmpIndexBufferThreshold = 500
 )
 
 var ErrExists = errors.New("msg with such index already exists")
