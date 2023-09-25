@@ -15,7 +15,7 @@ jobs:
   # This workflow contains a single job called "build"
   run-tests:
     # The type of runner that the job will run on
-    runs-on: golang-latest
+    runs-on: ubuntu-latest
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -24,4 +24,4 @@ jobs:
 
     # Runs a single command using the runners shell
     - name: Run tests
-      run: make prepare && make tests
+      run: make upgrade && make prepare && make tests
