@@ -41,7 +41,7 @@ show-trace-client:
 	echo "please open http://localhost:9411/zipkin/dependency"
 
 tests:
-	@go test ./...
+	@/usr/local/go/bin/go test ./...
 
 upgrade:
 	@sudo apt-get update
