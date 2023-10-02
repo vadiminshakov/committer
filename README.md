@@ -1,5 +1,3 @@
-![](https://github.com/vadiminshakov/committer/workflows/tests/badge.svg)
-
 <p align="center">
 <img src="https://github.com/vadiminshakov/committer/blob/master/committer.png">
 </p>
