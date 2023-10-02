@@ -51,10 +51,10 @@ func TestLoadIndexMsg(t *testing.T) {
 func TestSegmentRotationForMsgs(t *testing.T) {
 	log, err := NewOnDiskLog("./testlogdata")
 	require.NoError(t, err)
-
+	segmentsNumber := 6
 	// here we exceed the segment size threshold (segmentThreshold), create new segment, keep old segment on disk until tmpIndexBufferThreshold
 	// is reached, then del old segment and write 10 more msgs
-	for i := 0; i < segmentThreshold+(tmpIndexBufferThreshold+10); i++ {
+	for i := 0; i < segmentThreshold*segmentsNumber+10; i++ {
 		require.NoError(t, log.Set(uint64(i), "key"+strconv.Itoa(i), []byte("value"+strconv.Itoa(i))))
 	}
 
@@ -68,7 +68,7 @@ func TestSegmentRotationForMsgs(t *testing.T) {
 
 	// check all saved msgs in the index
 	// we have all msgs with height greater than segmentThreshold and less than segmentThreshold+(tmpIndexBufferThreshold+10)
-	for i := segmentThreshold; i < segmentThreshold+(tmpIndexBufferThreshold+10); i++ {
+	for i := segmentThreshold * segmentsNumber; i < segmentThreshold*segmentsNumber+10; i++ {
 		require.Equal(t, "key"+strconv.Itoa(i), index[uint64(i)].Key)
 		require.Equal(t, "value"+strconv.Itoa(i), string(index[uint64(i)].Value))
 	}
@@ -81,7 +81,7 @@ func TestServiceDownUpAndRepairIndex(t *testing.T) {
 	log, err := NewOnDiskLog("./testlogdata")
 	require.NoError(t, err)
 
-	for i := 0; i < segmentThreshold+(tmpIndexBufferThreshold/2); i++ {
+	for i := 0; i < segmentThreshold+(segmentThreshold/2); i++ {
 		require.NoError(t, log.Set(uint64(i), "key"+strconv.Itoa(i), []byte("value"+strconv.Itoa(i))))
 		require.NoError(t, log.SetVotes(uint64(i), []*entity.Vote{{"node" + strconv.Itoa(i), true}}))
 	}
@@ -91,7 +91,7 @@ func TestServiceDownUpAndRepairIndex(t *testing.T) {
 	log, err = NewOnDiskLog("./testlogdata")
 	require.NoError(t, err)
 
-	for i := 0; i < segmentThreshold+(tmpIndexBufferThreshold/2); i++ {
+	for i := 0; i < segmentThreshold+(segmentThreshold/2); i++ {
 		require.Equal(t, "key"+strconv.Itoa(i), log.indexMsgs[uint64(i)].Key)
 		require.Equal(t, "value"+strconv.Itoa(i), string(log.indexMsgs[uint64(i)].Value))
 		require.Equal(t, entity.Vote{"node" + strconv.Itoa(i), true}, *log.indexVotes[uint64(i)].Votes[0])
