@@ -29,7 +29,7 @@ func New(addr string, tracer *zipkin.Tracer) (*CommitClient, error) {
 	connParams := grpc.ConnectParams{
 		Backoff: backoff.Config{
 			BaseDelay: 100 * time.Millisecond,
-			MaxDelay:  5 * time.Second,
+			MaxDelay:  10 * time.Second,
 		},
 		MinConnectTimeout: 200 * time.Millisecond,
 	}
