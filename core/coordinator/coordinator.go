@@ -7,7 +7,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/core/entity"
+	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
@@ -59,7 +59,7 @@ func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coord
 	}, nil
 }
 
-func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastRequest) (*entity.BroadcastResponse, error) {
+func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error) {
 	var (
 		err  error
 		span zipkin.Span
@@ -73,19 +73,19 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 	// propose
 	log.Infof("propose key %s", req.Key)
 	if err := c.propose(ctx, req); err != nil {
-		return &entity.BroadcastResponse{Type: int32(pb.Type_NACK)}, errors.Wrap(err, "failed to send propose")
+		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, "failed to send propose")
 	}
 
 	// precommit phase only for three-phase mode
 	log.Infof("precommit key %s", req.Key)
 	if err := c.preCommit(ctx, req); err != nil {
-		return &entity.BroadcastResponse{Type: int32(pb.Type_NACK)}, errors.Wrap(err, "failed to send precommit")
+		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, "failed to send precommit")
 	}
 
 	// commit
 	log.Infof("commit %s", req.Key)
 	if err := c.commit(ctx); err != nil {
-		return &entity.BroadcastResponse{Type: int32(pb.Type_NACK)}, errors.Wrap(err, "failed to send commit")
+		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, "failed to send commit")
 	}
 
 	log.Infof("coordinator got ack from all cohorts, committed key %s", req.Key)
@@ -96,16 +96,16 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req entity.BroadcastReq
 		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
 	}
 	if err = c.database.Put(key, value); err != nil {
-		return &entity.BroadcastResponse{Type: entity.ResponseNack}, status.Error(codes.Internal, "failed to save msg on coordinator")
+		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, status.Error(codes.Internal, "failed to save msg on coordinator")
 	}
 
 	// increase height for next round
 	atomic.AddUint64(&c.height, 1)
 
-	return &entity.BroadcastResponse{entity.ResponseAck, c.height}, nil
+	return &dto.BroadcastResponse{Type: dto.ResponseTypeNack, Index: c.height}, nil
 }
 
-func (c *coordinatorImpl) propose(ctx context.Context, req entity.BroadcastRequest) error {
+func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest) error {
 	var ctype pb.CommitType
 	if c.config.CommitType == server.THREE_PHASE {
 		ctype = pb.CommitType_THREE_PHASE_COMMIT
@@ -113,7 +113,7 @@ func (c *coordinatorImpl) propose(ctx context.Context, req entity.BroadcastReque
 		ctype = pb.CommitType_TWO_PHASE_COMMIT
 	}
 
-	votes := make([]*entity.Vote, 0, len(c.followers))
+	votes := make([]*dto.Vote, 0, len(c.followers))
 	var span zipkin.Span
 	for nodename, follower := range c.followers {
 		if c.tracer != nil {
@@ -137,7 +137,7 @@ func (c *coordinatorImpl) propose(ctx context.Context, req entity.BroadcastReque
 				log.Errorf(err.Error())
 				isAccepted = false
 			}
-			votes = append(votes, &entity.Vote{
+			votes = append(votes, &dto.Vote{
 				Node:       nodename,
 				IsAccepted: isAccepted,
 			})
@@ -161,7 +161,7 @@ func (c *coordinatorImpl) propose(ctx context.Context, req entity.BroadcastReque
 	return nil
 }
 
-func (c *coordinatorImpl) preCommit(ctx context.Context, req entity.BroadcastRequest) error {
+func (c *coordinatorImpl) preCommit(ctx context.Context, req dto.BroadcastRequest) error {
 	if c.config.CommitType != server.THREE_PHASE {
 		return nil
 	}
@@ -228,7 +228,7 @@ func (c *coordinatorImpl) Height() uint64 {
 	return c.height
 }
 
-func votesToProto(votes []*entity.Vote) []*pb.Vote {
+func votesToProto(votes []*dto.Vote) []*pb.Vote {
 	pbvotes := make([]*pb.Vote, 0, len(votes))
 	for _, v := range votes {
 		pbvotes = append(pbvotes, &pb.Vote{

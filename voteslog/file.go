@@ -5,7 +5,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/pkg/errors"
-	"github.com/vadiminshakov/committer/core/entity"
+	"github.com/vadiminshakov/committer/core/dto"
 	"os"
 	"path"
 	"strconv"
@@ -195,7 +195,7 @@ func (c *FileVotesLog) Get(index uint64) (string, []byte, bool) {
 }
 
 // SetVotes writes cohort votes to the votes log.
-func (c *FileVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
+func (c *FileVotesLog) SetVotes(index uint64, votes []*dto.Vote) error {
 	if _, ok := c.indexVotes[index]; ok {
 		return ErrExists
 	}
@@ -252,7 +252,7 @@ func (c *FileVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
 }
 
 // GetVotes queries cohort votes at specific index in the votes log.
-func (c *FileVotesLog) GetVotes(index uint64) []*entity.Vote {
+func (c *FileVotesLog) GetVotes(index uint64) []*dto.Vote {
 	msg, ok := c.indexVotes[index]
 	if !ok {
 		return nil

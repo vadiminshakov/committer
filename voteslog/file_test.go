@@ -2,7 +2,7 @@ package voteslog
 
 import (
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/entity"
+	"github.com/vadiminshakov/committer/core/dto"
 	"os"
 	"strconv"
 	"testing"
@@ -83,7 +83,7 @@ func TestServiceDownUpAndRepairIndex(t *testing.T) {
 
 	for i := 0; i < segmentThreshold+(segmentThreshold/2); i++ {
 		require.NoError(t, log.Set(uint64(i), "key"+strconv.Itoa(i), []byte("value"+strconv.Itoa(i))))
-		require.NoError(t, log.SetVotes(uint64(i), []*entity.Vote{{"node" + strconv.Itoa(i), true}}))
+		require.NoError(t, log.SetVotes(uint64(i), []*dto.Vote{{"node" + strconv.Itoa(i), true}}))
 	}
 
 	require.NoError(t, log.Close())
@@ -94,7 +94,7 @@ func TestServiceDownUpAndRepairIndex(t *testing.T) {
 	for i := 0; i < segmentThreshold+(segmentThreshold/2); i++ {
 		require.Equal(t, "key"+strconv.Itoa(i), log.indexMsgs[uint64(i)].Key)
 		require.Equal(t, "value"+strconv.Itoa(i), string(log.indexMsgs[uint64(i)].Value))
-		require.Equal(t, entity.Vote{"node" + strconv.Itoa(i), true}, *log.indexVotes[uint64(i)].Votes[0])
+		require.Equal(t, dto.Vote{"node" + strconv.Itoa(i), true}, *log.indexVotes[uint64(i)].Votes[0])
 	}
 
 	require.NoError(t, os.RemoveAll("./testlogdata"))
@@ -105,7 +105,7 @@ func TestLoadIndexVotes(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		require.NoError(t, log.SetVotes(uint64(i), []*entity.Vote{{"node" + strconv.Itoa(i), true}}))
+		require.NoError(t, log.SetVotes(uint64(i), []*dto.Vote{{"node" + strconv.Itoa(i), true}}))
 	}
 
 	stat, err := log.votes.Stat()
@@ -115,7 +115,7 @@ func TestLoadIndexVotes(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		require.Equal(t, entity.Vote{"node" + strconv.Itoa(i), true}, *index[uint64(i)].Votes[0])
+		require.Equal(t, dto.Vote{"node" + strconv.Itoa(i), true}, *index[uint64(i)].Votes[0])
 	}
 
 	require.NoError(t, os.RemoveAll("./testlogdata"))

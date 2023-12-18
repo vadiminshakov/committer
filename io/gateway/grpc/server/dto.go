@@ -1,34 +1,34 @@
 package server
 
 import (
-	"github.com/vadiminshakov/committer/core/entity"
+	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 )
 
-func proposeRequestPbToEntity(request *proto.ProposeRequest) *entity.ProposeRequest {
+func proposeRequestPbToEntity(request *proto.ProposeRequest) *dto.ProposeRequest {
 	if request == nil {
 		return nil
 	}
 
-	return &entity.ProposeRequest{
+	return &dto.ProposeRequest{
 		Key:    request.Key,
 		Value:  request.Value,
 		Height: request.Index,
 	}
 }
 
-func commitRequestPbToEntity(request *proto.CommitRequest) *entity.CommitRequest {
+func commitRequestPbToEntity(request *proto.CommitRequest) *dto.CommitRequest {
 	if request == nil {
 		return nil
 	}
 
-	return &entity.CommitRequest{
+	return &dto.CommitRequest{
 		Height:     request.Index,
 		IsRollback: request.IsRollback,
 	}
 }
 
-func cohortResponseToProto(e *entity.CohortResponse) *proto.Response {
+func cohortResponseToProto(e *dto.CohortResponse) *proto.Response {
 	if e == nil {
 		return nil
 	}
@@ -38,14 +38,14 @@ func cohortResponseToProto(e *entity.CohortResponse) *proto.Response {
 	}
 }
 
-func votesPbToEntity(votes []*proto.Vote) []*entity.Vote {
+func votesPbToEntity(votes []*proto.Vote) []*dto.Vote {
 	if votes == nil {
 		return nil
 	}
 
-	newVotes := make([]*entity.Vote, 0, len(votes))
+	newVotes := make([]*dto.Vote, 0, len(votes))
 	for _, v := range votes {
-		newVotes = append(newVotes, &entity.Vote{
+		newVotes = append(newVotes, &dto.Vote{
 			Node:       v.Node,
 			IsAccepted: v.IsAccepted,
 		})

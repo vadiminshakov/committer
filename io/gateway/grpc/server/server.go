@@ -9,7 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
-	"github.com/vadiminshakov/committer/core/entity"
+	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
@@ -25,7 +25,7 @@ const (
 )
 
 type Coordinator interface {
-	Broadcast(ctx context.Context, req entity.BroadcastRequest) (*entity.BroadcastResponse, error)
+	Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error)
 	Height() uint64
 }
 
@@ -90,7 +90,7 @@ func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) 
 }
 
 func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, error) {
-	resp, err := s.coordinator.Broadcast(ctx, entity.BroadcastRequest{
+	resp, err := s.coordinator.Broadcast(ctx, dto.BroadcastRequest{
 		Key:   req.Key,
 		Value: req.Value,
 	})
@@ -104,10 +104,10 @@ func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, er
 	}, nil
 }
 
-func protoToVotes(votes []*proto.Vote) []*entity.Vote {
-	pbvotes := make([]*entity.Vote, 0, len(votes))
+func protoToVotes(votes []*proto.Vote) []*dto.Vote {
+	pbvotes := make([]*dto.Vote, 0, len(votes))
 	for _, v := range votes {
-		pbvotes = append(pbvotes, &entity.Vote{
+		pbvotes = append(pbvotes, &dto.Vote{
 			Node:       v.Node,
 			IsAccepted: v.IsAccepted,
 		})

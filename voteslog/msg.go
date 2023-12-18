@@ -1,6 +1,6 @@
 package voteslog
 
-import "github.com/vadiminshakov/committer/core/entity"
+import "github.com/vadiminshakov/committer/core/dto"
 
 type msg struct {
 	Idx   uint64
@@ -14,7 +14,7 @@ func (m msg) Index() uint64 {
 
 type votesMsg struct {
 	Idx   uint64
-	Votes []*entity.Vote
+	Votes []*dto.Vote
 }
 
 func (v votesMsg) Index() uint64 {

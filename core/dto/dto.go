@@ -1,4 +1,4 @@
-package entity
+package dto
 
 type ProposeRequest struct {
 	Key    string
@@ -28,17 +28,12 @@ type Vote struct {
 	IsAccepted bool
 }
 
-const (
-	ResponseAck = iota
-	ResponseNack
-)
-
 type BroadcastRequest struct {
 	Key   string
 	Value []byte
 }
 
 type BroadcastResponse struct {
-	Type  int32
+	Type  ResponseType
 	Index uint64
 }

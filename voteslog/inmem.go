@@ -1,19 +1,19 @@
 package voteslog
 
 import (
-	"github.com/vadiminshakov/committer/core/entity"
+	"github.com/vadiminshakov/committer/core/dto"
 	"sync"
 )
 
 type InmemVotesLog struct {
 	kv      map[uint64]msg
-	votes   map[uint64][]*entity.Vote
+	votes   map[uint64][]*dto.Vote
 	muKv    sync.RWMutex
 	muVotes sync.RWMutex
 }
 
 func NewInmemLog() *InmemVotesLog {
-	kvstore, votesstore := make(map[uint64]msg), make(map[uint64][]*entity.Vote)
+	kvstore, votesstore := make(map[uint64]msg), make(map[uint64][]*dto.Vote)
 	return &InmemVotesLog{kv: kvstore, votes: votesstore}
 }
 
@@ -32,7 +32,7 @@ func (c *InmemVotesLog) Get(index uint64) (string, []byte, bool) {
 	return message.Key, message.Value, ok
 }
 
-func (c *InmemVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
+func (c *InmemVotesLog) SetVotes(index uint64, votes []*dto.Vote) error {
 	c.muVotes.Lock()
 	defer c.muVotes.Unlock()
 	c.votes[index] = append(c.votes[index], votes...)
@@ -40,7 +40,7 @@ func (c *InmemVotesLog) SetVotes(index uint64, votes []*entity.Vote) error {
 	return nil
 }
 
-func (c *InmemVotesLog) GetVotes(index uint64) []*entity.Vote {
+func (c *InmemVotesLog) GetVotes(index uint64) []*dto.Vote {
 	c.muVotes.RLock()
 	defer c.muVotes.RUnlock()
 	return c.votes[index]
