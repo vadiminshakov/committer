@@ -85,6 +85,13 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastReques
 	// commit
 	log.Infof("commit %s", req.Key)
 	if err := c.commit(ctx); err != nil {
+		s, ok := status.FromError(err)
+		if !ok {
+			return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, fmt.Errorf("failed to extract grpc status code from err: %s", err)
+		}
+		if s.Code() == codes.AlreadyExists {
+			return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, nil
+		}
 		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, "failed to send commit")
 	}
 
