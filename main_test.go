@@ -242,7 +242,8 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	for key, val := range testtable {
 		md := metadata.Pairs("blockcommit", "1000ms")
 		ctx := metadata.NewOutgoingContext(context.Background(), md)
-		c.Put(ctx, key, val)
+		_, err := c.Put(ctx, key, val)
+		failfast(err)
 	}
 
 	time.Sleep(3 * time.Second)
@@ -250,7 +251,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	for _, node := range nodes[FOLLOWER_TYPE] {
 		cli, err := client.New(node.Nodeaddr, tracer)
 		assert.NoError(t, err, "err not nil")
-		for key, _ := range testtable {
+		for key := range testtable {
 			// check values NOT added by nodes
 			resp, err := cli.Get(context.Background(), key)
 			assert.Error(t, err, "err not nil")
@@ -274,30 +275,26 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 	if _, err := os.Stat(COORDINATOR_BADGER); !os.IsNotExist(err) {
 		// del dir
 		err := os.RemoveAll(COORDINATOR_BADGER)
-		if err != nil {
-			panic(err)
-		}
+		failfast(err)
 	}
 	if _, err := os.Stat(FOLLOWER_BADGER); !os.IsNotExist(err) {
 		// del dir
-		err := os.RemoveAll(FOLLOWER_BADGER)
-		if err != nil {
-			panic(err)
-		}
+		failfast(os.RemoveAll(FOLLOWER_BADGER))
 	}
 	if _, err := os.Stat("./tmp"); !os.IsNotExist(err) {
 		// del dir
-		err := os.RemoveAll("./tmp")
-		if err != nil {
-			panic(err)
-		}
+		failfast(os.RemoveAll("./tmp"))
+
 	}
 
-	os.Mkdir(COORDINATOR_BADGER, os.FileMode(0777))
-	os.Mkdir(FOLLOWER_BADGER, os.FileMode(0777))
-	os.Mkdir("./tmp", os.FileMode(0777))
-	os.Mkdir("./tmp/cohort", os.FileMode(0777))
-	os.Mkdir("./tmp/coord", os.FileMode(0777))
+	{
+		// nolint:errcheck
+		failfast(os.Mkdir(COORDINATOR_BADGER, os.FileMode(0777)))
+		failfast(os.Mkdir(FOLLOWER_BADGER, os.FileMode(0777)))
+		failfast(os.Mkdir("./tmp", os.FileMode(0777)))
+		failfast(os.Mkdir("./tmp/cohort", os.FileMode(0777)))
+		failfast(os.Mkdir("./tmp/coord", os.FileMode(0777)))
+	}
 
 	var blocking grpc.UnaryServerInterceptor
 	switch block {
@@ -316,34 +313,26 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 			node.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 		}
 		// create db dir
-		os.Mkdir(node.DBPath, os.FileMode(0777))
+		failfast(os.Mkdir(node.DBPath, os.FileMode(0777)))
 		node.DBPath = fmt.Sprintf("%s%s%s", FOLLOWER_BADGER, strconv.Itoa(i), "~")
 		// start follower
 		database, err := db.New(node.DBPath)
-		if err != nil {
-			panic(err)
-		}
+		failfast(err)
 
 		var tracer *zipkin.Tracer
 
 		if node.WithTrace {
 			tracer, err = trace.Tracer("client", node.Nodeaddr)
-			if err != nil {
-				panic(err)
-			}
+			failfast(err)
 		}
 
 		c, err := voteslog.NewOnDiskLog("./tmp/cohort/" + strconv.Itoa(i))
-		if err != nil {
-			panic(err)
-		}
+		failfast(err)
 		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, node.Timeout)
 		cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(node.CommitType))
 
 		followerServer, err := server.New(node, tracer, cohortImpl, nil, database)
-		if err != nil {
-			panic(err)
-		}
+		failfast(err)
 
 		if block == 0 {
 			go followerServer.Run(server.WhiteListChecker)
@@ -357,36 +346,26 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 	// start coordinators (in two- and three-phase modes)
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
 		// create db dir
-		os.Mkdir(coordConfig.DBPath, os.FileMode(0777))
+		failfast(os.Mkdir(coordConfig.DBPath, os.FileMode(0777)))
 		coordConfig.DBPath = fmt.Sprintf("%s%s%s", COORDINATOR_BADGER, strconv.Itoa(i), "~")
 		// start coordinator
 		database, err := db.New(coordConfig.DBPath)
-		if err != nil {
-			panic(err)
-		}
+		failfast(err)
 
 		c, err := voteslog.NewOnDiskLog("./tmp/coord/" + strconv.Itoa(i))
-		if err != nil {
-			panic(err)
-		}
+		failfast(err)
 		coord, err := coordinator.New(coordConfig, c, database)
-		if err != nil {
-			panic(err)
-		}
+		failfast(err)
 
 		var tracer *zipkin.Tracer
 
 		if coordConfig.WithTrace {
 			tracer, err = trace.Tracer("server", coordConfig.Nodeaddr)
-			if err != nil {
-				panic(err)
-			}
+			failfast(err)
 		}
 
 		coordServer, err := server.New(coordConfig, tracer, nil, coord, database)
-		if err != nil {
-			panic(err)
-		}
+		failfast(err)
 
 		if block == 0 {
 			go coordServer.Run(server.WhiteListChecker)
@@ -401,9 +380,13 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		for _, f := range stopfuncs {
 			f()
 		}
-		if err := os.RemoveAll("./tmp"); err != nil {
-			return err
-		}
+		failfast(os.RemoveAll("./tmp"))
 		return os.RemoveAll(BADGER_DIR)
+	}
+}
+
+func failfast(err error) {
+	if err != nil {
+		panic(err)
 	}
 }
