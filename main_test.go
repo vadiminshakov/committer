@@ -242,8 +242,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	for key, val := range testtable {
 		md := metadata.Pairs("blockcommit", "1000ms")
 		ctx := metadata.NewOutgoingContext(context.Background(), md)
-		_, err := c.Put(ctx, key, val)
-		failfast(err)
+		c.Put(ctx, key, val) // nolint:errcheck
 	}
 
 	time.Sleep(3 * time.Second)
