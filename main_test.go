@@ -313,8 +313,8 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 			node.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 		}
 		// create db dir
-		failfast(os.Mkdir(node.DBPath, os.FileMode(0777)))
 		node.DBPath = fmt.Sprintf("%s%s%s", FOLLOWER_BADGER, strconv.Itoa(i), "~")
+		failfast(os.Mkdir(node.DBPath, os.FileMode(0777)))
 		// start follower
 		database, err := db.New(node.DBPath)
 		failfast(err)
@@ -346,8 +346,9 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 	// start coordinators (in two- and three-phase modes)
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
 		// create db dir
-		failfast(os.Mkdir(coordConfig.DBPath, os.FileMode(0777)))
 		coordConfig.DBPath = fmt.Sprintf("%s%s%s", COORDINATOR_BADGER, strconv.Itoa(i), "~")
+		failfast(os.Mkdir(coordConfig.DBPath, os.FileMode(0777)))
+
 		// start coordinator
 		database, err := db.New(coordConfig.DBPath)
 		failfast(err)
