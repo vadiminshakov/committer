@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"net"
 	"time"
+	"unsafe"
 )
 
 type Option func(server *Server) error
@@ -32,19 +33,20 @@ type Coordinator interface {
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
 	proto.UnimplementedCommitServer
-	Addr        string
-	GRPCServer  *grpc.Server
+	cohort      cohort.Cohort
 	DB          db.Repository
-	DBPath      string
-	ProposeHook func(req *proto.ProposeRequest) bool
-	CommitHook  func(req *proto.CommitRequest) bool
+	coordinator Coordinator
+	GRPCServer  *grpc.Server
 	Tracer      *zipkin.Tracer
 	Config      *config.Config
-	coordinator Coordinator
-	cohort      cohort.Cohort
+	ProposeHook func(req *proto.ProposeRequest) bool
+	CommitHook  func(req *proto.CommitRequest) bool
+	Addr        string
+	DBPath      string
 }
 
 func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
+	println(unsafe.Sizeof(s.cohort), unsafe.Sizeof(s.DB), unsafe.Sizeof(s.coordinator), unsafe.Sizeof(s.Addr), unsafe.Sizeof(s.GRPCServer), unsafe.Sizeof(s.ProposeHook))
 	var span zipkin.Span
 	if s.Tracer != nil {
 		span, ctx = s.Tracer.StartSpanFromContext(ctx, "ProposeHandle")

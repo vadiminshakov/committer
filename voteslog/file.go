@@ -50,11 +50,6 @@ type FileVotesLog struct {
 	// buffer for cohort votes
 	bufVotes *bytes.Buffer
 
-	// offset of last msg record in file
-	lastOffsetMsgs int64
-	// offset of last votes round record in file
-	lastOffsetVotes int64
-
 	// path to directory with logs
 	pathToLogsDir string
 
@@ -62,6 +57,11 @@ type FileVotesLog struct {
 	oldestMsgsSegmentName string
 	// name of the old segment for votes log
 	oldestVotesSegmentName string
+
+	// offset of last msg record in file
+	lastOffsetMsgs int64
+	// offset of last votes round record in file
+	lastOffsetVotes int64
 
 	// number of segments for msgs log
 	segmentsNumberMsgs int
@@ -139,7 +139,7 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 	}
 
 	// gob encode key and value
-	if err := c.encMsgs.Encode(msg{index, key, value}); err != nil {
+	if err := c.encMsgs.Encode(msg{Key: key, Value: value, Idx: index}); err != nil {
 		return errors.Wrap(err, "failed to encode msg for log")
 	}
 	// write to log at last offset
@@ -155,9 +155,9 @@ func (c *FileVotesLog) Set(index uint64, key string, value []byte) error {
 	c.bufMsgs.Reset()
 
 	// update index
-	c.indexMsgs[index] = msg{index, key, value}
+	c.indexMsgs[index] = msg{Key: key, Value: value, Idx: index}
 
-	c.rotateSegmentMsgs(msg{index, key, value})
+	c.rotateSegmentMsgs(msg{Key: key, Value: value, Idx: index})
 
 	return nil
 }
@@ -228,7 +228,7 @@ func (c *FileVotesLog) SetVotes(index uint64, votes []*dto.Vote) error {
 	}
 
 	// gob encode key and value
-	if err := c.encVotes.Encode(votesMsg{index, votes}); err != nil {
+	if err := c.encVotes.Encode(votesMsg{Votes: votes, Idx: index}); err != nil {
 		return errors.Wrap(err, "failed to encode msg for votes log")
 	}
 	// write to log at last offset
@@ -244,9 +244,9 @@ func (c *FileVotesLog) SetVotes(index uint64, votes []*dto.Vote) error {
 	c.bufVotes.Reset()
 
 	// update index
-	c.indexVotes[index] = votesMsg{index, votes}
+	c.indexVotes[index] = votesMsg{Votes: votes, Idx: index}
 
-	c.rotateSegmentVotes(votesMsg{index, votes})
+	c.rotateSegmentVotes(votesMsg{Votes: votes, Idx: index})
 
 	return nil
 }

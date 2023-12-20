@@ -21,12 +21,12 @@ import (
 )
 
 type coordinatorImpl struct {
+	vlog      voteslog.Log
+	database  db.Repository
 	followers map[string]*client.CommitClient
 	tracer    *zipkin.Tracer
 	config    *config.Config
 	height    uint64
-	vlog      voteslog.Log
-	database  db.Repository
 }
 
 func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coordinatorImpl, error) {

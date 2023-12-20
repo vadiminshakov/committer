@@ -16,15 +16,15 @@ import (
 )
 
 type Committer struct {
+	noAutoCommit  map[uint64]struct{}
+	db            db.Repository
+	vlog          voteslog.Log
 	proposeHook   func(req *dto.ProposeRequest) bool
 	precommitHook func(height uint64) bool
 	commitHook    func(req *dto.CommitRequest) bool
-	height        uint64
-	db            db.Repository
-	vlog          voteslog.Log
-	noAutoCommit  map[uint64]struct{}
-	timeout       uint64
 	precommitDone pendingPrecommit
+	height        uint64
+	timeout       uint64
 }
 
 type pendingPrecommit struct {

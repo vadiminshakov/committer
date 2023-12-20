@@ -3,9 +3,9 @@ package voteslog
 import "github.com/vadiminshakov/committer/core/dto"
 
 type msg struct {
-	Idx   uint64
 	Key   string
 	Value []byte
+	Idx   uint64
 }
 
 func (m msg) Index() uint64 {
@@ -13,8 +13,8 @@ func (m msg) Index() uint64 {
 }
 
 type votesMsg struct {
-	Idx   uint64
 	Votes []*dto.Vote
+	Idx   uint64
 }
 
 func (v votesMsg) Index() uint64 {

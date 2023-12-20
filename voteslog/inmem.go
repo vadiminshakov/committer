@@ -20,7 +20,7 @@ func NewInmemLog() *InmemVotesLog {
 func (c *InmemVotesLog) Set(index uint64, key string, value []byte) error {
 	c.muKv.Lock()
 	defer c.muKv.Unlock()
-	c.kv[index] = msg{index, key, value}
+	c.kv[index] = msg{Key: key, Value: value, Idx: index}
 
 	return nil
 }

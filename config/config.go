@@ -9,11 +9,11 @@ type Config struct {
 	Role        string
 	Nodeaddr    string
 	Coordinator string
+	CommitType  string
+	DBPath      string
 	Followers   []string
 	Whitelist   []string
-	CommitType  string
 	Timeout     uint64
-	DBPath      string
 	WithTrace   bool
 }
 
@@ -60,9 +60,9 @@ func Get() *Config {
 		}
 	}
 	whitelistArray := strings.Split(*whitelist, ",")
-	return &Config{*role, *nodeaddr, *coordinator,
-		followersArray, whitelistArray, *committype,
-		*timeout, *dbpath, *withTrace}
+	return &Config{Role: *role, Nodeaddr: *nodeaddr, Coordinator: *coordinator,
+		CommitType: *committype, DBPath: *dbpath, Followers: followersArray, Whitelist: whitelistArray,
+		Timeout: *timeout, WithTrace: *withTrace}
 
 }
 
