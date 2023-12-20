@@ -97,7 +97,7 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastReques
 
 	log.Infof("coordinator got ack from all cohorts, committed key %s", req.Key)
 
-	// the coordinator got all the answers, so it's time to persist msg and send commit command to followers
+	// the coordinator got all the answers, so it's time to persist msg
 	key, value, ok := c.vlog.Get(c.height)
 	if !ok {
 		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
