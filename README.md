@@ -50,11 +50,11 @@ example **coordinator**:
 
 Hooks for requests checking on Propose and Commit stage. 
 It's just a function that receives *pb.ProposeRequest or *pb.CommitRequest and returns true or false.
-Function body incorporate all validation logic. 
+Function body incorporate all validation logic.
 
-Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go).
+Example hooks can be found at [core/cohort/commitalgo/hooks/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/cohort/commitalgo/hooks/hooks.go).
  
-You can replace code in the [hooks/src/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
+You can replace code in the [core/cohort/commitalgo/hooks/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/cohort/commitalgo/hooks/hooks.go) file used by committer to inject your validation logic into the handlers.
 
 **Testing**
 
