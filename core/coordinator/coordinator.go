@@ -3,7 +3,6 @@ package coordinator
 import (
 	"context"
 	"fmt"
-	"github.com/openzipkin/zipkin-go"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
@@ -23,7 +22,6 @@ type coordinatorImpl struct {
 	vlog      voteslog.Log
 	database  db.Repository
 	followers map[string]*client.CommitClient
-	tracer    *zipkin.Tracer
 	config    *config.Config
 	height    uint64
 }
@@ -48,16 +46,6 @@ func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coord
 }
 
 func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error) {
-	var (
-		err  error
-		span zipkin.Span
-	)
-
-	if c.tracer != nil {
-		span, ctx = c.tracer.StartSpanFromContext(ctx, "PutHandle")
-		defer span.Finish()
-	}
-
 	// propose
 	log.Infof("propose key %s", req.Key)
 	if err := c.propose(ctx, req); err != nil {
@@ -90,7 +78,7 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastReques
 	if !ok {
 		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
 	}
-	if err = c.database.Put(key, value); err != nil {
+	if err := c.database.Put(key, value); err != nil {
 		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, status.Error(codes.Internal, "failed to save msg on coordinator")
 	}
 
@@ -109,7 +97,6 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 	}
 
 	votes := make([]*dto.Vote, 0, len(c.followers))
-	var span zipkin.Span
 	for nodename, follower := range c.followers {
 		var (
 			resp *pb.Response
@@ -122,9 +109,6 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 				Value:      req.Value,
 				CommitType: ctype,
 				Index:      c.height})
-			if c.tracer != nil && span != nil {
-				span.Finish()
-			}
 			if err != nil {
 				log.Errorf(err.Error())
 				isAccepted = false
@@ -158,17 +142,9 @@ func (c *coordinatorImpl) preCommit(ctx context.Context, req dto.BroadcastReques
 		return nil
 	}
 
-	var span zipkin.Span
 	for _, follower := range c.followers {
-		if c.tracer != nil {
-			span, ctx = c.tracer.StartSpanFromContext(ctx, "Precommit")
-		}
-
 		votes := votesToProto(c.vlog.GetVotes(c.height))
 		resp, err := follower.Precommit(ctx, &pb.PrecommitRequest{Index: c.height, Votes: votes})
-		if c.tracer != nil && span != nil {
-			span.Finish()
-		}
 		if err != nil {
 			return err
 		}
@@ -196,15 +172,8 @@ func (c *coordinatorImpl) preCommit(ctx context.Context, req dto.BroadcastReques
 }
 
 func (c *coordinatorImpl) commit(ctx context.Context) error {
-	var span zipkin.Span
 	for _, follower := range c.followers {
-		if c.tracer != nil {
-			span, ctx = c.tracer.StartSpanFromContext(ctx, "Commit")
-		}
 		r, err := follower.Commit(ctx, &pb.CommitRequest{Index: c.height})
-		if c.tracer != nil && span != nil {
-			span.Finish()
-		}
 		if err != nil {
 			return err
 		}

@@ -14,7 +14,6 @@ type Config struct {
 	Followers   []string
 	Whitelist   []string
 	Timeout     uint64
-	WithTrace   bool
 }
 
 type followers []string
@@ -48,7 +47,6 @@ func Get() *Config {
 	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
 	dbpath := flag.String("dbpath", "./badger", "database path on filesystem")
-	withTrace := flag.Bool("withtrace", false, "use distributed tracer or not (true/false)")
 	followers := flag.String("followers", "", "follower's addresses")
 	whitelist := flag.String("whitelist", "127.0.0.1", "allowed hosts")
 	flag.Parse()
@@ -62,7 +60,7 @@ func Get() *Config {
 	whitelistArray := strings.Split(*whitelist, ",")
 	return &Config{Role: *role, Nodeaddr: *nodeaddr, Coordinator: *coordinator,
 		CommitType: *committype, DBPath: *dbpath, Followers: followersArray, Whitelist: whitelistArray,
-		Timeout: *timeout, WithTrace: *withTrace}
+		Timeout: *timeout}
 
 }
 

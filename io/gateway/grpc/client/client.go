@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"github.com/golang/protobuf/ptypes/empty"
-	"github.com/openzipkin/zipkin-go"
 	"github.com/pkg/errors"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
@@ -14,7 +13,6 @@ import (
 
 type CommitClient struct {
 	Connection proto.CommitClient
-	Tracer     *zipkin.Tracer
 }
 
 // New creates instance of peer client.

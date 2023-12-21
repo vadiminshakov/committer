@@ -36,12 +36,12 @@ All config parameters may be specified via command-line flags
 
 example **follower**:
 ```
-./committer -withtrace=false -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/follower
+./committer -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/follower
 ```
 
 example **coordinator**:
 ```
-./committer -withtrace=false -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
+./committer -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
 ```
 
 <br>
@@ -55,20 +55,6 @@ Function body incorporate all validation logic.
 Example hooks can be found at [hooks/src/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go).
  
 You can replace code in the [hooks/src/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/algorithm/hooks/src/hooks.go) file used by committer to inject your validation logic into the handlers.
-
-**Tracing**
-
-Start Zipkin:
-
-```
-docker run -d -p 9411:9411 openzipkin/zipkin
-```
-
-Set `--withtrace true` command-line flag or `withtrace: true` config option in config file _before starting committer_.
-
-Start committer, open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
-
-<br>
 
 **Testing**
 
