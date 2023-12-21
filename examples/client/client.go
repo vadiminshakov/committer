@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
-	"github.com/vadiminshakov/committer/io/trace"
 	"strconv"
 )
 
@@ -13,13 +12,9 @@ const coordinatorAddr = "localhost:3000"
 
 func main() {
 	key, value := "somekey", "somevalue"
-	tracer, err := trace.Tracer("client", coordinatorAddr)
-	if err != nil {
-		panic(err)
-	}
 
 	// create a client for interaction with coordinator
-	cli, err := client.New(coordinatorAddr, tracer)
+	cli, err := client.New(coordinatorAddr)
 	if err != nil {
 		panic(err)
 	}
