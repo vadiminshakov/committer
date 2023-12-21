@@ -12,7 +12,6 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
-	"github.com/vadiminshakov/committer/io/trace"
 	"github.com/vadiminshakov/committer/voteslog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,19 +29,9 @@ type coordinatorImpl struct {
 }
 
 func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coordinatorImpl, error) {
-	var tracer *zipkin.Tracer
-	var err error
-	if conf.WithTrace {
-		// get Zipkin tracer
-		tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", conf.Role, conf.Nodeaddr), conf.Nodeaddr)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	flwrs := make(map[string]*client.CommitClient, len(conf.Followers))
 	for _, f := range conf.Followers {
-		client, err := client.New(f, tracer)
+		client, err := client.New(f)
 		if err != nil {
 			return nil, err
 		}
@@ -51,7 +40,6 @@ func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coord
 
 	return &coordinatorImpl{
 		followers: flwrs,
-		tracer:    tracer,
 		height:    0,
 		vlog:      vlog,
 		database:  database,
@@ -123,9 +111,6 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 	votes := make([]*dto.Vote, 0, len(c.followers))
 	var span zipkin.Span
 	for nodename, follower := range c.followers {
-		if c.tracer != nil {
-			span, ctx = c.tracer.StartSpanFromContext(ctx, "Propose")
-		}
 		var (
 			resp *pb.Response
 			err  error

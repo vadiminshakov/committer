@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/golang/protobuf/ptypes/empty"
-	"github.com/openzipkin/zipkin-go"
-	zipkingrpc "github.com/openzipkin/zipkin-go/middleware/grpc"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
@@ -15,7 +13,6 @@ import (
 	"google.golang.org/grpc"
 	"net"
 	"time"
-	"unsafe"
 )
 
 type Option func(server *Server) error
@@ -37,7 +34,6 @@ type Server struct {
 	DB          db.Repository
 	coordinator Coordinator
 	GRPCServer  *grpc.Server
-	Tracer      *zipkin.Tracer
 	Config      *config.Config
 	ProposeHook func(req *proto.ProposeRequest) bool
 	CommitHook  func(req *proto.CommitRequest) bool
@@ -46,44 +42,21 @@ type Server struct {
 }
 
 func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
-	println(unsafe.Sizeof(s.cohort), unsafe.Sizeof(s.DB), unsafe.Sizeof(s.coordinator), unsafe.Sizeof(s.Addr), unsafe.Sizeof(s.GRPCServer), unsafe.Sizeof(s.ProposeHook))
-	var span zipkin.Span
-	if s.Tracer != nil {
-		span, ctx = s.Tracer.StartSpanFromContext(ctx, "ProposeHandle")
-		defer span.Finish()
-	}
 	resp, err := s.cohort.Propose(ctx, proposeRequestPbToEntity(req))
 	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*proto.Response, error) {
-	var span zipkin.Span
-	if s.Tracer != nil {
-		span, _ = s.Tracer.StartSpanFromContext(ctx, "PrecommitHandle")
-		defer span.Finish()
-	}
 	resp, err := s.cohort.Precommit(ctx, req.Index, votesPbToEntity(req.Votes))
 	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.Response, error) {
-	var span zipkin.Span
-	if s.Tracer != nil {
-		span, ctx = s.Tracer.StartSpanFromContext(ctx, "CommitHandle")
-		defer span.Finish()
-	}
-
 	resp, err := s.cohort.Commit(ctx, commitRequestPbToEntity(req))
 	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) {
-	var span zipkin.Span
-	if s.Tracer != nil {
-		span, ctx = s.Tracer.StartSpanFromContext(ctx, "GetHandle")
-		defer span.Finish()
-	}
-
 	value, err := s.DB.Get(req.Key)
 	if err != nil {
 		return nil, err
@@ -119,17 +92,11 @@ func protoToVotes(votes []*proto.Vote) []*dto.Vote {
 }
 
 func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*proto.Info, error) {
-	var span zipkin.Span
-	if s.Tracer != nil {
-		span, ctx = s.Tracer.StartSpanFromContext(ctx, "NodeInfoHandle")
-		defer span.Finish()
-	}
-
 	return &proto.Info{Height: s.cohort.Height()}, nil
 }
 
 // New fabric func for Server
-func New(conf *config.Config, tracer *zipkin.Tracer, cohort cohort.Cohort, coordinator Coordinator, database db.Repository, opts ...Option) (*Server, error) {
+func New(conf *config.Config, cohort cohort.Cohort, coordinator Coordinator, database db.Repository, opts ...Option) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
 		FullTimestamp:   true,
@@ -137,7 +104,7 @@ func New(conf *config.Config, tracer *zipkin.Tracer, cohort cohort.Cohort, coord
 	})
 
 	server := &Server{Addr: conf.Nodeaddr, cohort: cohort, coordinator: coordinator,
-		DB: database, Config: conf, Tracer: tracer}
+		DB: database, Config: conf}
 	var err error
 	for _, option := range opts {
 		err = option(server)
@@ -174,12 +141,7 @@ func checkServerFields(server *Server) error {
 // Run starts non-blocking GRPC server
 func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	var err error
-
-	if s.Config.WithTrace {
-		s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...), grpc.StatsHandler(zipkingrpc.NewServerHandler(s.Tracer)))
-	} else {
-		s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
-	}
+	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
 	proto.RegisterCommitServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)

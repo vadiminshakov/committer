@@ -3,7 +3,6 @@ package cohort
 import (
 	"context"
 	"errors"
-	"github.com/openzipkin/zipkin-go"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
 	"github.com/vadiminshakov/committer/core/dto"
 )
@@ -17,18 +16,15 @@ type Cohort interface {
 
 type CohortImpl struct {
 	committer  *commitalgo.Committer
-	tracer     *zipkin.Tracer
 	commitType Mode
 	height     uint64
 }
 
 func NewCohort(
-	tracer *zipkin.Tracer,
 	committer *commitalgo.Committer,
 	commitType Mode) *CohortImpl {
 	return &CohortImpl{
 		committer:  committer,
-		tracer:     tracer,
 		commitType: commitType,
 	}
 }

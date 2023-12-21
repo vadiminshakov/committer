@@ -28,7 +28,6 @@ All config parameters may be specified via command-line flags
 | committype      | two-phase or three-phase commit mode         | three-phase                       | -committype=two-phase  
 | timeout         | timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)  |  1000 |  -timeout=500
 | dbpath          |  database path on filesystem                 |  ./badger                         |  -dbpath=/tmp/badger
-| withtrace       | use distributed tracer or not (true/false)   | false                             |  -withtrace=true
 | followers       | comma-separated list of followers' addresses | ""                                |  -followers=localhost:3052,localhost:3053,localhost:3053
 | whitelist       | comma-separated list of allowed hosts        | 127.0.0.1                         |  -whitelist=192.168.0.105,192.168.0.101
 
@@ -68,17 +67,6 @@ docker run -d -p 9411:9411 openzipkin/zipkin
 Set `--withtrace true` command-line flag or `withtrace: true` config option in config file _before starting committer_.
 
 Start committer, open [http://localhost:9411/zipkin](http://localhost:9411/zipkin)
-
-**Example trace with 3 followers and 1 coordinator**
-
-```
-make show-trace -j
-```
-
-open [http://localhost:9411/zipkin/dependency](http://localhost:9411/zipkin/dependency)
-
-
-![tracer](https://github.com/vadiminshakov/committer/blob/master/trace.png)
 
 <br>
 

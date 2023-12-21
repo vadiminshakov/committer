@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"github.com/openzipkin/zipkin-go"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
@@ -10,7 +8,6 @@ import (
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
-	"github.com/vadiminshakov/committer/io/trace"
 	"github.com/vadiminshakov/committer/voteslog"
 	"os"
 	"os/signal"
@@ -43,18 +40,10 @@ func main() {
 		panic(err)
 	}
 
-	var tracer *zipkin.Tracer
-	if conf.WithTrace {
-		tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", conf.Role, conf.Nodeaddr), conf.Nodeaddr)
-		if err != nil {
-			panic(err)
-		}
-	}
-
 	committer := commitalgo.NewCommitter(database, l, hooks.Propose, hooks.Commit, conf.Timeout)
-	cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(conf.CommitType))
+	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 
-	s, err := server.New(conf, tracer, cohortImpl, coordImpl, database)
+	s, err := server.New(conf, cohortImpl, coordImpl, database)
 	if err != nil {
 		panic(err)
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/openzipkin/zipkin-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/vadiminshakov/committer/config"
@@ -15,7 +14,6 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
-	"github.com/vadiminshakov/committer/io/trace"
 	"github.com/vadiminshakov/committer/voteslog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -79,17 +77,8 @@ func TestHappyPath(t *testing.T) {
 		canceller = startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
 		log.Println("***\nTEST IN THREE-PHASE MODE\n***")
 	}
-	var (
-		tracer *zipkin.Tracer
-		err    error
-	)
-	if coordConfig.WithTrace {
-		tracer, err = trace.Tracer("client", coordConfig.Nodeaddr)
-		if err != nil {
-			t.Errorf("no tracer, err: %v", err)
-		}
-	}
-	c, err := client.New(coordConfig.Nodeaddr, tracer)
+
+	c, err := client.New(coordConfig.Nodeaddr)
 	if err != nil {
 		t.Error(err)
 	}
@@ -108,14 +97,7 @@ func TestHappyPath(t *testing.T) {
 
 	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		if coordConfig.WithTrace {
-			tracer, err = trace.Tracer(fmt.Sprintf("%s:%s", coordConfig.Role, coordConfig.Nodeaddr), coordConfig.Nodeaddr)
-			if err != nil {
-				t.Errorf("no tracer, err: %v", err)
-			}
-		}
-
-		cli, err := client.New(node.Nodeaddr, tracer)
+		cli, err := client.New(node.Nodeaddr)
 		assert.NoError(t, err, "err not nil")
 
 		for key, val := range testtable {
@@ -143,17 +125,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS, pb.CommitType_THREE_PHASE_COMMIT)
 
-	var (
-		tracer *zipkin.Tracer
-		err    error
-	)
-	if nodes[COORDINATOR_TYPE][1].WithTrace {
-		tracer, err = trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
-		if err != nil {
-			t.Errorf("no tracer, err: %v", err)
-		}
-	}
-	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
+	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	assert.NoError(t, err, "err not nil")
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
@@ -173,18 +145,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
 
-	var (
-		tracer *zipkin.Tracer
-		err    error
-	)
-	if nodes[COORDINATOR_TYPE][1].WithTrace {
-		tracer, err = trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
-		if err != nil {
-			t.Errorf("no tracer, err: %v", err)
-		}
-	}
-
-	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
+	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	assert.NoError(t, err, "err not nil")
 
 	var height uint64 = 0
@@ -197,7 +158,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 
 	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := client.New(node.Nodeaddr, tracer)
+		cli, err := client.New(node.Nodeaddr)
 		assert.NoError(t, err, "err not nil")
 		for key, val := range testtable {
 			// check values added by nodes
@@ -225,18 +186,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL, pb.CommitType_THREE_PHASE_COMMIT)
 
-	var (
-		tracer *zipkin.Tracer
-		err    error
-	)
-	if nodes[COORDINATOR_TYPE][1].WithTrace {
-		tracer, err = trace.Tracer("client", nodes[COORDINATOR_TYPE][1].Nodeaddr)
-		if err != nil {
-			t.Errorf("no tracer, err: %v", err)
-		}
-	}
-
-	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr, tracer)
+	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	assert.NoError(t, err, "err not nil")
 
 	for key, val := range testtable {
@@ -248,7 +198,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	time.Sleep(3 * time.Second)
 	// connect to follower and check that them NOT added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := client.New(node.Nodeaddr, tracer)
+		cli, err := client.New(node.Nodeaddr)
 		assert.NoError(t, err, "err not nil")
 		for key := range testtable {
 			// check values NOT added by nodes
@@ -318,19 +268,12 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		database, err := db.New(node.DBPath)
 		failfast(err)
 
-		var tracer *zipkin.Tracer
-
-		if node.WithTrace {
-			tracer, err = trace.Tracer("client", node.Nodeaddr)
-			failfast(err)
-		}
-
 		c, err := voteslog.NewOnDiskLog("./tmp/cohort/" + strconv.Itoa(i))
 		failfast(err)
 		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, node.Timeout)
-		cohortImpl := cohort.NewCohort(tracer, committer, cohort.Mode(node.CommitType))
+		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
-		followerServer, err := server.New(node, tracer, cohortImpl, nil, database)
+		followerServer, err := server.New(node, cohortImpl, nil, database)
 		failfast(err)
 
 		if block == 0 {
@@ -357,14 +300,7 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		coord, err := coordinator.New(coordConfig, c, database)
 		failfast(err)
 
-		var tracer *zipkin.Tracer
-
-		if coordConfig.WithTrace {
-			tracer, err = trace.Tracer("server", coordConfig.Nodeaddr)
-			failfast(err)
-		}
-
-		coordServer, err := server.New(coordConfig, tracer, nil, coord, database)
+		coordServer, err := server.New(coordConfig, nil, coord, database)
 		failfast(err)
 
 		if block == 0 {
