@@ -40,19 +40,19 @@ var (
 	whitelist = []string{"127.0.0.1"}
 	nodes     = map[string][]*config.Config{
 		COORDINATOR_TYPE: {
-			{Nodeaddr: "localhost:3000", Role: "coordinator",
-				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
+			{Nodeaddr: "localhost:2938", Role: "coordinator",
+				Followers: []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
 				Whitelist: whitelist, CommitType: "two-phase", Timeout: 100},
 			{Nodeaddr: "localhost:5002", Role: "coordinator",
-				Followers: []string{"localhost:3001", "localhost:3002", "localhost:3003", "localhost:3004", "localhost:3005"},
+				Followers: []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:3001", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:3002", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:3003", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:3004", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:3005", Role: "follower", Coordinator: "localhost:3000", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2345", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2384", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:7532", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:5743", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:4991", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
 		},
 	}
 )
@@ -77,6 +77,8 @@ func TestHappyPath(t *testing.T) {
 		canceller = startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
 		log.Println("***\nTEST IN THREE-PHASE MODE\n***")
 	}
+
+	defer canceller()
 
 	c, err := client.New(coordConfig.Nodeaddr)
 	if err != nil {
@@ -124,6 +126,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
 
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS, pb.CommitType_THREE_PHASE_COMMIT)
+	defer canceller()
 
 	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	assert.NoError(t, err, "err not nil")
@@ -144,6 +147,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
+	defer canceller()
 
 	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	assert.NoError(t, err, "err not nil")
@@ -185,6 +189,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	log.SetLevel(log.FatalLevel)
 
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL, pb.CommitType_THREE_PHASE_COMMIT)
+	defer canceller()
 
 	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	assert.NoError(t, err, "err not nil")
