@@ -1,7 +1,9 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"fmt"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -11,22 +13,32 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
-	"github.com/vadiminshakov/committer/voteslog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"sync/atomic"
 	"time"
 )
 
+const (
+	votesPrefix = "votes"
+)
+
+type wal interface {
+	Set(index uint64, key string, value []byte) error
+	Get(index uint64) (string, []byte, bool)
+	Close() error
+}
+
 type coordinatorImpl struct {
-	vlog      voteslog.Log
+	walVotes  wal
+	walMsgs   wal
 	database  db.Repository
 	followers map[string]*client.CommitClient
 	config    *config.Config
 	height    uint64
 }
 
-func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coordinatorImpl, error) {
+func New(conf *config.Config, walMsgs wal, walVotes wal, database db.Repository) (*coordinatorImpl, error) {
 	flwrs := make(map[string]*client.CommitClient, len(conf.Followers))
 	for _, f := range conf.Followers {
 		client, err := client.New(f)
@@ -39,7 +51,8 @@ func New(conf *config.Config, vlog voteslog.Log, database db.Repository) (*coord
 	return &coordinatorImpl{
 		followers: flwrs,
 		height:    0,
-		vlog:      vlog,
+		walMsgs:   walMsgs,
+		walVotes:  walVotes,
 		database:  database,
 		config:    conf,
 	}, nil
@@ -74,7 +87,7 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastReques
 	log.Infof("coordinator got ack from all cohorts, committed key %s", req.Key)
 
 	// the coordinator got all the answers, so it's time to persist msg
-	key, value, ok := c.vlog.Get(c.height)
+	key, value, ok := c.walMsgs.Get(c.height)
 	if !ok {
 		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
 	}
@@ -129,10 +142,17 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 			}
 		}
 	}
-	if err := c.vlog.Set(c.height, req.Key, req.Value); err != nil {
+	if err := c.walMsgs.Set(c.height, req.Key, req.Value); err != nil {
 		return errors.Wrap(err, "failed to save msg in the coordinator's log")
 	}
-	c.vlog.SetVotes(c.height, votes)
+
+	var bufVotes bytes.Buffer
+	encVotes := gob.NewEncoder(&bufVotes)
+	if err := encVotes.Encode(votes); err != nil {
+		return err
+	}
+
+	c.walVotes.Set(c.height, votesPrefix, bufVotes.Bytes())
 
 	return nil
 }
@@ -142,8 +162,14 @@ func (c *coordinatorImpl) preCommit(ctx context.Context, req dto.BroadcastReques
 		return nil
 	}
 
+	_, voteBytes, ok := c.walVotes.Get(c.height)
+	if !ok {
+		return fmt.Errorf("coordinator failed to find votes on height %d on precommit stage", c.height)
+	}
+
+	votes := votesToProto(voteBytes)
+
 	for _, follower := range c.followers {
-		votes := votesToProto(c.vlog.GetVotes(c.height))
 		resp, err := follower.Precommit(ctx, &pb.PrecommitRequest{Index: c.height, Votes: votes})
 		if err != nil {
 			return err
@@ -189,7 +215,14 @@ func (c *coordinatorImpl) Height() uint64 {
 	return c.height
 }
 
-func votesToProto(votes []*dto.Vote) []*pb.Vote {
+func votesToProto(in []byte) []*pb.Vote {
+	dec := gob.NewDecoder(bytes.NewReader(in))
+
+	var votes []*dto.Vote
+	if err := dec.Decode(&votes); err != nil {
+		return nil
+	}
+
 	pbvotes := make([]*pb.Vote, 0, len(votes))
 	for _, v := range votes {
 		pbvotes = append(pbvotes, &pb.Vote{
