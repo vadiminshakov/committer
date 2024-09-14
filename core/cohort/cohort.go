@@ -37,12 +37,12 @@ func (c *CohortImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto
 	return c.committer.Propose(ctx, req)
 }
 
-func (s *CohortImpl) Precommit(ctx context.Context, index uint64, votes []*dto.Vote) (*dto.CohortResponse, error) {
+func (s *CohortImpl) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
 	if s.commitType != THREE_PHASE {
 		return nil, errors.New("precommit is allowed for 3PC mode only")
 	}
 
-	return s.committer.Precommit(ctx, index, votes)
+	return s.committer.Precommit(ctx, index)
 }
 
 func (c *CohortImpl) Commit(ctx context.Context, in *dto.CommitRequest) (resp *dto.CohortResponse, err error) {

@@ -6,7 +6,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/db"
-	"github.com/vadiminshakov/committer/voteslog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -15,10 +14,16 @@ import (
 	"time"
 )
 
+type wal interface {
+	Set(index uint64, key string, value []byte) error
+	Get(index uint64) (string, []byte, bool)
+	Close() error
+}
+
 type Committer struct {
 	noAutoCommit  map[uint64]struct{}
 	db            db.Repository
-	vlog          voteslog.Log
+	wal           wal
 	proposeHook   func(req *dto.ProposeRequest) bool
 	precommitHook func(height uint64) bool
 	commitHook    func(req *dto.CommitRequest) bool
@@ -75,7 +80,7 @@ func (p *pendingPrecommit) signalToChan(height uint64) {
 	}
 }
 
-func NewCommitter(d db.Repository, vlog voteslog.Log,
+func NewCommitter(d db.Repository, wal wal,
 	proposeHook func(req *dto.ProposeRequest) bool,
 	commitHook func(req *dto.CommitRequest) bool,
 	timeout uint64) *Committer {
@@ -84,7 +89,7 @@ func NewCommitter(d db.Repository, vlog voteslog.Log,
 		precommitHook: nil,
 		commitHook:    commitHook,
 		db:            d,
-		vlog:          vlog,
+		wal:           wal,
 		noAutoCommit:  make(map[uint64]struct{}),
 		timeout:       timeout,
 		precommitDone: newPendingPrecommit(),
@@ -103,7 +108,7 @@ func (c *Committer) Propose(_ context.Context, req *dto.ProposeRequest) (*dto.Co
 
 	if c.proposeHook(req) {
 		log.Infof("received: %s=%s\n", req.Key, string(req.Value))
-		c.vlog.Set(req.Height, req.Key, req.Value)
+		c.wal.Set(req.Height, req.Key, req.Value)
 		response = &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}
 	} else {
 		response = &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: req.Height}
@@ -112,7 +117,7 @@ func (c *Committer) Propose(_ context.Context, req *dto.ProposeRequest) (*dto.Co
 	return response, nil
 }
 
-func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*dto.Vote) (*dto.CohortResponse, error) {
+func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
 	c.precommitDone.add(index)
 
 	go func(ctx context.Context) {
@@ -129,33 +134,14 @@ func (c *Committer) Precommit(ctx context.Context, index uint64, votes []*dto.Vo
 				}
 				md := metadata.Pairs("mode", "autocommit")
 				ctx := metadata.NewOutgoingContext(context.Background(), md)
-				if !isAllNodesAccepted(votes) {
-					break ForLoop
-				}
 				c.Commit(ctx, &dto.CommitRequest{Height: index})
 				log.Warn("committed without coordinator after timeout")
 				break ForLoop
 			}
 		}
 	}(ctx)
-	for _, v := range votes {
-		if !v.IsAccepted {
-			log.Printf("Node %s is not accepted proposal with index %d\n", v.Node, index)
-			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, nil
-		}
-	}
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
-}
-
-func isAllNodesAccepted(votes []*dto.Vote) bool {
-	for _, v := range votes {
-		if !v.IsAccepted {
-			return false
-		}
-	}
-
-	return true
 }
 
 func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
@@ -169,7 +155,7 @@ func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.Co
 	}
 	if c.commitHook(req) {
 		log.Printf("Committing on height: %d\n", req.Height)
-		key, value, ok := c.vlog.Get(req.Height)
+		key, value, ok := c.wal.Get(req.Height)
 		if !ok {
 			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
 		}
