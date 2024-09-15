@@ -17,7 +17,6 @@ type Cohort interface {
 type CohortImpl struct {
 	committer  *commitalgo.Committer
 	commitType Mode
-	height     uint64
 }
 
 func NewCohort(
