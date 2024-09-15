@@ -9,7 +9,7 @@ import (
 
 type Cohort interface {
 	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
-	Precommit(ctx context.Context, index uint64, votes []*dto.Vote) (*dto.CohortResponse, error)
+	Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error)
 	Commit(ctx context.Context, in *dto.CommitRequest) (*dto.CohortResponse, error)
 	Height() uint64
 }

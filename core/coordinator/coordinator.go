@@ -125,7 +125,13 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 			if err != nil {
 				log.Errorf(err.Error())
 				isAccepted = false
+				return fmt.Errorf("node %s is not accepted proposed msg", nodename)
 			}
+
+			if !isAccepted {
+				return fmt.Errorf("node %s is not accepted proposed msg", nodename)
+			}
+
 			votes = append(votes, &dto.Vote{
 				Node:       nodename,
 				IsAccepted: isAccepted,
@@ -162,15 +168,8 @@ func (c *coordinatorImpl) preCommit(ctx context.Context, req dto.BroadcastReques
 		return nil
 	}
 
-	_, voteBytes, ok := c.walVotes.Get(c.height)
-	if !ok {
-		return fmt.Errorf("coordinator failed to find votes on height %d on precommit stage", c.height)
-	}
-
-	votes := votesToProto(voteBytes)
-
 	for _, follower := range c.followers {
-		resp, err := follower.Precommit(ctx, &pb.PrecommitRequest{Index: c.height, Votes: votes})
+		resp, err := follower.Precommit(ctx, &pb.PrecommitRequest{Index: c.height})
 		if err != nil {
 			return err
 		}
@@ -213,23 +212,4 @@ func (c *coordinatorImpl) commit(ctx context.Context) error {
 
 func (c *coordinatorImpl) Height() uint64 {
 	return c.height
-}
-
-func votesToProto(in []byte) []*pb.Vote {
-	dec := gob.NewDecoder(bytes.NewReader(in))
-
-	var votes []*dto.Vote
-	if err := dec.Decode(&votes); err != nil {
-		return nil
-	}
-
-	pbvotes := make([]*pb.Vote, 0, len(votes))
-	for _, v := range votes {
-		pbvotes = append(pbvotes, &pb.Vote{
-			Node:       v.Node,
-			IsAccepted: v.IsAccepted,
-		})
-	}
-
-	return pbvotes
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
-	"github.com/vadiminshakov/committer/voteslog"
+	"github.com/vadiminshakov/gowal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"os"
@@ -33,7 +33,7 @@ const (
 	NOT_BLOCKING = iota
 	BLOCK_ON_PRECOMMIT_FOLLOWERS
 	BLOCK_ON_PRECOMMIT_COORDINATOR
-	BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL
+	ONE_FOLLOWER_FAIL
 )
 
 var (
@@ -90,12 +90,16 @@ func TestHappyPath(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+
 		if resp.Type != pb.Type_ACK {
 			t.Error("msg is not acknowledged")
 		}
 		// ok, value is added, let's increment height counter
 		height++
 	}
+
+	// wait for rollback on followers
+	time.Sleep(1 * time.Second)
 
 	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
@@ -181,14 +185,13 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 }
 
 // 5 followers, 1 coordinator
-// on precommit stage coordinator stops responding.
 // 4 followers acked msg, 1 failed.
 //
-// result: followers wait for specified timeout, and then check votes and decline proposal.
+// result: msg proposed, then rollback.
 func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
 
-	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL, pb.CommitType_THREE_PHASE_COMMIT)
+	canceller := startnodes(ONE_FOLLOWER_FAIL, pb.CommitType_THREE_PHASE_COMMIT)
 	defer canceller()
 
 	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
@@ -214,7 +217,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 			// check height of node
 			nodeInfo, err := cli.NodeInfo(context.Background())
 			assert.NoError(t, err, "err not nil")
-			assert.EqualValues(t, nodeInfo.Height, 0, "node %s must have 0 height (but has %d)", node.Nodeaddr, nodeInfo.Height)
+			assert.EqualValues(t, 0, nodeInfo.Height, "node %s must have 0 height (but has %d)", node.Nodeaddr, nodeInfo.Height)
 		}
 	}
 
@@ -256,8 +259,8 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		blocking = server.PrecommitBlockALL
 	case BLOCK_ON_PRECOMMIT_COORDINATOR:
 		blocking = server.PrecommitBlockCoordinator
-	case BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL:
-		blocking = server.PrecommitOneFollowerFail
+	case ONE_FOLLOWER_FAIL:
+		blocking = server.ProposeOneFollowerFail
 	}
 
 	// start followers
@@ -273,7 +276,7 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		database, err := db.New(node.DBPath)
 		failfast(err)
 
-		c, err := voteslog.NewOnDiskLog("./tmp/cohort/" + strconv.Itoa(i))
+		c, err := gowal.NewWAL("./tmp/cohort/"+strconv.Itoa(i), "msgs")
 		failfast(err)
 		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, node.Timeout)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
@@ -300,9 +303,10 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		database, err := db.New(coordConfig.DBPath)
 		failfast(err)
 
-		c, err := voteslog.NewOnDiskLog("./tmp/coord/" + strconv.Itoa(i))
+		c, err := gowal.NewWAL("./tmp/coord/"+strconv.Itoa(i), "msgs")
+		v, err := gowal.NewWAL("./tmp/coord/"+strconv.Itoa(i), "votes")
 		failfast(err)
-		coord, err := coordinator.New(coordConfig, c, database)
+		coord, err := coordinator.New(coordConfig, c, v, database)
 		failfast(err)
 
 		coordServer, err := server.New(coordConfig, nil, coord, database)

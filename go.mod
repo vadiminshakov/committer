@@ -1,13 +1,14 @@
 module github.com/vadiminshakov/committer
 
-go 1.21
+go 1.23.0
 
 require (
 	github.com/dgraph-io/badger/v2 v2.0.3
 	github.com/golang/protobuf v1.5.2
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.2.0
-	github.com/stretchr/testify v1.5.1
+	github.com/stretchr/testify v1.9.0
+	github.com/vadiminshakov/gowal v0.0.0-20240915145658-65d881f4a5e4
 	google.golang.org/grpc v1.50.0
 	google.golang.org/protobuf v1.28.1
 )
@@ -30,5 +31,5 @@ require (
 	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211 // indirect
 	golang.org/x/text v0.3.8 // indirect
 	google.golang.org/genproto v0.0.0-20221010155953-15ba04fc1c0e // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

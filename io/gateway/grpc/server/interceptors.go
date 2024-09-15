@@ -84,7 +84,7 @@ func PrecommitBlockCoordinator(ctx context.Context,
 
 var once sync.Once
 
-func PrecommitOneFollowerFail(ctx context.Context,
+func ProposeOneFollowerFail(ctx context.Context,
 	req interface{},
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler) (interface{}, error) {

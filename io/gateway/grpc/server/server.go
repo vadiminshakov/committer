@@ -47,7 +47,7 @@ func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto
 }
 
 func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*proto.Response, error) {
-	resp, err := s.cohort.Precommit(ctx, req.Index, votesPbToEntity(req.Votes))
+	resp, err := s.cohort.Precommit(ctx, req.Index)
 	return cohortResponseToProto(resp), err
 }
 
@@ -77,18 +77,6 @@ func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, er
 		Type:  proto.Type(resp.Type),
 		Index: resp.Index,
 	}, nil
-}
-
-func protoToVotes(votes []*proto.Vote) []*dto.Vote {
-	pbvotes := make([]*dto.Vote, 0, len(votes))
-	for _, v := range votes {
-		pbvotes = append(pbvotes, &dto.Vote{
-			Node:       v.Node,
-			IsAccepted: v.IsAccepted,
-		})
-	}
-
-	return pbvotes
 }
 
 func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*proto.Info, error) {
