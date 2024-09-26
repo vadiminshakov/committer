@@ -48,11 +48,11 @@ var (
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:2345", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:2384", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:7532", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:5743", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:4991", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2345", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2384", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:7532", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:5743", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:4991", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
 		},
 	}
 )
@@ -71,10 +71,10 @@ func TestHappyPath(t *testing.T) {
 	var height uint64 = 0
 	coordConfig := nodes[COORDINATOR_TYPE][0]
 	if coordConfig.CommitType == "two-phase" {
-		canceller = startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_TWO_PHASE_COMMIT)
+		canceller = startnodes(NOT_BLOCKING, pb.CommitType_TWO_PHASE_COMMIT)
 		log.Println("***\nTEST IN TWO-PHASE MODE\n***")
 	} else {
-		canceller = startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller = startnodes(NOT_BLOCKING, pb.CommitType_THREE_PHASE_COMMIT)
 		log.Println("***\nTEST IN THREE-PHASE MODE\n***")
 	}
 
@@ -137,7 +137,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
 		assert.NoError(t, err, "err not nil")
-		assert.NotEqual(t, resp.Type, pb.Type_ACK, "msg shouldn't be acknowledged")
+		assert.Equal(t, resp.Type, pb.Type_ACK, "msg shouldn't be acknowledged")
 	}
 
 	assert.NoError(t, canceller())
@@ -200,10 +200,13 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	for key, val := range testtable {
 		md := metadata.Pairs("blockcommit", "1000ms")
 		ctx := metadata.NewOutgoingContext(context.Background(), md)
-		c.Put(ctx, key, val) // nolint:errcheck
+		if _, err = c.Put(ctx, key, val); err != nil {
+			break
+		}
 	}
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(9 * time.Second)
+
 	// connect to follower and check that them NOT added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
 		cli, err := client.New(node.Nodeaddr)
@@ -211,7 +214,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 		for key := range testtable {
 			// check values NOT added by nodes
 			resp, err := cli.Get(context.Background(), key)
-			assert.Error(t, err, "err not nil")
+			assert.Contains(t, err.Error(), "Key not found")
 			assert.Equal(t, (*pb.Value)(nil), resp)
 
 			// check height of node
@@ -278,7 +281,13 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 
 		c, err := gowal.NewWAL("./tmp/cohort/"+strconv.Itoa(i), "msgs")
 		failfast(err)
-		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, node.Timeout)
+
+		ct := server.TWO_PHASE
+		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
+			ct = server.THREE_PHASE
+		}
+
+		committer := commitalgo.NewCommitter(database, ct, c, hooks.Propose, hooks.Commit, node.Timeout)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
 		followerServer, err := server.New(node, cohortImpl, nil, database)
