@@ -7,9 +7,7 @@ import (
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/db"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -27,60 +25,12 @@ type Committer struct {
 	proposeHook   func(req *dto.ProposeRequest) bool
 	precommitHook func(height uint64) bool
 	commitHook    func(req *dto.CommitRequest) bool
-	precommitDone pendingPrecommit
+	state         *stateMachine
 	height        uint64
 	timeout       uint64
 }
 
-type pendingPrecommit struct {
-	done map[uint64]chan struct{}
-	mu   sync.RWMutex
-}
-
-func newPendingPrecommit() pendingPrecommit {
-	return pendingPrecommit{
-		done: make(map[uint64]chan struct{}),
-	}
-}
-
-func (p *pendingPrecommit) add(height uint64) {
-	p.mu.Lock()
-	p.done[height] = make(chan struct{})
-	p.mu.Unlock()
-}
-
-func (p *pendingPrecommit) remove(height uint64) {
-	p.mu.RLock()
-	ch := p.done[height]
-	p.mu.RUnlock()
-	close(ch)
-
-	p.mu.Lock()
-	delete(p.done, height)
-	p.mu.Unlock()
-}
-
-func (p *pendingPrecommit) wait(height uint64) chan struct{} {
-	p.mu.RLock()
-	waitch := p.done[height]
-	p.mu.RUnlock()
-
-	return waitch
-}
-
-func (p *pendingPrecommit) signalToChan(height uint64) {
-	p.mu.RLock()
-	ch := p.done[height]
-	p.mu.RUnlock()
-
-	select {
-	case ch <- struct{}{}:
-	default:
-
-	}
-}
-
-func NewCommitter(d db.Repository, wal wal,
+func NewCommitter(d db.Repository, commitType string, wal wal,
 	proposeHook func(req *dto.ProposeRequest) bool,
 	commitHook func(req *dto.CommitRequest) bool,
 	timeout uint64) *Committer {
@@ -92,7 +42,7 @@ func NewCommitter(d db.Repository, wal wal,
 		wal:           wal,
 		noAutoCommit:  make(map[uint64]struct{}),
 		timeout:       timeout,
-		precommitDone: newPendingPrecommit(),
+		state:         newStateMachine(mode(commitType)),
 	}
 }
 
@@ -100,43 +50,62 @@ func (c *Committer) Height() uint64 {
 	return c.height
 }
 
-func (c *Committer) Propose(_ context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
-	var response *dto.CohortResponse
+func (c *Committer) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
+	if err := c.state.Transition(proposeStage); err != nil {
+		return nil, err
+	}
+
 	if atomic.LoadUint64(&c.height) > req.Height {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: atomic.LoadUint64(&c.height)}, nil
 	}
 
-	if c.proposeHook(req) {
-		log.Infof("received: %s=%s\n", req.Key, string(req.Value))
-		c.wal.Set(req.Height, req.Key, req.Value)
-		response = &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}
-	} else {
-		response = &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: req.Height}
+	if !c.proposeHook(req) {
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: req.Height}, nil
 	}
 
-	return response, nil
-}
+	log.Infof("received: %s=%s\n", req.Key, string(req.Value))
+	c.wal.Set(req.Height, req.Key, req.Value)
 
-func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
-	c.precommitDone.add(index)
+	if c.state.mode == twophase {
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
+	}
 
 	go func(ctx context.Context) {
 		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
-	ForLoop:
 		for {
 			select {
-			case <-c.precommitDone.wait(index):
-				break ForLoop
 			case <-deadline:
-				c.precommitDone.remove(index)
-				if _, ok := c.noAutoCommit[index]; ok {
+				if c.state.currentState == commitStage {
 					return
 				}
-				md := metadata.Pairs("mode", "autocommit")
-				ctx := metadata.NewOutgoingContext(context.Background(), md)
+
+				c.wal.Set(req.Height, "skip", nil)
+
+				log.Warn("skip proposed message after timeout")
+			}
+		}
+	}(ctx)
+
+	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
+}
+
+func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
+	if err := c.state.Transition(precommitStage); err != nil {
+		return nil, err
+	}
+
+	go func(ctx context.Context) {
+		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
+		for {
+			select {
+			case <-deadline:
+				if c.state.currentState == commitStage {
+					return
+				}
+
 				c.Commit(ctx, &dto.CommitRequest{Height: index})
+				c.state.currentState = proposeStage
 				log.Warn("committed without coordinator after timeout")
-				break ForLoop
 			}
 		}
 	}(ctx)
@@ -145,14 +114,15 @@ func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortRes
 }
 
 func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
-	c.precommitDone.signalToChan(atomic.LoadUint64(&c.height))
-
-	c.noAutoCommit[req.Height] = struct{}{}
-
 	var response *dto.CohortResponse
 	if req.Height < atomic.LoadUint64(&c.height) {
 		return nil, status.Errorf(codes.AlreadyExists, "stale commit proposed by coordinator (got %d, but actual height is %d)", req.Height, c.height)
 	}
+
+	if err := c.state.Transition(commitStage); err != nil {
+		return nil, err
+	}
+
 	if c.commitHook(req) {
 		log.Printf("Committing on height: %d\n", req.Height)
 		key, value, ok := c.wal.Get(req.Height)
@@ -172,5 +142,8 @@ func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.Co
 		fmt.Println("ack cohort", atomic.LoadUint64(&c.height))
 		atomic.AddUint64(&c.height, 1)
 	}
+
+	c.state.currentState = proposeStage
+
 	return response, nil
 }
