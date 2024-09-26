@@ -25,11 +25,11 @@ func main() {
 		panic(err)
 	}
 
-	mlog, err := gowal.NewWAL("wal/msgs", "msgs_")
+	mlog, err := gowal.NewWAL("wal", "msgs_")
 	if err != nil {
 		panic(err)
 	}
-	vlog, err := gowal.NewWAL("wal/votes", "votes_")
+	vlog, err := gowal.NewWAL("wal", "votes_")
 	if err != nil {
 		panic(err)
 	}
