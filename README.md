@@ -82,6 +82,3 @@ run example client:
 ```
 go run ./examples/client/client.go
 ```
-
-**Planned**
-Implement a flexible transaction log mechanism. Current in-mem implementation is not reliable.
