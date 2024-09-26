@@ -129,6 +129,7 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 			}
 
 			if !isAccepted {
+				// TODO: реализовать роллбек
 				return fmt.Errorf("node %s is not accepted proposed msg", nodename)
 			}
 
