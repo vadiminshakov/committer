@@ -39,7 +39,7 @@ func main() {
 		panic(err)
 	}
 
-	committer := commitalgo.NewCommitter(database, mlog, hooks.Propose, hooks.Commit, conf.Timeout)
+	committer := commitalgo.NewCommitter(database, conf.CommitType, mlog, hooks.Propose, hooks.Commit, conf.Timeout)
 	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 
 	s, err := server.New(conf, cohortImpl, coordImpl, database)
