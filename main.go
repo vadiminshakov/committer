@@ -8,7 +8,7 @@ import (
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
-	"github.com/vadiminshakov/committer/voteslog"
+	"github.com/vadiminshakov/gowal"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,22 +25,21 @@ func main() {
 		panic(err)
 	}
 
-	var l voteslog.Log
-	if t := os.Getenv("LOG"); t == "disk" {
-		l, err = voteslog.NewOnDiskLog("./logdata")
-		if err != nil {
-			panic(err)
-		}
-	} else {
-		l = voteslog.NewInmemLog()
+	mlog, err := gowal.NewWAL("wal/msgs", "msgs_")
+	if err != nil {
+		panic(err)
 	}
-
-	coordImpl, err := coordinator.New(conf, l, database)
+	vlog, err := gowal.NewWAL("wal/votes", "votes_")
 	if err != nil {
 		panic(err)
 	}
 
-	committer := commitalgo.NewCommitter(database, l, hooks.Propose, hooks.Commit, conf.Timeout)
+	coordImpl, err := coordinator.New(conf, mlog, vlog, database)
+	if err != nil {
+		panic(err)
+	}
+
+	committer := commitalgo.NewCommitter(database, conf.CommitType, mlog, hooks.Propose, hooks.Commit, conf.Timeout)
 	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 
 	s, err := server.New(conf, cohortImpl, coordImpl, database)

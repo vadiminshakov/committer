@@ -14,7 +14,7 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
-	"github.com/vadiminshakov/committer/voteslog"
+	"github.com/vadiminshakov/gowal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"os"
@@ -33,7 +33,7 @@ const (
 	NOT_BLOCKING = iota
 	BLOCK_ON_PRECOMMIT_FOLLOWERS
 	BLOCK_ON_PRECOMMIT_COORDINATOR
-	BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL
+	ONE_FOLLOWER_FAIL
 )
 
 var (
@@ -48,11 +48,11 @@ var (
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100},
 		},
 		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:2345", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:2384", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:7532", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:5743", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:4991", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 100, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2345", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2384", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:7532", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:5743", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:4991", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
 		},
 	}
 )
@@ -71,10 +71,10 @@ func TestHappyPath(t *testing.T) {
 	var height uint64 = 0
 	coordConfig := nodes[COORDINATOR_TYPE][0]
 	if coordConfig.CommitType == "two-phase" {
-		canceller = startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_TWO_PHASE_COMMIT)
+		canceller = startnodes(NOT_BLOCKING, pb.CommitType_TWO_PHASE_COMMIT)
 		log.Println("***\nTEST IN TWO-PHASE MODE\n***")
 	} else {
-		canceller = startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller = startnodes(NOT_BLOCKING, pb.CommitType_THREE_PHASE_COMMIT)
 		log.Println("***\nTEST IN THREE-PHASE MODE\n***")
 	}
 
@@ -90,12 +90,16 @@ func TestHappyPath(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+
 		if resp.Type != pb.Type_ACK {
 			t.Error("msg is not acknowledged")
 		}
 		// ok, value is added, let's increment height counter
 		height++
 	}
+
+	// wait for rollback on followers
+	time.Sleep(1 * time.Second)
 
 	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
@@ -133,7 +137,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
 		assert.NoError(t, err, "err not nil")
-		assert.NotEqual(t, resp.Type, pb.Type_ACK, "msg shouldn't be acknowledged")
+		assert.Equal(t, resp.Type, pb.Type_ACK, "msg shouldn't be acknowledged")
 	}
 
 	assert.NoError(t, canceller())
@@ -181,14 +185,13 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 }
 
 // 5 followers, 1 coordinator
-// on precommit stage coordinator stops responding.
 // 4 followers acked msg, 1 failed.
 //
-// result: followers wait for specified timeout, and then check votes and decline proposal.
+// result: msg proposed, then rollback.
 func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *testing.T) {
 	log.SetLevel(log.FatalLevel)
 
-	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL, pb.CommitType_THREE_PHASE_COMMIT)
+	canceller := startnodes(ONE_FOLLOWER_FAIL, pb.CommitType_THREE_PHASE_COMMIT)
 	defer canceller()
 
 	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
@@ -197,10 +200,13 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	for key, val := range testtable {
 		md := metadata.Pairs("blockcommit", "1000ms")
 		ctx := metadata.NewOutgoingContext(context.Background(), md)
-		c.Put(ctx, key, val) // nolint:errcheck
+		if _, err = c.Put(ctx, key, val); err != nil {
+			break
+		}
 	}
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(9 * time.Second)
+
 	// connect to follower and check that them NOT added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
 		cli, err := client.New(node.Nodeaddr)
@@ -208,13 +214,13 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 		for key := range testtable {
 			// check values NOT added by nodes
 			resp, err := cli.Get(context.Background(), key)
-			assert.Error(t, err, "err not nil")
+			assert.Contains(t, err.Error(), "Key not found")
 			assert.Equal(t, (*pb.Value)(nil), resp)
 
 			// check height of node
 			nodeInfo, err := cli.NodeInfo(context.Background())
 			assert.NoError(t, err, "err not nil")
-			assert.EqualValues(t, nodeInfo.Height, 0, "node %s must have 0 height (but has %d)", node.Nodeaddr, nodeInfo.Height)
+			assert.EqualValues(t, 0, nodeInfo.Height, "node %s must have 0 height (but has %d)", node.Nodeaddr, nodeInfo.Height)
 		}
 	}
 
@@ -256,8 +262,8 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		blocking = server.PrecommitBlockALL
 	case BLOCK_ON_PRECOMMIT_COORDINATOR:
 		blocking = server.PrecommitBlockCoordinator
-	case BLOCK_ON_PRECOMMIT_COORDINATOR_AND_ONE_FOLLOWER_FAIL:
-		blocking = server.PrecommitOneFollowerFail
+	case ONE_FOLLOWER_FAIL:
+		blocking = server.ProposeOneFollowerFail
 	}
 
 	// start followers
@@ -273,9 +279,15 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		database, err := db.New(node.DBPath)
 		failfast(err)
 
-		c, err := voteslog.NewOnDiskLog("./tmp/cohort/" + strconv.Itoa(i))
+		c, err := gowal.NewWAL("./tmp/cohort/"+strconv.Itoa(i), "msgs")
 		failfast(err)
-		committer := commitalgo.NewCommitter(database, c, hooks.Propose, hooks.Commit, node.Timeout)
+
+		ct := server.TWO_PHASE
+		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
+			ct = server.THREE_PHASE
+		}
+
+		committer := commitalgo.NewCommitter(database, ct, c, hooks.Propose, hooks.Commit, node.Timeout)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
 		followerServer, err := server.New(node, cohortImpl, nil, database)
@@ -300,9 +312,10 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		database, err := db.New(coordConfig.DBPath)
 		failfast(err)
 
-		c, err := voteslog.NewOnDiskLog("./tmp/coord/" + strconv.Itoa(i))
+		c, err := gowal.NewWAL("./tmp/coord/"+strconv.Itoa(i), "msgs")
+		v, err := gowal.NewWAL("./tmp/coord/"+strconv.Itoa(i), "votes")
 		failfast(err)
-		coord, err := coordinator.New(coordConfig, c, database)
+		coord, err := coordinator.New(coordConfig, c, v, database)
 		failfast(err)
 
 		coordServer, err := server.New(coordConfig, nil, coord, database)

@@ -37,19 +37,3 @@ func cohortResponseToProto(e *dto.CohortResponse) *proto.Response {
 		Index: e.Height,
 	}
 }
-
-func votesPbToEntity(votes []*proto.Vote) []*dto.Vote {
-	if votes == nil {
-		return nil
-	}
-
-	newVotes := make([]*dto.Vote, 0, len(votes))
-	for _, v := range votes {
-		newVotes = append(newVotes, &dto.Vote{
-			Node:       v.Node,
-			IsAccepted: v.IsAccepted,
-		})
-	}
-
-	return newVotes
-}

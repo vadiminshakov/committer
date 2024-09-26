@@ -58,7 +58,7 @@ func PrecommitBlockALL(ctx context.Context,
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler) (interface{}, error) {
 	if info.FullMethod == "/schema.Commit/Precommit" {
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	// Calls the handler
@@ -74,7 +74,7 @@ func PrecommitBlockCoordinator(ctx context.Context,
 	handler grpc.UnaryHandler) (interface{}, error) {
 
 	ctx = context.WithValue(ctx, "block", "precommit")
-	ctx = context.WithValue(ctx, "blocktime", "200ms")
+	ctx = context.WithValue(ctx, "blocktime", "2200ms")
 
 	// Calls the handler
 	h, err := handler(ctx, req)
@@ -84,7 +84,7 @@ func PrecommitBlockCoordinator(ctx context.Context,
 
 var once sync.Once
 
-func PrecommitOneFollowerFail(ctx context.Context,
+func ProposeOneFollowerFail(ctx context.Context,
 	req interface{},
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler) (interface{}, error) {
