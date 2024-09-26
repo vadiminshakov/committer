@@ -8,7 +8,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.9.0
-	github.com/vadiminshakov/gowal v0.0.0-20240915145658-65d881f4a5e4
+	github.com/vadiminshakov/gowal v0.0.0-20240924193609-26914d93ef10
 	google.golang.org/grpc v1.50.0
 	google.golang.org/protobuf v1.28.1
 )
