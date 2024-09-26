@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-const coordinatorAddr = "localhost:3000"
+const coordinatorAddr = "0.0.0.0:3000"
 
 func main() {
 	key, value := "somekey", "somevalue"
@@ -34,6 +34,6 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("got value for key '%s': %s", key+strconv.Itoa(i), string(v.Value)+strconv.Itoa(i))
+		fmt.Printf("got value for key '%s': %s\n", key+strconv.Itoa(i), string(v.Value)+strconv.Itoa(i))
 	}
 }
