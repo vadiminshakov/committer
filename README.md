@@ -1,3 +1,5 @@
+![tests](https://github.com/vadiminshakov/committer/blob/master/.github/workflows/tests.yml/badge.svg?branch=feature-1)
+
 <p align="center">
 <img src="https://github.com/vadiminshakov/committer/blob/master/committer.png">
 </p>
