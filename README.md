@@ -1,4 +1,4 @@
-![tests](https://github.com/vadiminshakov/committer/workflows/tests/badge.svg?branch=feature-1)
+![tests](https://github.com/vadiminshakov/committer/workflows/tests/badge.svg)
 
 <p align="center">
 <img src="https://github.com/vadiminshakov/committer/blob/master/committer.png">
