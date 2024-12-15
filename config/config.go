@@ -16,28 +16,6 @@ type Config struct {
 	Timeout     uint64
 }
 
-type followers []string
-
-func (i *followers) String() string {
-	return strings.Join(*i, ",")
-}
-
-func (i *followers) Set(value string) error {
-	*i = append(*i, value)
-	return nil
-}
-
-type whitelist []string
-
-func (i *whitelist) String() string {
-	return strings.Join(*i, ",")
-}
-
-func (i *whitelist) Set(value string) error {
-	*i = append(*i, value)
-	return nil
-}
-
 // Get creates configuration from yaml configuration file (if '-config=' flag specified) or command-line arguments.
 func Get() *Config {
 	// command-line flags
