@@ -24,21 +24,20 @@ const (
 )
 
 type wal interface {
-	Set(index uint64, key string, value []byte) error
+	Write(index uint64, key string, value []byte) error
 	Get(index uint64) (string, []byte, bool)
 	Close() error
 }
 
 type coordinatorImpl struct {
-	walVotes  wal
-	walMsgs   wal
+	wal       wal
 	database  db.Repository
 	followers map[string]*client.CommitClient
 	config    *config.Config
 	height    uint64
 }
 
-func New(conf *config.Config, walMsgs wal, walVotes wal, database db.Repository) (*coordinatorImpl, error) {
+func New(conf *config.Config, wal wal, database db.Repository) (*coordinatorImpl, error) {
 	flwrs := make(map[string]*client.CommitClient, len(conf.Followers))
 	for _, f := range conf.Followers {
 		client, err := client.New(f)
@@ -51,8 +50,7 @@ func New(conf *config.Config, walMsgs wal, walVotes wal, database db.Repository)
 	return &coordinatorImpl{
 		followers: flwrs,
 		height:    0,
-		walMsgs:   walMsgs,
-		walVotes:  walVotes,
+		wal:       wal,
 		database:  database,
 		config:    conf,
 	}, nil
@@ -87,7 +85,7 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastReques
 	log.Infof("coordinator got ack from all cohorts, committed key %s", req.Key)
 
 	// the coordinator got all the answers, so it's time to persist msg
-	key, value, ok := c.walMsgs.Get(c.height)
+	key, value, ok := c.wal.Get(c.height)
 	if !ok {
 		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
 	}
@@ -149,7 +147,7 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 			}
 		}
 	}
-	if err := c.walMsgs.Set(c.height, req.Key, req.Value); err != nil {
+	if err := c.wal.Write(c.height, req.Key, req.Value); err != nil {
 		return errors.Wrap(err, "failed to save msg in the coordinator's log")
 	}
 
@@ -158,8 +156,6 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 	if err := encVotes.Encode(votes); err != nil {
 		return err
 	}
-
-	c.walVotes.Set(c.height, votesPrefix, bufVotes.Bytes())
 
 	return nil
 }
