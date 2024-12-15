@@ -14,6 +14,14 @@ import (
 	"syscall"
 )
 
+const (
+	walDir              string = "wal"
+	walSegmentPrefix    string = "msgs_"
+	walSegmentThreshold int    = 10000
+	walMaxSegments      int    = 100
+	walIsInSyncDiskMode bool   = true
+)
+
 func main() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -25,21 +33,25 @@ func main() {
 		panic(err)
 	}
 
-	mlog, err := gowal.NewWAL("wal", "msgs_")
-	if err != nil {
-		panic(err)
+	walConfig := gowal.Config{
+		Dir:              walDir,
+		Prefix:           walSegmentPrefix,
+		SegmentThreshold: walSegmentThreshold,
+		MaxSegments:      walMaxSegments,
+		IsInSyncDiskMode: walIsInSyncDiskMode,
 	}
-	vlog, err := gowal.NewWAL("wal", "votes_")
+
+	wal, err := gowal.NewWAL(walConfig)
 	if err != nil {
 		panic(err)
 	}
 
-	coordImpl, err := coordinator.New(conf, mlog, vlog, database)
+	coordImpl, err := coordinator.New(conf, wal, database)
 	if err != nil {
 		panic(err)
 	}
 
-	committer := commitalgo.NewCommitter(database, conf.CommitType, mlog, hooks.Propose, hooks.Commit, conf.Timeout)
+	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, hooks.Propose, hooks.Commit, conf.Timeout)
 	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 
 	s, err := server.New(conf, cohortImpl, coordImpl, database)

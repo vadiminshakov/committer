@@ -279,7 +279,14 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		database, err := db.New(node.DBPath)
 		failfast(err)
 
-		c, err := gowal.NewWAL("./tmp/cohort/"+strconv.Itoa(i), "msgs")
+		walConfig := gowal.Config{
+			Dir:              "./tmp/cohort/" + strconv.Itoa(i),
+			Prefix:           "msgs_",
+			SegmentThreshold: 100,
+			MaxSegments:      100,
+			IsInSyncDiskMode: false,
+		}
+		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
 		ct := server.TWO_PHASE
@@ -312,10 +319,18 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		database, err := db.New(coordConfig.DBPath)
 		failfast(err)
 
-		c, err := gowal.NewWAL("./tmp/coord/"+strconv.Itoa(i), "msgs")
-		v, err := gowal.NewWAL("./tmp/coord/"+strconv.Itoa(i), "votes")
+		walConfig := gowal.Config{
+			Dir:              "./tmp/coord/msgs" + strconv.Itoa(i),
+			Prefix:           "msgs",
+			SegmentThreshold: 100,
+			MaxSegments:      100,
+			IsInSyncDiskMode: false,
+		}
+
+		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
-		coord, err := coordinator.New(coordConfig, c, v, database)
+
+		coord, err := coordinator.New(coordConfig, c, database)
 		failfast(err)
 
 		coordServer, err := server.New(coordConfig, nil, coord, database)
