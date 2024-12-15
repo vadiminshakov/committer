@@ -13,7 +13,7 @@ import (
 )
 
 type wal interface {
-	Set(index uint64, key string, value []byte) error
+	Write(index uint64, key string, value []byte) error
 	Get(index uint64) (string, []byte, bool)
 	Close() error
 }
@@ -64,7 +64,7 @@ func (c *Committer) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.
 	}
 
 	log.Infof("received: %s=%s\n", req.Key, string(req.Value))
-	c.wal.Set(req.Height, req.Key, req.Value)
+	c.wal.Write(req.Height, req.Key, req.Value)
 
 	if c.state.mode == twophase {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
@@ -79,7 +79,7 @@ func (c *Committer) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.
 					return
 				}
 
-				c.wal.Set(req.Height, "skip", nil)
+				c.wal.Write(req.Height, "skip", nil)
 
 				log.Warn("skip proposed message after timeout")
 			}
