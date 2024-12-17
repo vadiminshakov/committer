@@ -2,88 +2,109 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/vadiminshakov/committer.svg)](https://pkg.go.dev/github.com/vadiminshakov/committer)
 [![Go Report Card](https://goreportcard.com/badge/github.com/vadiminshakov/committer)](https://goreportcard.com/report/github.com/vadiminshakov/committer)
 
-
 <p align="center">
-<img src="https://github.com/vadiminshakov/committer/blob/master/committer.png">
+<img src="https://github.com/vadiminshakov/committer/blob/master/committer.png" alt="Committer Logo">
 </p>
 
-# committer
+# **Committer**
 
-Two-phase (2PC) and three-phase (3PC) protocols implementaion in Golang. Committer uses BadgerDB for persistence.
+**Committer** is a Go implementation of the **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)** protocols for distributed systems. It uses **BadgerDB** for persistence.
 
-<br>
+## **Key Features**
 
-_protocols description:_
+- **2PC and 3PC support**: Implements two widely used consensus protocols for distributed transactions.
+- **Persistence**: Uses **BadgerDB** and WAL for reliable data storage and transaction logs.
+- **Configurable**: All options can be specified using command-line flags.
+- **Hooks for validation**: Custom logic can be injected during **Propose** and **Commit** stages.
+- **gRPC-based communication**: Efficient inter-node communication using gRPC.
 
-- http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.63.7048&rep=rep1&type=pdf (2PC)
+## **Protocols**
 
-- http://courses.cs.vt.edu/~cs5204/fall00/distributedDBMS/sreenu/3pc.html (3PC)
+- **Two-Phase Commit**: [Read the 2PC protocol description](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.63.7048&rep=rep1&type=pdf)
+- **Three-Phase Commit**: [Read the 3PC protocol description](http://courses.cs.vt.edu/~cs5204/fall00/distributedDBMS/sreenu/3pc.html)
 
-<br>
+## **Configuration**
 
-**Configuring**
+All configuration parameters can be set using command-line flags:
 
-All config parameters may be specified via command-line flags
-
-| flag            |   description                                | default                           | example               |  
-|-----------------|----------------------------------------------|-----------------------------------|-----------------------|
-| role            |  role of the node (coordinator of follower)  | follower                          | -role=coordinator 
-| nodeaddr        | node address                                 | localhost:3050                    | -nodeaddr=localhost:3051  
-| coordinator     |  coordinator address                         |  ""                               | -coordinator=localhost:3050  
-| committype      | two-phase or three-phase commit mode         | three-phase                       | -committype=two-phase  
-| timeout         | timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)  |  1000 |  -timeout=500
-| dbpath          |  database path on filesystem                 |  ./badger                         |  -dbpath=/tmp/badger
-| followers       | comma-separated list of followers' addresses | ""                                |  -followers=localhost:3052,localhost:3053,localhost:3053
-| whitelist       | comma-separated list of allowed hosts        | 127.0.0.1                         |  -whitelist=192.168.0.105,192.168.0.101
+| **Flag**       | **Description**                                          | **Default**         | **Example**                          |
+|-----------------|---------------------------------------------------------|---------------------|-------------------------------------|
+| `role`         | Node role: `coordinator` or `follower`                  | `follower`          | `-role=coordinator`                 |
+| `nodeaddr`     | Address of the current node                             | `localhost:3050`    | `-nodeaddr=localhost:3051`          |
+| `coordinator`  | Coordinator address (required for followers)            | `""`                | `-coordinator=localhost:3050`       |
+| `committype`   | Commit protocol: `two-phase` or `three-phase`           | `three-phase`       | `-committype=two-phase`             |
+| `timeout`      | Timeout (ms) for unacknowledged messages (3PC only)     | `1000`              | `-timeout=500`                      |
+| `dbpath`       | Path to the BadgerDB database on the filesystem         | `./badger`          | `-dbpath=/tmp/badger`               |
+| `followers`    | Comma-separated list of follower addresses              | `""`                | `-followers=localhost:3052,3053`    |
+| `whitelist`    | Comma-separated list of allowed hosts                   | `127.0.0.1`         | `-whitelist=192.168.0.1,192.168.0.2`|
 
 
-<br>
+## **Usage**
 
-example **follower**:
-```
+### **Running as a Follower**
+```bash
 ./committer -role=follower -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/follower
 ```
 
-example **coordinator**:
-```
+### **Running as a Coordinator**
+```bash
 ./committer -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
 ```
 
-<br>
+## **Hooks**
 
-**Hooks**
+Hooks allow you to add custom validation logic during the **Propose** and **Commit** stages.  
+A hook is a function that accepts `*pb.ProposeRequest` or `*pb.CommitRequest` and returns a boolean.
 
-Hooks for requests checking on Propose and Commit stage. 
-It's just a function that receives *pb.ProposeRequest or *pb.CommitRequest and returns true or false.
-Function body incorporate all validation logic.
+Example hook implementation can be found [here](https://github.com/vadiminshakov/committer/blob/master/core/cohort/commitalgo/hooks/hooks.go).
 
-Example hooks can be found at [core/cohort/commitalgo/hooks/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/cohort/commitalgo/hooks/hooks.go).
- 
-You can replace code in the [core/cohort/commitalgo/hooks/hooks.go](https://github.com/vadiminshakov/committer/blob/master/core/cohort/commitalgo/hooks/hooks.go) file used by committer to inject your validation logic into the handlers.
+To inject your own logic, replace the code in the hook file with your custom validation.
+markdown
+Copy code
 
-**Testing**
+## **Testing**
 
-functional tests: `make tests`
-
-<br>
-
-**Testing with example client**
-
-compile executables:
+### **Run Functional Tests**
+```bash
+make tests
 ```
+
+### **Testing with Example Client**
+1. Compile executables:
+
+```bash
 make prepare
 ```
 
-run coordinator:
-```
+2. Run the coordinator:
+
+```bash
 make run-example-coordinator
 ```
-run follower in another shell:
-```
+
+3. Run a follower in another terminal:
+
+```bash
 make run-example-follower
 ```
 
-run example client:
-```
+4. Start the example client:
+
+```bash
 go run ./examples/client/client.go
 ```
+
+## **Architecture**
+
+The system consists of two types of nodes: **Coordinator** and **Followers**. 
+The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Followers** participate in the protocol by responding to the coordinator's requests. 
+The communication between nodes is handled using gRPC, and the state of each node is managed using a state machine. 
+
+
+## **Contributions**
+
+Contributions are welcome! Feel free to submit a PR or open an issue if you find bugs or have suggestions for improvement.
+
+## **License**
+
+This project is licensed under the [MIT License](LICENSE).
