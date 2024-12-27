@@ -23,11 +23,6 @@ type CohortResponse struct {
 	Height uint64
 }
 
-type Vote struct {
-	Node       string
-	IsAccepted bool
-}
-
 type BroadcastRequest struct {
 	Key   string
 	Value []byte
