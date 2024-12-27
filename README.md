@@ -10,6 +10,12 @@
 
 **Committer** is a Go implementation of the **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)** protocols for distributed systems. It uses **BadgerDB** for persistence.
 
+## **Architecture**
+
+The system consists of two types of nodes: **Coordinator** and **Followers**.
+The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Followers** participate in the protocol by responding to the coordinator's requests.
+The communication between nodes is handled using gRPC, and the state of each node is managed using a state machine.
+
 ## **Key Features**
 
 - **2PC and 3PC support**: Implements two widely used consensus protocols for distributed transactions.
@@ -93,13 +99,6 @@ make run-example-follower
 ```bash
 go run ./examples/client/client.go
 ```
-
-## **Architecture**
-
-The system consists of two types of nodes: **Coordinator** and **Followers**. 
-The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Followers** participate in the protocol by responding to the coordinator's requests. 
-The communication between nodes is handled using gRPC, and the state of each node is managed using a state machine. 
-
 
 ## **Contributions**
 
