@@ -1,9 +1,7 @@
 package coordinator
 
 import (
-	"bytes"
 	"context"
-	"encoding/gob"
 	"fmt"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -107,13 +105,11 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 		ctype = pb.CommitType_TWO_PHASE_COMMIT
 	}
 
-	votes := make([]*dto.Vote, 0, len(c.followers))
 	for nodename, follower := range c.followers {
 		var (
 			resp *pb.Response
 			err  error
 		)
-		isAccepted := true
 
 		for resp == nil || resp != nil && resp.Type == pb.Type_NACK {
 			resp, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
@@ -121,20 +117,8 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 				CommitType: ctype,
 				Index:      c.height})
 			if err != nil {
-				log.Errorf(err.Error())
-				isAccepted = false
 				return fmt.Errorf("node %s is not accepted proposed msg", nodename)
 			}
-
-			if !isAccepted {
-				// TODO: реализовать роллбек
-				return fmt.Errorf("node %s is not accepted proposed msg", nodename)
-			}
-
-			votes = append(votes, &dto.Vote{
-				Node:       nodename,
-				IsAccepted: isAccepted,
-			})
 
 			if resp == nil || resp.Type != pb.Type_ACK {
 				log.Warnf("follower %s not acknowledged msg %v", nodename, req)
@@ -143,18 +127,11 @@ func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest)
 			if resp != nil && resp.Index > c.height {
 				log.Warnf("сoordinator has stale height [%d], update to [%d] and try to send again", c.height, resp.Index)
 				c.height = resp.Index
-				votes = votes[:0]
 			}
 		}
 	}
 	if err := c.wal.Write(c.height, req.Key, req.Value); err != nil {
 		return errors.Wrap(err, "failed to save msg in the coordinator's log")
-	}
-
-	var bufVotes bytes.Buffer
-	encVotes := gob.NewEncoder(&bufVotes)
-	if err := encVotes.Encode(votes); err != nil {
-		return err
 	}
 
 	return nil
