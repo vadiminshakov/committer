@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"github.com/golang/protobuf/ptypes/empty"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
@@ -11,6 +10,7 @@ import (
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"net"
 	"time"
 )
@@ -79,7 +79,7 @@ func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, er
 	}, nil
 }
 
-func (s *Server) NodeInfo(ctx context.Context, req *empty.Empty) (*proto.Info, error) {
+func (s *Server) NodeInfo(ctx context.Context, req *emptypb.Empty) (*proto.Info, error) {
 	return &proto.Info{Height: s.cohort.Height()}, nil
 }
 

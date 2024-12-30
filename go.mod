@@ -4,13 +4,12 @@ go 1.23.0
 
 require (
 	github.com/dgraph-io/badger/v2 v2.0.3
-	github.com/golang/protobuf v1.5.2
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.9.0
 	github.com/vadiminshakov/gowal v0.0.1
 	google.golang.org/grpc v1.50.0
-	google.golang.org/protobuf v1.28.1
+	google.golang.org/protobuf v1.36.1
 )
 
 require (
@@ -20,6 +19,7 @@ require (
 	github.com/dgraph-io/ristretto v0.0.2-0.20200115201040-8f368f2f2ab3 // indirect
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.1 // indirect

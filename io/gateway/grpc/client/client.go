@@ -2,12 +2,12 @@ package client
 
 import (
 	"context"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"time"
 )
 
@@ -59,7 +59,7 @@ func (client *CommitClient) Put(ctx context.Context, key string, value []byte) (
 
 // NodeInfo gets info about current node height.
 func (client *CommitClient) NodeInfo(ctx context.Context) (*proto.Info, error) {
-	return client.Connection.NodeInfo(ctx, &empty.Empty{})
+	return client.Connection.NodeInfo(ctx, &emptypb.Empty{})
 }
 
 // Get queries value of specific key
