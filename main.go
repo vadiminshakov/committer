@@ -46,20 +46,20 @@ func main() {
 		panic(err)
 	}
 
-	coordImpl, err := coordinator.New(conf, wal, database)
+	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, hooks.Propose, hooks.Commit, conf.Timeout)
+	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
+	coordinatorImpl, err := coordinator.New(conf, wal, database)
 	if err != nil {
 		panic(err)
 	}
 
-	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, hooks.Propose, hooks.Commit, conf.Timeout)
-	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
-
-	s, err := server.New(conf, cohortImpl, coordImpl, database)
+	s, err := server.New(conf, cohortImpl, coordinatorImpl, database)
 	if err != nil {
 		panic(err)
 	}
 
 	s.Run(server.WhiteListChecker)
+
 	<-ch
 	s.Stop()
 }

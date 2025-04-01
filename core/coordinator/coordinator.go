@@ -17,10 +17,6 @@ import (
 	"time"
 )
 
-const (
-	votesPrefix = "votes"
-)
-
 type wal interface {
 	Write(index uint64, key string, value []byte) error
 	Get(index uint64) (string, []byte, bool)
@@ -87,6 +83,7 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastReques
 	if !ok {
 		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
 	}
+
 	if err := c.database.Put(key, value); err != nil {
 		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, status.Error(codes.Internal, "failed to save msg on coordinator")
 	}
