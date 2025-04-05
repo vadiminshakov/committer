@@ -23,7 +23,7 @@ type wal interface {
 	Close() error
 }
 
-type coordinatorImpl struct {
+type coordinator struct {
 	wal       wal
 	database  db.Repository
 	followers map[string]*client.CommitClient
@@ -31,40 +31,39 @@ type coordinatorImpl struct {
 	height    uint64
 }
 
-func New(conf *config.Config, wal wal, database db.Repository) (*coordinatorImpl, error) {
-	flwrs := make(map[string]*client.CommitClient, len(conf.Followers))
+func New(conf *config.Config, wal wal, database db.Repository) (*coordinator, error) {
+	followers := make(map[string]*client.CommitClient, len(conf.Followers))
 	for _, f := range conf.Followers {
-		client, err := client.New(f)
+		cl, err := client.New(f)
 		if err != nil {
 			return nil, err
 		}
-		flwrs[f] = client
+
+		followers[f] = cl
 	}
 
-	return &coordinatorImpl{
-		followers: flwrs,
-		height:    0,
+	return &coordinator{
 		wal:       wal,
 		database:  database,
+		followers: followers,
 		config:    conf,
 	}, nil
 }
 
-func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error) {
-	// propose
-	log.Infof("propose key %s", req.Key)
+func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error) {
+	log.Infof("Proposing key %s", req.Key)
 	if err := c.propose(ctx, req); err != nil {
-		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, "failed to send propose")
+		return nackResponse(err, "failed to send propose")
 	}
 
-	// precommit phase only for three-phase mode
-	log.Infof("precommit key %s", req.Key)
-	if err := c.preCommit(ctx, req); err != nil {
-		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, "failed to send precommit")
+	if c.config.CommitType == server.THREE_PHASE {
+		log.Infof("Precommitting key %s", req.Key)
+		if err := c.preCommit(ctx, req); err != nil {
+			return nackResponse(err, "failed to send precommit")
+		}
 	}
 
-	// commit
-	log.Infof("commit %s", req.Key)
+	log.Infof("Committing key %s", req.Key)
 	if err := c.commit(ctx); err != nil {
 		s, ok := status.FromError(err)
 		if !ok {
@@ -73,114 +72,116 @@ func (c *coordinatorImpl) Broadcast(ctx context.Context, req dto.BroadcastReques
 		if s.Code() == codes.AlreadyExists {
 			return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, nil
 		}
-		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, "failed to send commit")
+		return nackResponse(err, "failed to send commit")
 	}
 
-	log.Infof("coordinator got ack from all cohorts, committed key %s", req.Key)
-
-	// the coordinator got all the answers, so it's time to persist msg
-	key, value, ok := c.wal.Get(c.height)
-	if !ok {
-		return nil, status.Error(codes.Internal, "can't to find msg in the coordinator's cache")
+	log.Infof("coordinator committed key %s", req.Key)
+	if err := c.persistMessage(); err != nil {
+		return nackResponse(err, "failed to persist message")
 	}
 
-	if err := c.database.Put(key, value); err != nil {
-		return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, status.Error(codes.Internal, "failed to save msg on coordinator")
-	}
-
-	// increase height for next round
 	atomic.AddUint64(&c.height, 1)
-
 	return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Index: c.height}, nil
 }
 
-func (c *coordinatorImpl) propose(ctx context.Context, req dto.BroadcastRequest) error {
-	var ctype pb.CommitType
+func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) error {
+	commitType := pb.CommitType_TWO_PHASE_COMMIT
 	if c.config.CommitType == server.THREE_PHASE {
-		ctype = pb.CommitType_THREE_PHASE_COMMIT
-	} else {
-		ctype = pb.CommitType_TWO_PHASE_COMMIT
+		commitType = pb.CommitType_THREE_PHASE_COMMIT
 	}
 
-	for nodename, follower := range c.followers {
-		var (
-			resp *pb.Response
-			err  error
-		)
-
-		for resp == nil || resp != nil && resp.Type == pb.Type_NACK {
-			resp, err = follower.Propose(ctx, &pb.ProposeRequest{Key: req.Key,
-				Value:      req.Value,
-				CommitType: ctype,
-				Index:      c.height})
-			if err != nil {
-				return fmt.Errorf("node %s is not accepted proposed msg", nodename)
-			}
-
-			if resp == nil || resp.Type != pb.Type_ACK {
-				log.Warnf("follower %s not acknowledged msg %v", nodename, req)
-			}
-
-			if resp != nil && resp.Index > c.height {
-				log.Warnf("сoordinator has stale height [%d], update to [%d] and try to send again", c.height, resp.Index)
-				c.height = resp.Index
-			}
+	for name, follower := range c.followers {
+		if err := c.sendProposal(ctx, follower, name, req, commitType); err != nil {
+			return err
 		}
 	}
-	if err := c.wal.Write(c.height, req.Key, req.Value); err != nil {
-		return errors.Wrap(err, "failed to save msg in the coordinator's log")
+
+	return c.wal.Write(c.height, req.Key, req.Value)
+}
+
+func (c *coordinator) sendProposal(ctx context.Context, follower *client.CommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
+	for {
+		resp, err := follower.Propose(ctx, &pb.ProposeRequest{
+			Key:        req.Key,
+			Value:      req.Value,
+			CommitType: commitType,
+			Index:      c.height,
+		})
+		if err != nil {
+			return fmt.Errorf("node %s rejected proposed msg", name)
+		}
+
+		if resp != nil && resp.Type != pb.Type_ACK {
+			if resp.Index > c.height {
+				log.Warnf("Updating stale height: %d -> %d", c.height, resp.Index)
+				c.height = resp.Index
+
+				continue
+			}
+
+			return fmt.Errorf("follower %s not acknowledged msg %v", name, req)
+		}
+
+		break
 	}
 
 	return nil
 }
 
-func (c *coordinatorImpl) preCommit(ctx context.Context, req dto.BroadcastRequest) error {
-	if c.config.CommitType != server.THREE_PHASE {
-		return nil
-	}
-
+func (c *coordinator) preCommit(ctx context.Context, req dto.BroadcastRequest) error {
 	for _, follower := range c.followers {
 		resp, err := follower.Precommit(ctx, &pb.PrecommitRequest{Index: c.height})
-		if err != nil {
-			return err
-		}
-		if resp.Type != pb.Type_ACK {
-			return status.Error(codes.Internal, "follower not acknowledged msg")
+		if err != nil || resp.Type != pb.Type_ACK {
+			return status.Error(codes.FailedPrecondition, "follower not acknowledged msg")
 		}
 	}
 
-	// block after precommit if needs
-	{
-		blockPrecommit, ok := ctx.Value("block").(string)
-		blockt, okblocktime := ctx.Value("blocktime").(string)
-		if ok && okblocktime {
-			if blockPrecommit == "precommit" {
-				dur, err := time.ParseDuration(blockt)
-				if err != nil {
-					return err
-				}
-				time.Sleep(dur)
-			}
-		}
-	}
-
-	return nil
+	return c.maybeBlock(ctx, "precommit")
 }
 
-func (c *coordinatorImpl) commit(ctx context.Context) error {
+func (c *coordinator) commit(ctx context.Context) error {
 	for _, follower := range c.followers {
-		r, err := follower.Commit(ctx, &pb.CommitRequest{Index: c.height})
+		resp, err := follower.Commit(ctx, &pb.CommitRequest{Index: c.height})
 		if err != nil {
 			return err
 		}
-		if r.Type != pb.Type_ACK {
-			return status.Error(codes.Internal, "follower not acknowledged msg")
+
+		if resp.Type != pb.Type_ACK {
+			return status.Error(codes.FailedPrecondition, "follower not acknowledged msg")
 		}
 	}
 
 	return nil
 }
 
-func (c *coordinatorImpl) Height() uint64 {
+func (c *coordinator) persistMessage() error {
+	key, value, ok := c.wal.Get(c.height)
+	if !ok {
+		return status.Error(codes.Internal, "can't find msg in wal")
+	}
+
+	return c.database.Put(key, value)
+}
+
+func (c *coordinator) maybeBlock(ctx context.Context, phase string) error {
+	block, _ := ctx.Value("block").(string)
+	blockTime, _ := ctx.Value("blocktime").(string)
+
+	if block == phase {
+		dur, err := time.ParseDuration(blockTime)
+		if err != nil {
+			return err
+		}
+		time.Sleep(dur)
+	}
+
+	return nil
+}
+
+func (c *coordinator) Height() uint64 {
 	return c.height
+}
+
+func nackResponse(err error, msg string) (*dto.BroadcastResponse, error) {
+	return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, msg)
 }
