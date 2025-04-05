@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
@@ -104,22 +104,22 @@ func TestHappyPath(t *testing.T) {
 	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
 		cli, err := client.New(node.Nodeaddr)
-		assert.NoError(t, err, "err not nil")
+		require.NoError(t, err, "err not nil")
 
 		for key, val := range testtable {
 			// check values added by nodes
 			resp, err := cli.Get(context.Background(), key)
-			assert.NoError(t, err, "err not nil")
-			assert.Equal(t, resp.Value, val)
+			require.NoError(t, err, "err not nil")
+			require.Equal(t, resp.Value, val)
 
 			// check height of node
 			nodeInfo, err := cli.NodeInfo(context.Background())
-			assert.NoError(t, err, "err not nil")
-			assert.Equal(t, height, nodeInfo.Height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, nodeInfo.Height-height, nodeInfo.Height)
+			require.NoError(t, err, "err not nil")
+			require.Equal(t, height, nodeInfo.Height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, nodeInfo.Height-height, nodeInfo.Height)
 		}
 	}
 
-	assert.NoError(t, canceller())
+	require.NoError(t, canceller())
 }
 
 // 5 followers, 1 coordinator
@@ -133,14 +133,14 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	defer canceller()
 
 	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	assert.NoError(t, err, "err not nil")
+	require.NoError(t, err, "err not nil")
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
-		assert.NoError(t, err, "err not nil")
-		assert.Equal(t, resp.Type, pb.Type_ACK, "msg shouldn't be acknowledged")
+		require.NoError(t, err, "err not nil")
+		require.Equal(t, resp.Type, pb.Type_ACK, "msg shouldn't be acknowledged")
 	}
 
-	assert.NoError(t, canceller())
+	require.NoError(t, canceller())
 }
 
 // 5 followers, 1 coordinator
@@ -154,34 +154,34 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 	defer canceller()
 
 	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	assert.NoError(t, err, "err not nil")
+	require.NoError(t, err, "err not nil")
 
 	var height uint64 = 0
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
-		assert.NoError(t, err, "err not nil")
-		assert.Equal(t, resp.Type, pb.Type_NACK, "msg should not be acknowledged")
+		require.NoError(t, err, "err not nil")
+		require.Equal(t, resp.Type, pb.Type_NACK, "msg should not be acknowledged")
 		height += 1
 	}
 
 	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
 		cli, err := client.New(node.Nodeaddr)
-		assert.NoError(t, err, "err not nil")
+		require.NoError(t, err, "err not nil")
 		for key, val := range testtable {
 			// check values added by nodes
 			resp, err := cli.Get(context.Background(), key)
-			assert.NoError(t, err, "err not nil")
-			assert.Equal(t, resp.Value, val)
+			require.NoError(t, err, "err not nil")
+			require.Equal(t, resp.Value, val)
 
 			// check height of node
 			nodeInfo, err := cli.NodeInfo(context.Background())
-			assert.NoError(t, err, "err not nil")
-			assert.Equal(t, int(height), int(nodeInfo.Height), "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
+			require.NoError(t, err, "err not nil")
+			require.Equal(t, int(height), int(nodeInfo.Height), "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
 		}
 	}
 
-	assert.NoError(t, canceller())
+	require.NoError(t, canceller())
 }
 
 // 5 followers, 1 coordinator
@@ -195,7 +195,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	defer canceller()
 
 	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	assert.NoError(t, err, "err not nil")
+	require.NoError(t, err, "err not nil")
 
 	for key, val := range testtable {
 		md := metadata.Pairs("blockcommit", "1000ms")
@@ -210,21 +210,21 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	// connect to follower and check that them NOT added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
 		cli, err := client.New(node.Nodeaddr)
-		assert.NoError(t, err, "err not nil")
+		require.NoError(t, err, "err not nil")
 		for key := range testtable {
 			// check values NOT added by nodes
 			resp, err := cli.Get(context.Background(), key)
-			assert.Contains(t, err.Error(), "Key not found")
-			assert.Equal(t, (*pb.Value)(nil), resp)
+			require.Contains(t, err.Error(), "Key not found")
+			require.Equal(t, (*pb.Value)(nil), resp)
 
 			// check height of node
 			nodeInfo, err := cli.NodeInfo(context.Background())
-			assert.NoError(t, err, "err not nil")
-			assert.EqualValues(t, 0, nodeInfo.Height, "node %s must have 0 height (but has %d)", node.Nodeaddr, nodeInfo.Height)
+			require.NoError(t, err, "err not nil")
+			require.EqualValues(t, 0, nodeInfo.Height, "node %s must have 0 height (but has %d)", node.Nodeaddr, nodeInfo.Height)
 		}
 	}
 
-	assert.NoError(t, canceller())
+	require.NoError(t, canceller())
 }
 
 func startnodes(block int, commitType pb.CommitType) func() error {
