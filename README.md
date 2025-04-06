@@ -9,7 +9,7 @@
 
 # **Committer**
 
-**Committer** is a Go implementation of the **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)** protocols for distributed systems. It uses **BadgerDB** for persistence.
+**Committer** is a Go implementation of the **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)** protocols for distributed systems.
 
 ## **Architecture**
 
