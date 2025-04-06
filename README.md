@@ -25,11 +25,6 @@ The communication between nodes is handled using gRPC, and the state of each nod
 - **Hooks for validation**: Custom logic can be injected during **Propose** and **Commit** stages.
 - **gRPC-based communication**: Efficient inter-node communication using gRPC.
 
-## **Protocols**
-
-- **Two-Phase Commit**: [Read the 2PC protocol description](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.63.7048&rep=rep1&type=pdf)
-- **Three-Phase Commit**: [Read the 3PC protocol description](http://courses.cs.vt.edu/~cs5204/fall00/distributedDBMS/sreenu/3pc.html)
-
 ## **Configuration**
 
 All configuration parameters can be set using command-line flags:
