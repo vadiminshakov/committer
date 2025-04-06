@@ -14,7 +14,7 @@
 ## **Architecture**
 
 The system consists of two types of nodes: **Coordinator** and **Followers**.
-The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Followers** participate in the protocol by responding to the coordinator's requests.
+The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Followers** (or cohorts) participate in the protocol by responding to the coordinator's requests.
 The communication between nodes is handled using gRPC, and the state of each node is managed using a state machine.
 
 ## **Key Features**
