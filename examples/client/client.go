@@ -14,7 +14,7 @@ func main() {
 	key, value := "somekey", "somevalue"
 
 	// create a client for interaction with coordinator
-	cli, err := client.New(coordinatorAddr)
+	cli, err := client.NewClientAPI(coordinatorAddr)
 	if err != nil {
 		panic(err)
 	}
