@@ -73,6 +73,8 @@ github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8
 github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8/go.mod h1:VFNgLljTbGfSG7qAOspJ7OScBnGdDN/yBr0sguwnwf0=
 github.com/vadiminshakov/gowal v0.0.1 h1:lNcc4YaPX9ocYnpa9FQ6VkEbUD+iVB2So6Q8+OewYOA=
 github.com/vadiminshakov/gowal v0.0.1/go.mod h1:MixWBivF0qsRLcHGyfRFPbujtxYkpD1VNcO0yD7Xla0=
+github.com/vadiminshakov/gowal v0.0.2 h1:tIc+sWwIVlHnIvtWHA1Lr7xDKGKpSoV0GuIFLEr0Tqc=
+github.com/vadiminshakov/gowal v0.0.2/go.mod h1:MixWBivF0qsRLcHGyfRFPbujtxYkpD1VNcO0yD7Xla0=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
 golang.org/x/crypto v0.0.0-20180904163835-0709b304e793/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/crypto v0.0.0-20181203042331-505ab145d0a9/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=

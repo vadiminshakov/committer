@@ -7,7 +7,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.9.0
-	github.com/vadiminshakov/gowal v0.0.1
+	github.com/vadiminshakov/gowal v0.0.2
 	google.golang.org/grpc v1.50.0
 	google.golang.org/protobuf v1.36.1
 )
