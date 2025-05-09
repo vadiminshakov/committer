@@ -26,15 +26,15 @@ type wal interface {
 type coordinator struct {
 	wal       wal
 	database  db.Repository
-	followers map[string]*client.CommitClient
+	followers map[string]*client.InternalCommitClient
 	config    *config.Config
 	height    uint64
 }
 
 func New(conf *config.Config, wal wal, database db.Repository) (*coordinator, error) {
-	followers := make(map[string]*client.CommitClient, len(conf.Followers))
+	followers := make(map[string]*client.InternalCommitClient, len(conf.Followers))
 	for _, f := range conf.Followers {
-		cl, err := client.New(f)
+		cl, err := client.NewInternalClient(f)
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +58,7 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 
 	if c.config.CommitType == server.THREE_PHASE {
 		log.Infof("Precommitting key %s", req.Key)
-		if err := c.preCommit(ctx, req); err != nil {
+		if err := c.preCommit(ctx); err != nil {
 			return nackResponse(err, "failed to send precommit")
 		}
 	}
@@ -99,7 +99,7 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 	return c.wal.Write(c.height, req.Key, req.Value)
 }
 
-func (c *coordinator) sendProposal(ctx context.Context, follower *client.CommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
+func (c *coordinator) sendProposal(ctx context.Context, follower *client.InternalCommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
 	for {
 		resp, err := follower.Propose(ctx, &pb.ProposeRequest{
 			Key:        req.Key,
@@ -128,7 +128,7 @@ func (c *coordinator) sendProposal(ctx context.Context, follower *client.CommitC
 	return nil
 }
 
-func (c *coordinator) preCommit(ctx context.Context, req dto.BroadcastRequest) error {
+func (c *coordinator) preCommit(ctx context.Context) error {
 	for _, follower := range c.followers {
 		resp, err := follower.Precommit(ctx, &pb.PrecommitRequest{Index: c.height})
 		if err != nil || resp.Type != pb.Type_ACK {
