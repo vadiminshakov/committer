@@ -3,6 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
+	"testing"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/config"
@@ -17,10 +22,6 @@ import (
 	"github.com/vadiminshakov/gowal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"os"
-	"strconv"
-	"testing"
-	"time"
 )
 
 const (
@@ -80,7 +81,7 @@ func TestHappyPath(t *testing.T) {
 
 	defer canceller()
 
-	c, err := client.New(coordConfig.Nodeaddr)
+	c, err := client.NewClientAPI(coordConfig.Nodeaddr)
 	if err != nil {
 		t.Error(err)
 	}
@@ -103,7 +104,7 @@ func TestHappyPath(t *testing.T) {
 
 	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := client.New(node.Nodeaddr)
+		cli, err := client.NewClientAPI(node.Nodeaddr)
 		require.NoError(t, err, "err not nil")
 
 		for key, val := range testtable {
@@ -132,7 +133,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS, pb.CommitType_THREE_PHASE_COMMIT)
 	defer canceller()
 
-	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
+	c, err := client.NewClientAPI(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	require.NoError(t, err, "err not nil")
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
@@ -153,7 +154,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
 	defer canceller()
 
-	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
+	c, err := client.NewClientAPI(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	require.NoError(t, err, "err not nil")
 
 	var height uint64 = 0
@@ -166,7 +167,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 
 	// connect to followers and check that them added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := client.New(node.Nodeaddr)
+		cli, err := client.NewClientAPI(node.Nodeaddr)
 		require.NoError(t, err, "err not nil")
 		for key, val := range testtable {
 			// check values added by nodes
@@ -194,7 +195,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 	canceller := startnodes(ONE_FOLLOWER_FAIL, pb.CommitType_THREE_PHASE_COMMIT)
 	defer canceller()
 
-	c, err := client.New(nodes[COORDINATOR_TYPE][1].Nodeaddr)
+	c, err := client.NewClientAPI(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	require.NoError(t, err, "err not nil")
 
 	for key, val := range testtable {
@@ -209,11 +210,12 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *tes
 
 	// connect to follower and check that them NOT added key-value
 	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := client.New(node.Nodeaddr)
+		cli, err := client.NewClientAPI(node.Nodeaddr)
 		require.NoError(t, err, "err not nil")
 		for key := range testtable {
 			// check values NOT added by nodes
 			resp, err := cli.Get(context.Background(), key)
+			require.Error(t, err, "expected an error but got nil")
 			require.Contains(t, err.Error(), "Key not found")
 			require.Equal(t, (*pb.Value)(nil), resp)
 
