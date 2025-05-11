@@ -170,7 +170,7 @@ var InternalCommitAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "schema.proto",
+	Metadata: "io/gateway/grpc/proto/schema.proto",
 }
 
 // ClientAPIClient is the client API for ClientAPI service.
@@ -328,5 +328,5 @@ var ClientAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "schema.proto",
+	Metadata: "io/gateway/grpc/proto/schema.proto",
 }

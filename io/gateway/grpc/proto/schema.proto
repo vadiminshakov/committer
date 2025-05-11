@@ -3,10 +3,13 @@ package schema;
 import "google/protobuf/empty.proto";
 option go_package = "github.com/vadiminshakov/committer/proto";
 
-service Commit {
+service InternalCommitAPI {
   rpc Propose(ProposeRequest) returns (Response);
   rpc Precommit(PrecommitRequest) returns (Response);
   rpc Commit(CommitRequest) returns (Response);
+}
+
+service ClientAPI {
   rpc Put(Entry) returns (Response);
   rpc Get(Msg) returns (Value);
   rpc NodeInfo(google.protobuf.Empty) returns (Info);
