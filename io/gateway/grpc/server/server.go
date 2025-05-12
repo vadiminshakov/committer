@@ -29,7 +29,9 @@ type Coordinator interface {
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
-	proto.UnimplementedCommitServer
+	proto.UnimplementedInternalCommitAPIServer
+	proto.UnimplementedClientAPIServer
+	
 	cohort      cohort.Cohort
 	DB          db.Repository
 	coordinator Coordinator
@@ -130,7 +132,8 @@ func checkServerFields(server *Server) error {
 func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	var err error
 	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
-	proto.RegisterCommitServer(s.GRPCServer, s)
+	proto.RegisterInternalCommitAPIServer(s.GRPCServer, s)
+	proto.RegisterClientAPIServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
 	if err != nil {

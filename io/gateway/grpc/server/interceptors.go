@@ -94,7 +94,7 @@ func ProposeOneFollowerFail(ctx context.Context,
 	}
 
 	if server.Config.Role != "coordinator" {
-		if info.FullMethod == "/schema.Commit/Propose" {
+		if info.FullMethod == "/schema.InternalCommitAPI/Propose" {
 			var decline bool
 			once.Do(func() {
 				decline = true
