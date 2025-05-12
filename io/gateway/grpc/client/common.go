@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// createConnection creates a gRPC connection to the specified address
 func createConnection(addr string) (*grpc.ClientConn, error) {
 	connParams := grpc.ConnectParams{
 		Backoff: backoff.Config{
