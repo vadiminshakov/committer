@@ -2,6 +2,7 @@ package commitalgo
 
 import (
 	"errors"
+	"sync"
 )
 
 type mode string
@@ -17,6 +18,7 @@ const (
 )
 
 type stateMachine struct {
+	mu           sync.RWMutex
 	currentState string
 	mode         mode
 	transitions  map[string]map[string]struct{}
@@ -53,6 +55,9 @@ func newStateMachine(mode mode) *stateMachine {
 }
 
 func (sm *stateMachine) Transition(nextState string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
 	if allowedStates, ok := sm.transitions[sm.currentState]; ok {
 		if _, ok = allowedStates[nextState]; ok {
 			sm.currentState = nextState
@@ -61,4 +66,16 @@ func (sm *stateMachine) Transition(nextState string) error {
 	}
 
 	return errors.New("invalid state transition")
+}
+
+func (sm *stateMachine) GetCurrentState() string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.currentState
+}
+
+func (sm *stateMachine) SetCurrentState(state string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.currentState = state
 }
