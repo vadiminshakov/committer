@@ -3,13 +3,14 @@ package commitalgo
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sync/atomic"
-	"time"
 )
 
 type wal interface {
@@ -72,21 +73,25 @@ func (c *Committer) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.
 
 	go func(ctx context.Context) {
 		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
-		for {
-			select {
-			case <-deadline:
-				if c.state.currentState == commitStage {
-					return
-				}
-
-				c.wal.Write(req.Height, "skip", nil)
-
-				log.Warn("skip proposed message after timeout")
+		select {
+		case <-deadline:
+			currentState := c.getCurrentState()
+			if currentState == precommitStage || currentState == commitStage {
+				return
 			}
+
+			c.wal.Write(req.Height, "skip", nil)
+			log.Warn("skip proposed message after timeout")
+		case <-ctx.Done():
+			return
 		}
 	}(ctx)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
+}
+
+func (c *Committer) getCurrentState() string {
+	return c.state.GetCurrentState()
 }
 
 func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
@@ -99,12 +104,12 @@ func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortRes
 		for {
 			select {
 			case <-deadline:
-				if c.state.currentState == commitStage {
+				if c.getCurrentState() == commitStage {
 					return
 				}
 
 				c.Commit(ctx, &dto.CommitRequest{Height: index})
-				c.state.currentState = proposeStage
+				c.state.SetCurrentState(proposeStage)
 				log.Warn("committed without coordinator after timeout")
 			}
 		}
@@ -143,7 +148,7 @@ func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.Co
 		atomic.AddUint64(&c.height, 1)
 	}
 
-	c.state.currentState = proposeStage
+	c.state.SetCurrentState(proposeStage)
 
 	return response, nil
 }
