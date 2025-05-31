@@ -101,17 +101,18 @@ func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortRes
 
 	go func(ctx context.Context) {
 		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
-		for {
-			select {
-			case <-deadline:
-				if c.getCurrentState() == commitStage {
-					return
-				}
-
-				c.Commit(ctx, &dto.CommitRequest{Height: index})
-				c.state.SetCurrentState(proposeStage)
-				log.Warn("committed without coordinator after timeout")
+		select {
+		case <-deadline:
+			if c.getCurrentState() == commitStage {
+				return
 			}
+
+			c.Commit(ctx, &dto.CommitRequest{Height: index})
+			c.state.SetCurrentState(proposeStage)
+			log.Warn("committed without coordinator after timeout")
+			return
+		case <-ctx.Done():
+			return
 		}
 	}(ctx)
 
