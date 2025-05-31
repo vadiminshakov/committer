@@ -3,6 +3,9 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
+	"time"
+
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
@@ -13,8 +16,6 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sync/atomic"
-	"time"
 )
 
 type wal interface {

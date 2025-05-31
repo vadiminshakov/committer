@@ -1,6 +1,10 @@
 package main
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
@@ -9,9 +13,6 @@ import (
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/gowal"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 const (
