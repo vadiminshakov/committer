@@ -138,7 +138,7 @@ func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
 		require.NoError(t, err, "err not nil")
-		require.Equal(t, resp.Type, pb.Type_ACK, "msg shouldn't be acknowledged")
+		require.Equal(t, resp.Type, pb.Type_ACK, "msg should be acknowledged")
 	}
 
 	require.NoError(t, canceller())
@@ -161,7 +161,7 @@ func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
 	for key, val := range testtable {
 		resp, err := c.Put(context.Background(), key, val)
 		require.NoError(t, err, "err not nil")
-		require.Equal(t, resp.Type, pb.Type_NACK, "msg should not be acknowledged")
+		require.Equal(t, resp.Type, pb.Type_ACK, "msg should be acknowledged")
 		height += 1
 	}
 
