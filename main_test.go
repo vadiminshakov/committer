@@ -143,9 +143,6 @@ func startnodes(commitType pb.CommitType) func() error {
 		failfast(os.Mkdir("./tmp/coord", os.FileMode(0777)))
 	}
 
-	// NOTE: интерсепторы для блокировок заменены на Toxiproxy chaos testing
-	// См. chaos_test.go для примеров использования
-
 	// start followers
 	stopfuncs := make([]func(), 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
 	for i, node := range nodes[FOLLOWER_TYPE] {
@@ -180,7 +177,6 @@ func startnodes(commitType pb.CommitType) func() error {
 		followerServer, err := server.New(node, cohortImpl, nil, database)
 		failfast(err)
 
-		// запускаем без интерсепторов блокировки - используем Toxiproxy для chaos testing
 		go followerServer.Run(server.WhiteListChecker)
 
 		stopfuncs = append(stopfuncs, followerServer.Stop)
@@ -213,7 +209,6 @@ func startnodes(commitType pb.CommitType) func() error {
 		coordServer, err := server.New(coordConfig, nil, coord, database)
 		failfast(err)
 
-		// запускаем без интерсепторов блокировки - используем Toxiproxy для chaos testing
 		go coordServer.Run(server.WhiteListChecker)
 		time.Sleep(100 * time.Millisecond)
 		stopfuncs = append(stopfuncs, coordServer.Stop)
