@@ -20,21 +20,12 @@ import (
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/gowal"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 const (
 	COORDINATOR_TYPE = "coordinator"
 	FOLLOWER_TYPE    = "follower"
 	BADGER_DIR       = "/tmp/badger"
-)
-
-const (
-	NOT_BLOCKING = iota
-	BLOCK_ON_PRECOMMIT_FOLLOWERS
-	BLOCK_ON_PRECOMMIT_COORDINATOR
-	ONE_FOLLOWER_FAIL
 )
 
 var (
@@ -72,10 +63,10 @@ func TestHappyPath(t *testing.T) {
 	var height uint64 = 0
 	coordConfig := nodes[COORDINATOR_TYPE][0]
 	if coordConfig.CommitType == "two-phase" {
-		canceller = startnodes(NOT_BLOCKING, pb.CommitType_TWO_PHASE_COMMIT)
+		canceller = startnodes(pb.CommitType_TWO_PHASE_COMMIT)
 		log.Println("***\nTEST IN TWO-PHASE MODE\n***")
 	} else {
-		canceller = startnodes(NOT_BLOCKING, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller = startnodes(pb.CommitType_THREE_PHASE_COMMIT)
 		log.Println("***\nTEST IN THREE-PHASE MODE\n***")
 	}
 
@@ -123,113 +114,7 @@ func TestHappyPath(t *testing.T) {
 	require.NoError(t, canceller())
 }
 
-// 5 followers, 1 coordinator
-// on precommit stage all followers stops responding
-//
-// result: coordinator waits for followers up and continues voting.
-func Test_3PC_6NODES_ALLFAILURE_ON_PRECOMMIT(t *testing.T) {
-	log.SetLevel(log.FatalLevel)
-
-	canceller := startnodes(BLOCK_ON_PRECOMMIT_FOLLOWERS, pb.CommitType_THREE_PHASE_COMMIT)
-	defer canceller()
-
-	c, err := client.NewClientAPI(nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	require.NoError(t, err, "err not nil")
-	for key, val := range testtable {
-		resp, err := c.Put(context.Background(), key, val)
-		require.NoError(t, err, "err not nil")
-		require.Equal(t, resp.Type, pb.Type_ACK, "msg should be acknowledged")
-	}
-
-	require.NoError(t, canceller())
-}
-
-// 5 followers, 1 coordinator
-// on precommit stage coordinator stops responding
-//
-// result: followers wait for specified timeout, and then make autocommit without coordinator.
-func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_OK(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
-
-	canceller := startnodes(BLOCK_ON_PRECOMMIT_COORDINATOR, pb.CommitType_THREE_PHASE_COMMIT)
-	defer canceller()
-
-	c, err := client.NewClientAPI(nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	require.NoError(t, err, "err not nil")
-
-	var height uint64 = 0
-	for key, val := range testtable {
-		resp, err := c.Put(context.Background(), key, val)
-		require.NoError(t, err, "err not nil")
-		require.Equal(t, resp.Type, pb.Type_ACK, "msg should be acknowledged")
-		height += 1
-	}
-
-	// connect to followers and check that them added key-value
-	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := client.NewClientAPI(node.Nodeaddr)
-		require.NoError(t, err, "err not nil")
-		for key, val := range testtable {
-			// check values added by nodes
-			resp, err := cli.Get(context.Background(), key)
-			require.NoError(t, err, "err not nil")
-			require.Equal(t, resp.Value, val)
-
-			// check height of node
-			nodeInfo, err := cli.NodeInfo(context.Background())
-			require.NoError(t, err, "err not nil")
-			require.Equal(t, int(height), int(nodeInfo.Height), "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, height-nodeInfo.Height, nodeInfo.Height)
-		}
-	}
-
-	require.NoError(t, canceller())
-}
-
-// 5 followers, 1 coordinator
-// 4 followers acked msg, 1 failed.
-//
-// result: msg proposed, then rollback.
-func Test_3PC_6NODES_COORDINATOR_FAILURE_ON_PRECOMMIT_ONE_FOLLOWER_FAILED(t *testing.T) {
-	log.SetLevel(log.FatalLevel)
-
-	canceller := startnodes(ONE_FOLLOWER_FAIL, pb.CommitType_THREE_PHASE_COMMIT)
-	defer canceller()
-
-	c, err := client.NewClientAPI(nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	require.NoError(t, err, "err not nil")
-
-	for key, val := range testtable {
-		md := metadata.Pairs("blockcommit", "1000ms")
-		ctx := metadata.NewOutgoingContext(context.Background(), md)
-		if _, err = c.Put(ctx, key, val); err != nil {
-			break
-		}
-	}
-
-	time.Sleep(9 * time.Second)
-
-	// connect to follower and check that them NOT added key-value
-	for _, node := range nodes[FOLLOWER_TYPE] {
-		cli, err := client.NewClientAPI(node.Nodeaddr)
-		require.NoError(t, err, "err not nil")
-		for key := range testtable {
-			// check values NOT added by nodes
-			resp, err := cli.Get(context.Background(), key)
-			require.Error(t, err, "expected an error but got nil")
-			require.Contains(t, err.Error(), "Key not found")
-			require.Equal(t, (*pb.Value)(nil), resp)
-
-			// check height of node
-			nodeInfo, err := cli.NodeInfo(context.Background())
-			require.NoError(t, err, "err not nil")
-			require.EqualValues(t, 0, nodeInfo.Height, "node %s must have 0 height (but has %d)", node.Nodeaddr, nodeInfo.Height)
-		}
-	}
-
-	require.NoError(t, canceller())
-}
-
-func startnodes(block int, commitType pb.CommitType) func() error {
+func startnodes(commitType pb.CommitType) func() error {
 	COORDINATOR_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "coordinator", time.Now().UnixNano())
 	FOLLOWER_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "follower", time.Now().UnixNano())
 
@@ -258,15 +143,8 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		failfast(os.Mkdir("./tmp/coord", os.FileMode(0777)))
 	}
 
-	var blocking grpc.UnaryServerInterceptor
-	switch block {
-	case BLOCK_ON_PRECOMMIT_FOLLOWERS:
-		blocking = server.PrecommitBlockALL
-	case BLOCK_ON_PRECOMMIT_COORDINATOR:
-		blocking = server.PrecommitBlockCoordinator
-	case ONE_FOLLOWER_FAIL:
-		blocking = server.ProposeOneFollowerFail
-	}
+	// NOTE: интерсепторы для блокировок заменены на Toxiproxy chaos testing
+	// См. chaos_test.go для примеров использования
 
 	// start followers
 	stopfuncs := make([]func(), 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
@@ -302,11 +180,8 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		followerServer, err := server.New(node, cohortImpl, nil, database)
 		failfast(err)
 
-		if block == 0 {
-			go followerServer.Run(server.WhiteListChecker)
-		} else {
-			go followerServer.Run(server.WhiteListChecker, blocking)
-		}
+		// запускаем без интерсепторов блокировки - используем Toxiproxy для chaos testing
+		go followerServer.Run(server.WhiteListChecker)
 
 		stopfuncs = append(stopfuncs, followerServer.Stop)
 	}
@@ -338,11 +213,8 @@ func startnodes(block int, commitType pb.CommitType) func() error {
 		coordServer, err := server.New(coordConfig, nil, coord, database)
 		failfast(err)
 
-		if block == 0 {
-			go coordServer.Run(server.WhiteListChecker)
-		} else {
-			go coordServer.Run(server.WhiteListChecker, blocking)
-		}
+		// запускаем без интерсепторов блокировки - используем Toxiproxy для chaos testing
+		go coordServer.Run(server.WhiteListChecker)
 		time.Sleep(100 * time.Millisecond)
 		stopfuncs = append(stopfuncs, coordServer.Stop)
 	}
