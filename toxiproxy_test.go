@@ -41,14 +41,14 @@ func newToxiproxyClient(baseURL string) *toxiproxyClient {
 }
 
 func (c *toxiproxyClient) createProxy(name, listen, upstream string) (*proxy, error) {
-	proxy := &proxy{
+	p := &proxy{
 		Name:     name,
 		Listen:   listen,
 		Upstream: upstream,
 		Enabled:  true,
 	}
 
-	data, err := json.Marshal(proxy)
+	data, err := json.Marshal(p)
 	if err != nil {
 		return nil, err
 	}
