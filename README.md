@@ -60,9 +60,7 @@ A hook is a function that accepts `*pb.ProposeRequest` or `*pb.CommitRequest` an
 
 Example hook implementation can be found [here](https://github.com/vadiminshakov/committer/blob/master/core/cohort/commitalgo/hooks/hooks.go).
 
-To inject your own logic, replace the code in the hook file with your custom validation.
-markdown
-Copy code
+To inject your own logic, replace the code in the hook file or in main.go with your custom validation and compile sources.
 
 ## **Testing**
 
