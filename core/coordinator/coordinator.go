@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -137,7 +136,7 @@ func (c *coordinator) preCommit(ctx context.Context) error {
 		}
 	}
 
-	return c.maybeBlock(ctx, "precommit")
+	return nil
 }
 
 func (c *coordinator) commit(ctx context.Context) error {
@@ -162,21 +161,6 @@ func (c *coordinator) persistMessage() error {
 	}
 
 	return c.database.Put(key, value)
-}
-
-func (c *coordinator) maybeBlock(ctx context.Context, phase string) error {
-	block, _ := ctx.Value("block").(string)
-	blockTime, _ := ctx.Value("blocktime").(string)
-
-	if block == phase {
-		dur, err := time.ParseDuration(blockTime)
-		if err != nil {
-			return err
-		}
-		time.Sleep(dur)
-	}
-
-	return nil
 }
 
 func (c *coordinator) Height() uint64 {
