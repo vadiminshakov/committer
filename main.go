@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,7 +32,7 @@ func main() {
 
 	database, err := db.New(conf.DBPath)
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed to open database: %v", err)
 	}
 
 	walConfig := gowal.Config{
@@ -44,19 +45,19 @@ func main() {
 
 	wal, err := gowal.NewWAL(walConfig)
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed to create WAL: %v", err)
 	}
 
 	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, hooks.Propose, hooks.Commit, conf.Timeout)
 	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 	coordinatorImpl, err := coordinator.New(conf, wal, database)
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed to create coordinator: %v", err)
 	}
 
 	s, err := server.New(conf, cohortImpl, coordinatorImpl, database)
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed to create server: %v", err)
 	}
 
 	s.Run(server.WhiteListChecker)
