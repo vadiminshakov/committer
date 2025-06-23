@@ -15,12 +15,25 @@ run-example-follower:
 run-example-client:
 	@go run ./examples/client
 
-start-zipkin:
-	docker rm -f zipkin
-	docker run -d -p 9411:9411 --name zipkin openzipkin/zipkin
-
 tests:
 	@/usr/local/go/bin/go test ./...
+
+start-toxiproxy:
+	@echo "Starting Toxiproxy server..."
+	@pkill toxiproxy-server || true
+	@toxiproxy-server > /dev/null 2>&1 &
+	@echo "Toxiproxy server started in background"
+
+stop-toxiproxy:
+	@echo "Stopping Toxiproxy server..."
+	@pkill toxiproxy-server || true
+
+test-chaos: start-toxiproxy
+	@echo "Waiting for Toxiproxy to start..."
+	@sleep 2
+	@echo "Running chaos tests..."
+	@go test -v -tags=chaos -run "TestChaos" ./...
+	@$(MAKE) stop-toxiproxy
 
 upgrade:
 	@sudo apt-get update
