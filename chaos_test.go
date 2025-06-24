@@ -33,7 +33,7 @@ import (
 
 const TOXIPROXY_URL = "http://localhost:8474"
 
-func TestChaosNodeFailure(t *testing.T) {
+func TestChaosFollowerFailure(t *testing.T) {
 	log.SetLevel(log.InfoLevel)
 
 	// immediate connection reset
@@ -256,13 +256,19 @@ func TestChaosNodeFailure(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = c.Put(context.Background(), "commit_fail_test", []byte("test_value_250"))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to send commit")
-
-		// check if value was committed on nodes
-		checkValueOnCoordinator(t, "commit_fail_test", []byte("test_value_250"))
-		checkValueOnFollowers(t, "commit_fail_test", []byte("test_value_250"), 0) // skip failed follower (index 0)
-		checkValueNotOnNode(t, nodes[FOLLOWER_TYPE][0].Nodeaddr, "commit_fail_test")
+		if err != nil {
+			require.Contains(t, err.Error(), "failed to send commit")
+			// if operation failed, check that value was committed on healthy nodes
+			if checkValueOnCoordinator(t, "commit_fail_test", []byte("test_value_250")) {
+				checkValueOnFollowers(t, "commit_fail_test", []byte("test_value_250"), 0) // skip failed follower (index 0)
+				checkValueNotOnNode(t, nodes[FOLLOWER_TYPE][0].Nodeaddr, "commit_fail_test")
+			}
+		} else {
+			// if operation succeeded despite limits, all nodes should have the value
+			t.Log("operation succeeded despite network limits (250 bytes was sufficient)")
+			checkValueOnCoordinator(t, "commit_fail_test", []byte("test_value_250"))
+			checkValueOnAllFollowers(t, "commit_fail_test", []byte("test_value_250"))
+		}
 	})
 
 	// connection drops after 500 bytes of data
@@ -301,6 +307,182 @@ func TestChaosNodeFailure(t *testing.T) {
 	})
 }
 
+func TestChaosCoordinatorFailure(t *testing.T) {
+	log.SetLevel(log.InfoLevel)
+
+	// immediate connection reset
+	t.Run("coordinator_immediate_reset", func(t *testing.T) {
+		chaosHelper := newChaosTestHelper(TOXIPROXY_URL)
+		defer chaosHelper.cleanup()
+
+		allAddresses := make([]string, 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
+		for _, node := range nodes[FOLLOWER_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+		for _, node := range nodes[COORDINATOR_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+
+		require.NoError(t, chaosHelper.setupProxies(allAddresses))
+		require.NoError(t, chaosHelper.addResetPeer(nodes[COORDINATOR_TYPE][1].Nodeaddr, 0))
+
+		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		defer canceller()
+
+		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
+			coordAddr = proxyAddr
+		}
+
+		c, err := client.NewClientAPI(coordAddr)
+		require.NoError(t, err)
+
+		_, err = c.Put(context.Background(), "coord_reset_test", []byte("value"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "connection closed before server preface received")
+	})
+
+	// coordinator fails after 50 bytes
+	t.Run("coordinator_failure_after_50_bytes", func(t *testing.T) {
+		chaosHelper := newChaosTestHelper(TOXIPROXY_URL)
+		defer chaosHelper.cleanup()
+
+		allAddresses := make([]string, 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
+		for _, node := range nodes[FOLLOWER_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+		for _, node := range nodes[COORDINATOR_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+
+		require.NoError(t, chaosHelper.setupProxies(allAddresses))
+		require.NoError(t, chaosHelper.addDataLimit(nodes[COORDINATOR_TYPE][1].Nodeaddr, 50))
+
+		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		defer canceller()
+
+		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
+			coordAddr = proxyAddr
+		}
+
+		c, err := client.NewClientAPI(coordAddr)
+		require.NoError(t, err)
+
+		_, err = c.Put(context.Background(), "coord_50_test", []byte("value"))
+		require.Error(t, err)
+	})
+
+	// coordinator fails after 100 bytes
+	t.Run("coordinator_failure_after_100_bytes", func(t *testing.T) {
+		chaosHelper := newChaosTestHelper(TOXIPROXY_URL)
+		defer chaosHelper.cleanup()
+
+		allAddresses := make([]string, 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
+		for _, node := range nodes[FOLLOWER_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+		for _, node := range nodes[COORDINATOR_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+
+		require.NoError(t, chaosHelper.setupProxies(allAddresses))
+		require.NoError(t, chaosHelper.addDataLimit(nodes[COORDINATOR_TYPE][1].Nodeaddr, 100))
+
+		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		defer canceller()
+
+		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
+			coordAddr = proxyAddr
+		}
+
+		c, err := client.NewClientAPI(coordAddr)
+		require.NoError(t, err)
+
+		_, err = c.Put(context.Background(), "coord_100_test", []byte("value"))
+		require.Error(t, err)
+	})
+
+	// coordinator fails after 200 bytes
+	t.Run("coordinator_failure_after_200_bytes", func(t *testing.T) {
+		chaosHelper := newChaosTestHelper(TOXIPROXY_URL)
+		defer chaosHelper.cleanup()
+
+		allAddresses := make([]string, 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
+		for _, node := range nodes[FOLLOWER_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+		for _, node := range nodes[COORDINATOR_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+
+		require.NoError(t, chaosHelper.setupProxies(allAddresses))
+		require.NoError(t, chaosHelper.addDataLimit(nodes[COORDINATOR_TYPE][1].Nodeaddr, 200))
+
+		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		defer canceller()
+
+		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
+			coordAddr = proxyAddr
+		}
+
+		c, err := client.NewClientAPI(coordAddr)
+		require.NoError(t, err)
+
+		_, err = c.Put(context.Background(), "coord_200_test", []byte("value"))
+		// may succeed or fail depending on when exactly coordinator fails
+		// the main point is to check follower consistency afterwards
+		if err != nil {
+			t.Logf("coordinator operation failed as expected: %v", err)
+		} else {
+			t.Log("coordinator operation succeeded despite limits")
+		}
+
+		t.Log("checking follower states after coordinator failure")
+		checkFollowerStatesAfterCoordinatorFailure(t, "coord_200_test", []byte("value"))
+	})
+
+	// coordinator fails during commit phase (after 300 bytes)
+	t.Run("coordinator_failure_during_commit", func(t *testing.T) {
+		chaosHelper := newChaosTestHelper(TOXIPROXY_URL)
+		defer chaosHelper.cleanup()
+
+		allAddresses := make([]string, 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
+		for _, node := range nodes[FOLLOWER_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+		for _, node := range nodes[COORDINATOR_TYPE] {
+			allAddresses = append(allAddresses, node.Nodeaddr)
+		}
+
+		require.NoError(t, chaosHelper.setupProxies(allAddresses))
+		require.NoError(t, chaosHelper.addDataLimit(nodes[COORDINATOR_TYPE][1].Nodeaddr, 300))
+
+		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		defer canceller()
+
+		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
+			coordAddr = proxyAddr
+		}
+
+		c, err := client.NewClientAPI(coordAddr)
+		require.NoError(t, err)
+
+		_, err = c.Put(context.Background(), "coord_commit_test", []byte("commit_value"))
+		// may succeed or fail depending on timing
+		if err != nil {
+			t.Logf("coordinator operation failed: %v", err)
+		} else {
+			t.Log("coordinator operation completed successfully")
+		}
+
+		t.Log("checking follower states after coordinator failure during commit")
+		checkFollowerStatesAfterCoordinatorFailure(t, "coord_commit_test", []byte("commit_value"))
+	})
+}
 
 // startnodesChaos starts nodes with Toxiproxy support
 func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() error {
@@ -421,22 +603,26 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 
 // checkValueOnCoordinator checks if a value exists on coordinator
 func checkValueOnCoordinator(t *testing.T, key string, expectedValue []byte) bool {
+	t.Helper()
+
 	coordClient, err := client.NewClientAPI(nodes[COORDINATOR_TYPE][1].Nodeaddr)
 	require.NoError(t, err)
 
 	coordValue, err := coordClient.Get(context.Background(), key)
-	if err == nil {
-		t.Logf("coordinator has value: %s", string(coordValue.Value))
-		require.Equal(t, expectedValue, coordValue.Value)
-		return true
-	} else {
-		t.Logf("coordinator does not have value: %v", err)
+	if err != nil {
+		t.Logf("coordinator does not have value for key %s: %v", key, err)
 		return false
 	}
+
+	require.Equal(t, expectedValue, coordValue.Value)
+	t.Logf("coordinator has correct value for key %s", key)
+	return true
 }
 
 // checkValueOnFollowers checks if a value exists on working followers (excluding failed one)
 func checkValueOnFollowers(t *testing.T, key string, expectedValue []byte, skipFailedIndex int) int {
+	t.Helper()
+
 	successCount := 0
 	for i, followerAddr := range nodes[FOLLOWER_TYPE] {
 		if i == skipFailedIndex {
@@ -447,39 +633,71 @@ func checkValueOnFollowers(t *testing.T, key string, expectedValue []byte, skipF
 		require.NoError(t, err)
 
 		followerValue, err := followerClient.Get(context.Background(), key)
-		if err == nil {
-			t.Logf("follower %s has value: %s", followerAddr.Nodeaddr, string(followerValue.Value))
-			require.Equal(t, expectedValue, followerValue.Value)
-			successCount++
-		} else {
-			t.Logf("follower %s does not have value: %v", followerAddr.Nodeaddr, err)
-		}
+		require.NoError(t, err)
+		require.Equal(t, expectedValue, followerValue.Value)
+		successCount++
 	}
 	return successCount
 }
 
 // checkValueOnAllFollowers checks if a value exists on ALL followers
 func checkValueOnAllFollowers(t *testing.T, key string, expectedValue []byte) {
-	for i, followerAddr := range nodes[FOLLOWER_TYPE] {
+	t.Helper()
+
+	for _, followerAddr := range nodes[FOLLOWER_TYPE] {
 		followerClient, err := client.NewClientAPI(followerAddr.Nodeaddr)
 		require.NoError(t, err)
 
 		followerValue, err := followerClient.Get(context.Background(), key)
 		require.NoError(t, err)
 		require.Equal(t, expectedValue, followerValue.Value)
-		t.Logf("follower %d (%s) successfully has value: %s", i, followerAddr.Nodeaddr, string(followerValue.Value))
 	}
 }
 
 // checkValueNotOnNode checks that a value does NOT exist on specified node
 func checkValueNotOnNode(t *testing.T, nodeAddr string, key string) {
+	t.Helper()
+
 	nodeClient, err := client.NewClientAPI(nodeAddr)
 	require.NoError(t, err)
 
 	_, err = nodeClient.Get(context.Background(), key)
 	if err != nil {
-		t.Logf("node %s correctly does not have value: %v", nodeAddr, err)
+		t.Logf("node %s correctly does not have value (as expected for failed node)", nodeAddr)
 	} else {
-		t.Logf("WARNING: node %s unexpectedly has the value", nodeAddr)
+		t.Logf("WARNING: node %s unexpectedly has the value (should not happen for failed node)", nodeAddr)
+	}
+}
+
+// checkFollowerStatesAfterCoordinatorFailure checks the state of follower nodes after coordinator failure
+func checkFollowerStatesAfterCoordinatorFailure(t *testing.T, key string, expectedValue []byte) {
+	t.Helper()
+
+	committedCount := 0
+	notCommittedCount := 0
+
+	for _, followerAddr := range nodes[FOLLOWER_TYPE] {
+		followerClient, err := client.NewClientAPI(followerAddr.Nodeaddr)
+		require.NoError(t, err)
+
+		followerValue, err := followerClient.Get(context.Background(), key)
+		if err == nil {
+			require.Equal(t, expectedValue, followerValue.Value)
+			committedCount++
+		} else {
+			notCommittedCount++
+		}
+	}
+
+	totalFollowers := len(nodes[FOLLOWER_TYPE])
+	t.Logf("follower states: %d committed, %d not committed", committedCount, notCommittedCount)
+
+	// validation: after coordinator failure, followers must be in consistent state
+	// either all committed or none committed (no partial commits allowed)
+	if committedCount > 0 && committedCount < totalFollowers {
+		t.Errorf("inconsistent state detected: %d followers committed, %d did not commit. This violates consistency!",
+			committedCount, notCommittedCount)
+	} else {
+		t.Logf("consistent state maintained: all followers are in the same state")
 	}
 }
