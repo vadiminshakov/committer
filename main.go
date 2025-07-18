@@ -16,38 +16,49 @@ import (
 	"github.com/vadiminshakov/gowal"
 )
 
-const (
-	walDir              string = "wal"
-	walSegmentPrefix    string = "msgs_"
-	walSegmentThreshold int    = 10000
-	walMaxSegments      int    = 100
-	walIsInSyncDiskMode bool   = true
-)
-
 func main() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	conf := config.Get()
 
-	database, err := db.New(conf.DBPath)
+	database := initDB(conf.DBPath)
+	wal := initWAL()
+
+	s := initServer(conf, database, wal)
+	s.Run(server.WhiteListChecker)
+
+	<-ch
+	s.Stop()
+}
+
+func initDB(dbpath string) db.Repository {
+	database, err := db.New(dbpath)
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
 	}
 
+	return database
+}
+
+func initWAL() *gowal.Wal {
 	walConfig := gowal.Config{
-		Dir:              walDir,
-		Prefix:           walSegmentPrefix,
-		SegmentThreshold: walSegmentThreshold,
-		MaxSegments:      walMaxSegments,
-		IsInSyncDiskMode: walIsInSyncDiskMode,
+		Dir:              config.DefaultWalDir,
+		Prefix:           config.DefaultWalSegmentPrefix,
+		SegmentThreshold: config.DefaultWalSegmentThreshold,
+		MaxSegments:      config.DefaultWalMaxSegments,
+		IsInSyncDiskMode: config.DefaultWalIsInSyncDiskMode,
 	}
 
-	wal, err := gowal.NewWAL(walConfig)
+	w, err := gowal.NewWAL(walConfig)
 	if err != nil {
 		log.Fatalf("failed to create WAL: %v", err)
 	}
 
+	return w
+}
+
+func initServer(conf *config.Config, database db.Repository, wal *gowal.Wal) *server.Server {
 	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, hooks.Propose, hooks.Commit, conf.Timeout)
 	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 	coordinatorImpl, err := coordinator.New(conf, wal, database)
@@ -60,8 +71,5 @@ func main() {
 		log.Fatalf("failed to create server: %v", err)
 	}
 
-	s.Run(server.WhiteListChecker)
-
-	<-ch
-	s.Stop()
+	return s
 }

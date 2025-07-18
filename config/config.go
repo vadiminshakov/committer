@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+const (
+	DefaultWalDir              string = "wal"
+	DefaultWalSegmentPrefix    string = "msgs_"
+	DefaultWalSegmentThreshold int    = 10000
+	DefaultWalMaxSegments      int    = 100
+	DefaultWalIsInSyncDiskMode bool   = true
+)
+
 type Config struct {
 	Role        string
 	Nodeaddr    string
