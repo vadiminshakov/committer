@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
 type wal interface {
 	Write(index uint64, key string, value []byte) error
 	Get(index uint64) (string, []byte, bool)
@@ -100,31 +99,35 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 }
 
 func (c *coordinator) sendProposal(ctx context.Context, follower *client.InternalCommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
+	var (
+		resp *pb.Response
+		err  error
+	)
+
 	for {
-		resp, err := follower.Propose(ctx, &pb.ProposeRequest{
+		resp, err = follower.Propose(ctx, &pb.ProposeRequest{
 			Key:        req.Key,
 			Value:      req.Value,
 			CommitType: commitType,
 			Index:      c.height,
 		})
+
+		if err == nil && resp.Type == pb.Type_ACK {
+			break // success
+		}
+
+		// if follower has bigger height, update coordinator's height and retry
+		if resp != nil && resp.Index > c.height {
+			log.Warnf("Updating stale height: %d -> %d", c.height, resp.Index)
+			c.height = resp.Index
+			continue
+		}
 		if err != nil {
-			return fmt.Errorf("node %s rejected proposed msg", name)
+			return fmt.Errorf("node %s rejected proposed msg: %w", name, err)
 		}
-
-		if resp != nil && resp.Type != pb.Type_ACK {
-			if resp.Index > c.height {
-				log.Warnf("Updating stale height: %d -> %d", c.height, resp.Index)
-				c.height = resp.Index
-
-				continue
-			}
-
-			return fmt.Errorf("follower %s not acknowledged msg %v", name, req)
-		}
-
-		break
+		
+		return fmt.Errorf("follower %s not acknowledged msg %v", name, req)
 	}
-
 	return nil
 }
 

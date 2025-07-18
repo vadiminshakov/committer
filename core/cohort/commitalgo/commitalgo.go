@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
 type wal interface {
 	Write(index uint64, key string, value []byte) error
 	Get(index uint64) (string, []byte, bool)
