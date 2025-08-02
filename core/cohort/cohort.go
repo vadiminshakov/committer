@@ -7,6 +7,10 @@ import (
 	"github.com/vadiminshakov/committer/core/dto"
 )
 
+type Mode string
+
+const THREE_PHASE Mode = "three-phase"
+
 type Cohort interface {
 	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
 	Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error)
