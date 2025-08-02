@@ -22,7 +22,8 @@ The communication between nodes is handled using gRPC, and the state of each nod
 - **2PC and 3PC support**: Implements two widely used consensus protocols for distributed transactions.
 - **Persistence**: Uses **BadgerDB** and WAL for reliable data storage and transaction logs.
 - **Configurable**: All options can be specified using command-line flags.
-- **Hooks for validation**: Custom logic can be injected during **Propose** and **Commit** stages.
+- **Flexible Hook System**: Extensible hook system for custom validation, metrics, auditing, and business logic without code changes.
+- **Built-in Hooks**: Ready-to-use hooks for metrics collection, validation, and audit logging.
 - **gRPC-based communication**: Efficient inter-node communication using gRPC.
 
 ## **Configuration**
@@ -53,14 +54,28 @@ All configuration parameters can be set using command-line flags:
 ./committer -role=coordinator -nodeaddr=localhost:3000 -followers=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
 ```
 
-## **Hooks**
+## **Hooks System**
 
-Hooks allow you to add custom validation logic during the **Propose** and **Commit** stages.  
-A hook is a function that accepts `*pb.ProposeRequest` or `*pb.CommitRequest` and returns a boolean.
+The hooks system allows you to add custom validation and business logic during the **Propose** and **Commit** stages without modifying the core code. Hooks are executed in the order they were registered, and if any hook returns `false`, the operation is rejected.
 
-Example hook implementation can be found [here](https://github.com/vadiminshakov/committer/blob/master/core/cohort/commitalgo/hooks/hooks.go).
+```go
+// Default usage (with built-in logging)
+committer := commitalgo.NewCommitter(database, "3pc", wal, timeout)
 
-To inject your own logic, replace the code in the hook file or in main.go with your custom validation and compile sources.
+// With custom hooks
+metricsHook := hooks.NewMetricsHook()
+validationHook := hooks.NewValidationHook(100, 1024)
+auditHook := hooks.NewAuditHook("audit.log")
+
+committer := commitalgo.NewCommitter(database, "3pc", wal, timeout,
+    metricsHook,
+    validationHook,
+    auditHook,
+)
+
+// Dynamic registration
+committer.RegisterHook(myCustomHook)
+```
 
 ## **Testing**
 
