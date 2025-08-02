@@ -9,7 +9,6 @@ import (
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
-	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
@@ -59,7 +58,7 @@ func initWAL() *gowal.Wal {
 }
 
 func initServer(conf *config.Config, database db.Repository, wal *gowal.Wal) *server.Server {
-	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, hooks.Propose, hooks.Commit, conf.Timeout)
+	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, conf.Timeout)
 	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 	coordinatorImpl, err := coordinator.New(conf, wal, database)
 	if err != nil {

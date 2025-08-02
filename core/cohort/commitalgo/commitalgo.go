@@ -7,11 +7,13 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
 type wal interface {
 	Write(index uint64, key string, value []byte) error
 	Get(index uint64) (string, []byte, bool)
@@ -19,31 +21,39 @@ type wal interface {
 }
 
 type Committer struct {
-	noAutoCommit  map[uint64]struct{}
-	db            db.Repository
-	wal           wal
-	proposeHook   func(req *dto.ProposeRequest) bool
-	precommitHook func(height uint64) bool
-	commitHook    func(req *dto.CommitRequest) bool
-	state         *stateMachine
-	height        uint64
-	timeout       uint64
+	noAutoCommit map[uint64]struct{}
+	db           db.Repository
+	wal          wal
+	hookRegistry *hooks.Registry
+	state        *stateMachine
+	height       uint64
+	timeout      uint64
 }
 
-func NewCommitter(d db.Repository, commitType string, wal wal,
-	proposeHook func(req *dto.ProposeRequest) bool,
-	commitHook func(req *dto.CommitRequest) bool,
-	timeout uint64) *Committer {
-	return &Committer{
-		proposeHook:   proposeHook,
-		precommitHook: nil,
-		commitHook:    commitHook,
-		db:            d,
-		wal:           wal,
-		noAutoCommit:  make(map[uint64]struct{}),
-		timeout:       timeout,
-		state:         newStateMachine(mode(commitType)),
+func NewCommitter(d db.Repository, commitType string, wal wal, timeout uint64, customHooks ...hooks.Hook) *Committer {
+	registry := hooks.NewRegistry()
+
+	for _, hook := range customHooks {
+		registry.Register(hook)
 	}
+
+	if len(customHooks) == 0 {
+		registry.Register(hooks.NewDefaultHook())
+	}
+
+	return &Committer{
+		hookRegistry: registry,
+		db:           d,
+		wal:          wal,
+		noAutoCommit: make(map[uint64]struct{}),
+		timeout:      timeout,
+		state:        newStateMachine(mode(commitType)),
+	}
+}
+
+// RegisterHook adds a new hook to the committer
+func (c *Committer) RegisterHook(hook hooks.Hook) {
+	c.hookRegistry.Register(hook)
 }
 
 func (c *Committer) Height() uint64 {
@@ -59,7 +69,7 @@ func (c *Committer) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: atomic.LoadUint64(&c.height)}, nil
 	}
 
-	if !c.proposeHook(req) {
+	if !c.hookRegistry.ExecutePropose(req) {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: req.Height}, nil
 	}
 
@@ -128,7 +138,7 @@ func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.Co
 		return nil, err
 	}
 
-	if c.commitHook(req) {
+	if c.hookRegistry.ExecuteCommit(req) {
 		log.Printf("Committing on height: %d\n", req.Height)
 		key, value, ok := c.wal.Get(req.Height)
 		if !ok {

@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
-	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
@@ -539,7 +538,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 			ct = server.THREE_PHASE
 		}
 
-		committer := commitalgo.NewCommitter(database, ct, c, hooks.Propose, hooks.Commit, node.Timeout)
+		committer := commitalgo.NewCommitter(database, ct, c, node.Timeout)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
 		followerServer, err := server.New(node, cohortImpl, nil, database)
