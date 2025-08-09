@@ -39,7 +39,6 @@ func TestRegistry_Register(t *testing.T) {
 func TestRegistry_ExecutePropose(t *testing.T) {
 	registry := NewRegistry()
 
-	// Test with hook that returns true
 	hook1 := &TestHook{proposeResult: true}
 	registry.Register(hook1)
 
@@ -49,7 +48,6 @@ func TestRegistry_ExecutePropose(t *testing.T) {
 	require.True(t, result, "Expected propose to succeed")
 	require.True(t, hook1.proposeCalled, "Expected hook to be called")
 
-	// Test with hook that returns false
 	hook2 := &TestHook{proposeResult: false}
 	registry.Register(hook2)
 
@@ -61,7 +59,6 @@ func TestRegistry_ExecutePropose(t *testing.T) {
 func TestRegistry_ExecuteCommit(t *testing.T) {
 	registry := NewRegistry()
 
-	// Test with hook that returns true
 	hook1 := &TestHook{commitResult: true}
 	registry.Register(hook1)
 
@@ -71,7 +68,6 @@ func TestRegistry_ExecuteCommit(t *testing.T) {
 	require.True(t, result, "Expected commit to succeed")
 	require.True(t, hook1.commitCalled, "Expected hook to be called")
 
-	// Test with hook that returns false
 	hook2 := &TestHook{commitResult: false}
 	registry.Register(hook2)
 
@@ -85,7 +81,7 @@ func TestRegistry_MultipleHooks(t *testing.T) {
 
 	hook1 := &TestHook{proposeResult: true, commitResult: true}
 	hook2 := &TestHook{proposeResult: true, commitResult: true}
-	hook3 := &TestHook{proposeResult: false, commitResult: true} // This one fails
+	hook3 := &TestHook{proposeResult: false, commitResult: true} // this one fails
 
 	registry.Register(hook1)
 	registry.Register(hook2)
@@ -94,13 +90,13 @@ func TestRegistry_MultipleHooks(t *testing.T) {
 	proposeReq := &dto.ProposeRequest{Height: 1, Key: "test", Value: []byte("value")}
 	commitReq := &dto.CommitRequest{Height: 1}
 
-	// Propose should fail because hook3 returns false
+	// propose should fail because hook3 returns false
 	require.False(t, registry.ExecutePropose(proposeReq), "Expected propose to fail")
 
-	// Commit should succeed because all hooks return true for commit
+	// commit should succeed because all hooks return true for commit
 	require.True(t, registry.ExecuteCommit(commitReq), "Expected commit to succeed")
 
-	// Check that all hooks were called
+	// check that all hooks were called
 	require.True(t, hook1.proposeCalled, "Expected hook1 to be called for propose")
 	require.True(t, hook2.proposeCalled, "Expected hook2 to be called for propose")
 	require.True(t, hook3.proposeCalled, "Expected hook3 to be called for propose")
