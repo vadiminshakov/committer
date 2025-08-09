@@ -73,9 +73,3 @@ func (sm *stateMachine) GetCurrentState() string {
 	defer sm.mu.RUnlock()
 	return sm.currentState
 }
-
-func (sm *stateMachine) SetCurrentState(state string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.currentState = state
-}

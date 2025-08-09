@@ -117,7 +117,7 @@ func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortRes
 			}
 
 			c.Commit(ctx, &dto.CommitRequest{Height: index})
-			c.state.SetCurrentState(proposeStage)
+			c.state.Transition(proposeStage)
 			log.Warn("committed without coordinator after timeout")
 			return
 		case <-ctx.Done():
@@ -130,8 +130,8 @@ func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortRes
 
 func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
 	var response *dto.CohortResponse
-	if req.Height < atomic.LoadUint64(&c.height) {
-		return nil, status.Errorf(codes.AlreadyExists, "stale commit proposed by coordinator (got %d, but actual height is %d)", req.Height, c.height)
+	if req.Height != atomic.LoadUint64(&c.height) {
+		return nil, status.Errorf(codes.AlreadyExists, "invalid commit height (got %d, but expected %d)", req.Height, c.height)
 	}
 
 	if err := c.state.Transition(commitStage); err != nil {
@@ -145,20 +145,21 @@ func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.Co
 			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
 		}
 
-		if err := c.db.Put(key, value); err != nil {
-			return nil, err
+		if key == "skip" {
+			log.Infof("Skipping commit for height %d (operation was cancelled)", req.Height)
+		} else {
+			if err := c.db.Put(key, value); err != nil {
+				return nil, err
+			}
 		}
+		
+		atomic.AddUint64(&c.height, 1)
 		response = &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}
 	} else {
 		response = &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}
 	}
 
-	if response.ResponseType == dto.ResponseTypeAck {
-		fmt.Println("ack cohort", atomic.LoadUint64(&c.height))
-		atomic.AddUint64(&c.height, 1)
-	}
-
-	c.state.SetCurrentState(proposeStage)
+	c.state.Transition(proposeStage)
 
 	return response, nil
 }
