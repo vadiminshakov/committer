@@ -19,7 +19,7 @@ type Config struct {
 	Coordinator string
 	CommitType  string
 	DBPath      string
-	Followers   []string
+	Cohorts   []string
 	Whitelist   []string
 	Timeout     uint64
 }
@@ -27,25 +27,25 @@ type Config struct {
 // Get creates configuration from yaml configuration file (if '-config=' flag specified) or command-line arguments.
 func Get() *Config {
 	// command-line flags
-	role := flag.String("role", "follower", "role (coordinator of follower)")
+	role := flag.String("role", "cohort", "role (coordinator or cohort)")
 	nodeaddr := flag.String("nodeaddr", "localhost:3050", "node address")
 	coordinator := flag.String("coordinator", "", "coordinator address")
 	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
 	dbpath := flag.String("dbpath", "./badger", "database path on filesystem")
-	followers := flag.String("followers", "", "follower's addresses")
+	cohorts := flag.String("cohorts", "", "cohort addresses")
 	whitelist := flag.String("whitelist", "127.0.0.1", "allowed hosts")
 	flag.Parse()
 
-	followersArray := strings.Split(*followers, ",")
+	cohortsArray := strings.Split(*cohorts, ",")
 	if *role != "coordinator" {
-		if !includes(followersArray, *nodeaddr) {
-			followersArray = append(followersArray, *nodeaddr)
+		if !includes(cohortsArray, *nodeaddr) {
+			cohortsArray = append(cohortsArray, *nodeaddr)
 		}
 	}
 	whitelistArray := strings.Split(*whitelist, ",")
 	return &Config{Role: *role, Nodeaddr: *nodeaddr, Coordinator: *coordinator,
-		CommitType: *committype, DBPath: *dbpath, Followers: followersArray, Whitelist: whitelistArray,
+		CommitType: *committype, DBPath: *dbpath, Cohorts: cohortsArray, Whitelist: whitelistArray,
 		Timeout: *timeout}
 
 }

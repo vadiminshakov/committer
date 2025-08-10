@@ -112,13 +112,19 @@ func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortRes
 		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
 		select {
 		case <-deadline:
-			if c.getCurrentState() == commitStage {
+			currentState := c.getCurrentState()
+			if currentState == commitStage || currentState == proposeStage {
 				return
 			}
 
-			c.Commit(ctx, &dto.CommitRequest{Height: index})
-			c.state.Transition(proposeStage)
-			log.Warn("committed without coordinator after timeout")
+			_, err := c.Commit(ctx, &dto.CommitRequest{Height: index})
+			if err != nil {
+				log.Errorf("Failed to auto-commit after timeout: %v", err)
+				// try to recover by forcing state back to propose
+				c.state.SetCurrentState(proposeStage)
+			} else {
+				log.Warn("committed without coordinator after timeout")
+			}
 			return
 		case <-ctx.Done():
 			return
