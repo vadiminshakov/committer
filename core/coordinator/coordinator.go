@@ -25,26 +25,26 @@ type wal interface {
 type coordinator struct {
 	wal       wal
 	database  db.Repository
-	followers map[string]*client.InternalCommitClient
+	cohorts map[string]*client.InternalCommitClient
 	config    *config.Config
 	height    uint64
 }
 
 func New(conf *config.Config, wal wal, database db.Repository) (*coordinator, error) {
-	followers := make(map[string]*client.InternalCommitClient, len(conf.Followers))
-	for _, f := range conf.Followers {
+	cohorts := make(map[string]*client.InternalCommitClient, len(conf.Cohorts))
+	for _, f := range conf.Cohorts {
 		cl, err := client.NewInternalClient(f)
 		if err != nil {
 			return nil, err
 		}
 
-		followers[f] = cl
+		cohorts[f] = cl
 	}
 
 	return &coordinator{
 		wal:       wal,
 		database:  database,
-		followers: followers,
+		cohorts: cohorts,
 		config:    conf,
 	}, nil
 }
@@ -89,8 +89,8 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 		commitType = pb.CommitType_THREE_PHASE_COMMIT
 	}
 
-	for name, follower := range c.followers {
-		if err := c.sendProposal(ctx, follower, name, req, commitType); err != nil {
+	for name, cohort := range c.cohorts {
+		if err := c.sendProposal(ctx, cohort, name, req, commitType); err != nil {
 			return err
 		}
 	}
@@ -98,14 +98,14 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 	return c.wal.Write(c.height, req.Key, req.Value)
 }
 
-func (c *coordinator) sendProposal(ctx context.Context, follower *client.InternalCommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
+func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalCommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
 	var (
 		resp *pb.Response
 		err  error
 	)
 
 	for {
-		resp, err = follower.Propose(ctx, &pb.ProposeRequest{
+		resp, err = cohort.Propose(ctx, &pb.ProposeRequest{
 			Key:        req.Key,
 			Value:      req.Value,
 			CommitType: commitType,
@@ -116,7 +116,7 @@ func (c *coordinator) sendProposal(ctx context.Context, follower *client.Interna
 			break // success
 		}
 
-		// if follower has bigger height, update coordinator's height and retry
+		// if cohort has bigger height, update coordinator's height and retry
 		if resp != nil && resp.Index > c.height {
 			log.Warnf("Updating stale height: %d -> %d", c.height, resp.Index)
 			c.height = resp.Index
@@ -126,16 +126,16 @@ func (c *coordinator) sendProposal(ctx context.Context, follower *client.Interna
 			return fmt.Errorf("node %s rejected proposed msg: %w", name, err)
 		}
 		
-		return fmt.Errorf("follower %s not acknowledged msg %v", name, req)
+		return fmt.Errorf("cohort %s not acknowledged msg %v", name, req)
 	}
 	return nil
 }
 
 func (c *coordinator) preCommit(ctx context.Context) error {
-	for _, follower := range c.followers {
-		resp, err := follower.Precommit(ctx, &pb.PrecommitRequest{Index: c.height})
+	for _, cohort := range c.cohorts {
+		resp, err := cohort.Precommit(ctx, &pb.PrecommitRequest{Index: c.height})
 		if err != nil || resp.Type != pb.Type_ACK {
-			return status.Error(codes.FailedPrecondition, "follower not acknowledged msg")
+			return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg")
 		}
 	}
 
@@ -143,14 +143,14 @@ func (c *coordinator) preCommit(ctx context.Context) error {
 }
 
 func (c *coordinator) commit(ctx context.Context) error {
-	for _, follower := range c.followers {
-		resp, err := follower.Commit(ctx, &pb.CommitRequest{Index: c.height})
+	for _, cohort := range c.cohorts {
+		resp, err := cohort.Commit(ctx, &pb.CommitRequest{Index: c.height})
 		if err != nil {
 			return err
 		}
 
 		if resp.Type != pb.Type_ACK {
-			return status.Error(codes.FailedPrecondition, "follower not acknowledged msg")
+			return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg")
 		}
 	}
 
