@@ -23,7 +23,7 @@ import (
 
 const (
 	COORDINATOR_TYPE = "coordinator"
-	FOLLOWER_TYPE    = "follower"
+	COHORT_TYPE      = "cohort"
 	BADGER_DIR       = "/tmp/badger"
 )
 
@@ -32,18 +32,18 @@ var (
 	nodes     = map[string][]*config.Config{
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:2938", Role: "coordinator",
-				Followers: []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
+				Cohorts: []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
 				Whitelist: whitelist, CommitType: "two-phase", Timeout: 100},
 			{Nodeaddr: "localhost:5002", Role: "coordinator",
-				Followers: []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
+				Cohorts: []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100},
 		},
-		FOLLOWER_TYPE: {
-			&config.Config{Nodeaddr: "localhost:2345", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:2384", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:7532", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:5743", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:4991", Role: "follower", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+		COHORT_TYPE: {
+			&config.Config{Nodeaddr: "localhost:2345", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2384", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:7532", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:5743", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:4991", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
 		},
 	}
 )
@@ -89,11 +89,11 @@ func TestHappyPath(t *testing.T) {
 		height++
 	}
 
-	// wait for rollback on followers
+	// wait for rollback on cohorts
 	time.Sleep(1 * time.Second)
 
-	// connect to followers and check that them added key-value
-	for _, node := range nodes[FOLLOWER_TYPE] {
+	// connect to cohorts and check that them added key-value
+	for _, node := range nodes[COHORT_TYPE] {
 		cli, err := client.NewClientAPI(node.Nodeaddr)
 		require.NoError(t, err, "err not nil")
 
@@ -115,7 +115,7 @@ func TestHappyPath(t *testing.T) {
 
 func startnodes(commitType pb.CommitType) func() error {
 	COORDINATOR_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "coordinator", time.Now().UnixNano())
-	FOLLOWER_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "follower", time.Now().UnixNano())
+	COHORT_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "cohort", time.Now().UnixNano())
 
 	// check dir exists
 	if _, err := os.Stat(COORDINATOR_BADGER); !os.IsNotExist(err) {
@@ -123,9 +123,9 @@ func startnodes(commitType pb.CommitType) func() error {
 		err := os.RemoveAll(COORDINATOR_BADGER)
 		failfast(err)
 	}
-	if _, err := os.Stat(FOLLOWER_BADGER); !os.IsNotExist(err) {
+	if _, err := os.Stat(COHORT_BADGER); !os.IsNotExist(err) {
 		// del dir
-		failfast(os.RemoveAll(FOLLOWER_BADGER))
+		failfast(os.RemoveAll(COHORT_BADGER))
 	}
 	if _, err := os.Stat("./tmp"); !os.IsNotExist(err) {
 		// del dir
@@ -136,22 +136,22 @@ func startnodes(commitType pb.CommitType) func() error {
 	{
 		// nolint:errcheck
 		failfast(os.Mkdir(COORDINATOR_BADGER, os.FileMode(0777)))
-		failfast(os.Mkdir(FOLLOWER_BADGER, os.FileMode(0777)))
+		failfast(os.Mkdir(COHORT_BADGER, os.FileMode(0777)))
 		failfast(os.Mkdir("./tmp", os.FileMode(0777)))
 		failfast(os.Mkdir("./tmp/cohort", os.FileMode(0777)))
 		failfast(os.Mkdir("./tmp/coord", os.FileMode(0777)))
 	}
 
-	// start followers
-	stopfuncs := make([]func(), 0, len(nodes[FOLLOWER_TYPE])+len(nodes[COORDINATOR_TYPE]))
-	for i, node := range nodes[FOLLOWER_TYPE] {
+	// start cohorts
+	stopfuncs := make([]func(), 0, len(nodes[COHORT_TYPE])+len(nodes[COORDINATOR_TYPE]))
+	for i, node := range nodes[COHORT_TYPE] {
 		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
 			node.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 		}
 		// create db dir
-		node.DBPath = fmt.Sprintf("%s%s%s", FOLLOWER_BADGER, strconv.Itoa(i), "~")
+		node.DBPath = fmt.Sprintf("%s%s%s", COHORT_BADGER, strconv.Itoa(i), "~")
 		failfast(os.Mkdir(node.DBPath, os.FileMode(0777)))
-		// start follower
+		// start cohort
 		database, err := db.New(node.DBPath)
 		failfast(err)
 
@@ -173,12 +173,12 @@ func startnodes(commitType pb.CommitType) func() error {
 		committer := commitalgo.NewCommitter(database, ct, c, node.Timeout)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
-		followerServer, err := server.New(node, cohortImpl, nil, database)
+		cohortServer, err := server.New(node, cohortImpl, nil, database)
 		failfast(err)
 
-		go followerServer.Run(server.WhiteListChecker)
+		go cohortServer.Run(server.WhiteListChecker)
 
-		stopfuncs = append(stopfuncs, followerServer.Stop)
+		stopfuncs = append(stopfuncs, cohortServer.Stop)
 	}
 
 	// start coordinators (in two- and three-phase modes)
