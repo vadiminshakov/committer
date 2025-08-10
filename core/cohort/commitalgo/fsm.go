@@ -29,6 +29,9 @@ var twoPhaseTransitions = map[string]map[string]struct{}{
 		proposeStage: struct{}{},
 		commitStage:  struct{}{},
 	},
+	commitStage: {
+		proposeStage: struct{}{},
+	},
 }
 
 var threePhaseTransitions = map[string]map[string]struct{}{
@@ -38,6 +41,9 @@ var threePhaseTransitions = map[string]map[string]struct{}{
 	},
 	precommitStage: {
 		commitStage: struct{}{},
+	},
+	commitStage: {
+		proposeStage: struct{}{},
 	},
 }
 
@@ -72,4 +78,10 @@ func (sm *stateMachine) GetCurrentState() string {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.currentState
+}
+
+func (sm *stateMachine) SetCurrentState(state string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.currentState = state
 }
