@@ -3,7 +3,8 @@ package cohort
 import (
 	"context"
 	"errors"
-	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
+
+	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
 )
 
@@ -11,20 +12,25 @@ type Mode string
 
 const THREE_PHASE Mode = "three-phase"
 
-type Cohort interface {
+// Committer defines the interface for commit algorithms
+//
+//go:generate mockgen -destination=../../mocks/mock_committer.go -package=mocks . Committer
+type Committer interface {
+	Height() uint64
 	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
 	Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error)
-	Commit(ctx context.Context, in *dto.CommitRequest) (*dto.CohortResponse, error)
-	Height() uint64
+	Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error)
+	Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error)
+	RegisterHook(hook hooks.Hook)
 }
 
 type CohortImpl struct {
-	committer  *commitalgo.Committer
+	committer  Committer
 	commitType Mode
 }
 
 func NewCohort(
-	committer *commitalgo.Committer,
+	committer Committer,
 	commitType Mode) *CohortImpl {
 	return &CohortImpl{
 		committer:  committer,
