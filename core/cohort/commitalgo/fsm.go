@@ -80,8 +80,8 @@ func (sm *stateMachine) GetCurrentState() string {
 	return sm.currentState
 }
 
-func (sm *stateMachine) SetCurrentState(state string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.currentState = state
+func (sm *stateMachine) GetMode() mode {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.mode
 }
