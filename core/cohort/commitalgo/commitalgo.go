@@ -3,6 +3,7 @@ package commitalgo
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,11 +17,12 @@ import (
 
 type wal interface {
 	Write(index uint64, key string, value []byte) error
+	WriteTombstone(index uint64) error
 	Get(index uint64) (string, []byte, bool)
 	Close() error
 }
 
-type Committer struct {
+type CommitterImpl struct {
 	noAutoCommit map[uint64]struct{}
 	db           db.Repository
 	wal          wal
@@ -28,9 +30,11 @@ type Committer struct {
 	state        *stateMachine
 	height       uint64
 	timeout      uint64
+	timeoutMutex sync.RWMutex
+	commitMutex  sync.Mutex
 }
 
-func NewCommitter(d db.Repository, commitType string, wal wal, timeout uint64, customHooks ...hooks.Hook) *Committer {
+func NewCommitter(d db.Repository, commitType string, wal wal, timeout uint64, customHooks ...hooks.Hook) *CommitterImpl {
 	registry := hooks.NewRegistry()
 
 	for _, hook := range customHooks {
@@ -41,7 +45,7 @@ func NewCommitter(d db.Repository, commitType string, wal wal, timeout uint64, c
 		registry.Register(hooks.NewDefaultHook())
 	}
 
-	return &Committer{
+	return &CommitterImpl{
 		hookRegistry: registry,
 		db:           d,
 		wal:          wal,
@@ -52,15 +56,15 @@ func NewCommitter(d db.Repository, commitType string, wal wal, timeout uint64, c
 }
 
 // RegisterHook adds a new hook to the committer
-func (c *Committer) RegisterHook(hook hooks.Hook) {
+func (c *CommitterImpl) RegisterHook(hook hooks.Hook) {
 	c.hookRegistry.Register(hook)
 }
 
-func (c *Committer) Height() uint64 {
-	return c.height
+func (c *CommitterImpl) Height() uint64 {
+	return atomic.LoadUint64(&c.height)
 }
 
-func (c *Committer) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
+func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
 	if err := c.state.Transition(proposeStage); err != nil {
 		return nil, err
 	}
@@ -84,13 +88,21 @@ func (c *Committer) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.
 		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
 		select {
 		case <-deadline:
+			// check of state and write to WAL under timeout mutex
+			c.timeoutMutex.Lock()
 			currentState := c.getCurrentState()
 			if currentState == precommitStage || currentState == commitStage {
+				c.timeoutMutex.Unlock()
 				return
 			}
 
-			c.wal.Write(req.Height, "skip", nil)
-			log.Warn("skip proposed message after timeout")
+			// write skip record atomically with state check
+			if err := c.wal.Write(req.Height, "skip", nil); err != nil {
+				log.Errorf("Failed to write skip record for height %d: %v", req.Height, err)
+			} else {
+				log.Warnf("skip proposed message after timeout for height %d", req.Height)
+			}
+			c.timeoutMutex.Unlock()
 		case <-ctx.Done():
 			return
 		}
@@ -99,11 +111,19 @@ func (c *Committer) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
 }
 
-func (c *Committer) getCurrentState() string {
+func (c *CommitterImpl) getCurrentState() string {
 	return c.state.GetCurrentState()
 }
 
-func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
+// getExpectedCommitState returns the expected state for commit based on the protocol mode
+func (c *CommitterImpl) getExpectedCommitState() string {
+	if c.state.GetMode() == twophase {
+		return proposeStage
+	}
+	return precommitStage
+}
+
+func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
 	if err := c.state.Transition(precommitStage); err != nil {
 		return nil, err
 	}
@@ -112,21 +132,10 @@ func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortRes
 		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
 		select {
 		case <-deadline:
-			currentState := c.getCurrentState()
-			if currentState == commitStage || currentState == proposeStage {
-				return
-			}
-
-			_, err := c.Commit(ctx, &dto.CommitRequest{Height: index})
-			if err != nil {
-				log.Errorf("Failed to auto-commit after timeout: %v", err)
-				// try to recover by forcing state back to propose
-				c.state.SetCurrentState(proposeStage)
-			} else {
-				log.Warn("committed without coordinator after timeout")
-			}
-			return
+			log.Debugf("Precommit timeout triggered for height %d", index)
+			c.handlePrecommitTimeout(ctx, index)
 		case <-ctx.Done():
+			log.Debugf("Precommit timeout cancelled for height %d due to context cancellation", index)
 			return
 		}
 	}(ctx)
@@ -134,38 +143,225 @@ func (c *Committer) Precommit(ctx context.Context, index uint64) (*dto.CohortRes
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
 }
 
-func (c *Committer) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
-	var response *dto.CohortResponse
-	if req.Height != atomic.LoadUint64(&c.height) {
-		return nil, status.Errorf(codes.AlreadyExists, "invalid commit height (got %d, but expected %d)", req.Height, c.height)
+// handlePrecommitTimeout handles the timeout logic for precommit phase with improved validation and recovery
+func (c *CommitterImpl) handlePrecommitTimeout(ctx context.Context, index uint64) {
+	c.timeoutMutex.Lock()
+	defer c.timeoutMutex.Unlock()
+
+	// enhanced state validation before autocommit
+	currentState := c.getCurrentState()
+	currentHeight := atomic.LoadUint64(&c.height)
+
+	log.Debugf("Precommit timeout handler: state=%s, height=%d, index=%d", currentState, currentHeight, index)
+
+	// additional checks to prevent incorrect autocommits
+	if currentState == commitStage {
+		log.Debugf("Skipping autocommit for height %d: already in commit state", index)
+		return
 	}
 
+	if currentState == proposeStage {
+		log.Debugf("Skipping autocommit for height %d: already returned to propose state", index)
+		return
+	}
+
+	// validate that we're still in precommit state and height matches
+	if currentState != precommitStage {
+		log.Warnf("Unexpected state %s during precommit timeout for height %d, skipping autocommit", currentState, index)
+		return
+	}
+
+	if currentHeight != index {
+		log.Warnf("Height mismatch during precommit timeout: expected %d, current %d, skipping autocommit", index, currentHeight)
+		return
+	}
+
+	// check if we have the data in WAL before attempting autocommit
+	key, _, ok := c.wal.Get(index)
+	if !ok {
+		log.Errorf("No data found in WAL for height %d during precommit timeout, cannot autocommit", index)
+		c.recoverFromPrecommitTimeout(index)
+		return
+	}
+
+	if key == "skip" {
+		log.Infof("Found skip record for height %d during precommit timeout, transitioning to propose", index)
+		c.recoverFromPrecommitTimeout(index)
+		return
+	}
+
+	// perform autocommit with proper error handling
+	log.Warnf("Performing autocommit after precommit timeout for height %d", index)
+
+	commitReq := &dto.CommitRequest{Height: index}
+	response, err := c.Commit(ctx, commitReq)
+	if err != nil {
+		log.Errorf("Autocommit failed for height %d: %v", index, err)
+		c.recoverFromPrecommitTimeout(index)
+		return
+	}
+
+	if response != nil && response.ResponseType == dto.ResponseTypeNack {
+		log.Warnf("Autocommit returned NACK for height %d", index)
+		c.recoverFromPrecommitTimeout(index)
+		return
+	}
+
+	log.Infof("Successfully autocommitted height %d after precommit timeout", index)
+}
+
+// recoverFromPrecommitTimeout attempts to recover state when autocommit fails or is inappropriate
+func (c *CommitterImpl) recoverFromPrecommitTimeout(index uint64) {
+	log.Debugf("Attempting state recovery after precommit timeout for height %d", index)
+
+	currentState := c.getCurrentState()
+
+	// for 3PC mode, we need to go through commit state to reach propose
+	if c.state.GetMode() == threephase && currentState == precommitStage {
+		// First transition to commit state
+		if err := c.state.Transition(commitStage); err != nil {
+			log.Errorf("Failed to transition to commit state during recovery for height %d: %v", index, err)
+			return
+		}
+		log.Debugf("Transitioned to commit state during recovery for height %d", index)
+	}
+
+	// now try to transition to propose state
+	if err := c.state.Transition(proposeStage); err != nil {
+		log.Errorf("Failed to recover to propose state after precommit timeout for height %d: %v", index, err)
+		// Log current state for debugging
+		log.Errorf("Current state during recovery failure: %s", c.getCurrentState())
+	} else {
+		log.Debugf("Successfully recovered to propose state after precommit timeout for height %d", index)
+	}
+}
+
+func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
+	c.commitMutex.Lock()
+	defer c.commitMutex.Unlock()
+
+	// step 1: validate current state before attempting transition
+	currentState := c.state.GetCurrentState()
+	expectedState := c.getExpectedCommitState()
+
+	if currentState != expectedState {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"invalid state for commit: expected %s for %s mode, but current state is %s",
+			expectedState, c.state.GetMode(), currentState)
+	}
+
+	// step 2: validate state transition to commit
 	if err := c.state.Transition(commitStage); err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"invalid state transition to commit: %v", err)
 	}
 
+	// step 3: atomic height check and validation
+	currentHeight := atomic.LoadUint64(&c.height)
+	if req.Height != currentHeight {
+		// restore state on height mismatch - transition back to propose
+		c.state.Transition(proposeStage)
+		return nil, status.Errorf(codes.AlreadyExists, "invalid commit height (got %d, but expected %d)", req.Height, currentHeight)
+	}
+
+	// step 4: execute commit operations
+	var response *dto.CohortResponse
 	if c.hookRegistry.ExecuteCommit(req) {
 		log.Printf("Committing on height: %d\n", req.Height)
+
 		key, value, ok := c.wal.Get(req.Height)
 		if !ok {
+			// restore state on WAL error - transition back to propose
+			c.state.Transition(proposeStage)
 			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
 		}
 
 		if key == "skip" {
-			log.Infof("Skipping commit for height %d (operation was cancelled)", req.Height)
+			log.Infof("Cannot commit height %d: operation was cancelled (skip record found)", req.Height)
+			// restore state on skip record - transition back to propose
+			c.state.Transition(proposeStage)
+			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, nil
 		} else {
 			if err := c.db.Put(key, value); err != nil {
+				// restore state on database error - transition back to propose
+				c.state.Transition(proposeStage)
 				return nil, err
 			}
 		}
-		
-		atomic.AddUint64(&c.height, 1)
+
+		// step 5: atomic height increment only after successful execution
+		if !atomic.CompareAndSwapUint64(&c.height, currentHeight, currentHeight+1) {
+			// this should not happen under mutex, but handle gracefully
+			// restore state on height CAS failure - transition back to propose
+			c.state.Transition(proposeStage)
+			return nil, status.Errorf(codes.Internal, "height was modified during commit operation")
+		}
+
 		response = &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}
 	} else {
+		// restore state on hook failure - transition back to propose
+		c.state.Transition(proposeStage)
 		response = &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}
 	}
 
-	c.state.Transition(proposeStage)
+	// step 6: return to propose state for next transaction (only on success)
+	if response.ResponseType == dto.ResponseTypeAck {
+		if err := c.state.Transition(proposeStage); err != nil {
+			log.Errorf("Failed to transition back to propose state after successful commit: %v", err)
+		}
+	}
 
 	return response, nil
+}
+
+// Abort handles abort requests from coordinator
+func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error) {
+	log.Warnf("Received abort request for height %d: %s", req.Height, req.Reason)
+
+	c.commitMutex.Lock()
+	defer c.commitMutex.Unlock()
+
+	currentHeight := atomic.LoadUint64(&c.height)
+
+	// if the abort is for a future height, we can ignore it
+	if req.Height > currentHeight {
+		log.Debugf("Ignoring abort for future height %d (current: %d)", req.Height, currentHeight)
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
+	}
+
+	// if the abort is for a past height, the transaction is already processed
+	if req.Height < currentHeight {
+		log.Debugf("Ignoring abort for past height %d (current: %d)", req.Height, currentHeight)
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
+	}
+
+	// for current height, we need to rollback any changes and reset state
+	log.Infof("Processing abort for current height %d", req.Height)
+
+	// write tombstone record to mark this transaction as aborted
+	if err := c.wal.WriteTombstone(req.Height); err != nil {
+		log.Errorf("Failed to write tombstone record for aborted transaction at height %d: %v", req.Height, err)
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, err
+	}
+
+	log.Infof("Successfully wrote tombstone record for height %d", req.Height)
+
+	// reset state to propose for next transaction
+	currentState := c.getCurrentState()
+	if currentState != proposeStage {
+		// for 3PC mode, we might need to go through commit state to reach propose
+		if c.state.GetMode() == threephase && currentState == precommitStage {
+			if err := c.state.Transition(commitStage); err != nil {
+				log.Errorf("Failed to transition to commit state during abort recovery: %v", err)
+			}
+		}
+
+		if err := c.state.Transition(proposeStage); err != nil {
+			log.Errorf("Failed to transition to propose state after abort: %v", err)
+			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, err
+		}
+	}
+
+	log.Infof("Successfully processed abort for height %d", req.Height)
+	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
 }
