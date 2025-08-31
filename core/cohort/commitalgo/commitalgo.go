@@ -180,13 +180,13 @@ func (c *CommitterImpl) handlePrecommitTimeout(ctx context.Context, index uint64
 	key, _, ok := c.wal.Get(index)
 	if !ok {
 		log.Errorf("No data found in WAL for height %d during precommit timeout, cannot autocommit", index)
-		c.recoverFromPrecommitTimeout(index)
+		c.recoverToPropose(index)
 		return
 	}
 
 	if key == "skip" {
 		log.Infof("Found skip record for height %d during precommit timeout, transitioning to propose", index)
-		c.recoverFromPrecommitTimeout(index)
+		c.recoverToPropose(index)
 		return
 	}
 
@@ -197,22 +197,22 @@ func (c *CommitterImpl) handlePrecommitTimeout(ctx context.Context, index uint64
 	response, err := c.Commit(ctx, commitReq)
 	if err != nil {
 		log.Errorf("Autocommit failed for height %d: %v", index, err)
-		c.recoverFromPrecommitTimeout(index)
+		c.recoverToPropose(index)
 		return
 	}
 
 	if response != nil && response.ResponseType == dto.ResponseTypeNack {
 		log.Warnf("Autocommit returned NACK for height %d", index)
-		c.recoverFromPrecommitTimeout(index)
+		c.recoverToPropose(index)
 		return
 	}
 
 	log.Infof("Successfully autocommitted height %d after precommit timeout", index)
 }
 
-// recoverFromPrecommitTimeout attempts to recover state when autocommit fails or is inappropriate
-func (c *CommitterImpl) recoverFromPrecommitTimeout(index uint64) {
-	log.Debugf("Attempting state recovery after precommit timeout for height %d", index)
+// recoverToPropose attempts to recover state to propose when autocommit fails or is inappropriate
+func (c *CommitterImpl) recoverToPropose(index uint64) {
+	log.Debugf("Attempting state recovery to propose for height %d", index)
 
 	currentState := c.getCurrentState()
 
@@ -228,11 +228,11 @@ func (c *CommitterImpl) recoverFromPrecommitTimeout(index uint64) {
 
 	// now try to transition to propose state
 	if err := c.state.Transition(proposeStage); err != nil {
-		log.Errorf("Failed to recover to propose state after precommit timeout for height %d: %v", index, err)
+		log.Errorf("Failed to recover to propose state for height %d: %v", index, err)
 		// Log current state for debugging
 		log.Errorf("Current state during recovery failure: %s", c.getCurrentState())
 	} else {
-		log.Debugf("Successfully recovered to propose state after precommit timeout for height %d", index)
+		log.Debugf("Successfully recovered to propose state for height %d", index)
 	}
 }
 
