@@ -32,3 +32,8 @@ type BroadcastResponse struct {
 	Type  ResponseType
 	Index uint64
 }
+
+type AbortRequest struct {
+	Height uint64
+	Reason string
+}
