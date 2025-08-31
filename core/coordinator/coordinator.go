@@ -16,18 +16,21 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+//go:generate mockgen -destination=../../mocks/mock_wal.go -package=mocks . wal
 type wal interface {
 	Write(index uint64, key string, value []byte) error
+	WriteTombstone(index uint64) error
 	Get(index uint64) (string, []byte, bool)
 	Close() error
 }
 
 type coordinator struct {
-	wal       wal
-	database  db.Repository
-	cohorts map[string]*client.InternalCommitClient
-	config    *config.Config
-	height    uint64
+	wal      wal
+	database db.Repository
+	cohorts  map[string]*client.InternalCommitClient
+	config   *config.Config
+	height   uint64
 }
 
 func New(conf *config.Config, wal wal, database db.Repository) (*coordinator, error) {
@@ -42,10 +45,10 @@ func New(conf *config.Config, wal wal, database db.Repository) (*coordinator, er
 	}
 
 	return &coordinator{
-		wal:       wal,
-		database:  database,
-		cohorts: cohorts,
-		config:    conf,
+		wal:      wal,
+		database: database,
+		cohorts:  cohorts,
+		config:   conf,
 	}, nil
 }
 
@@ -79,8 +82,8 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 		return nackResponse(err, "failed to persist message")
 	}
 
-	atomic.AddUint64(&c.height, 1)
-	return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Index: c.height}, nil
+	newHeight := atomic.AddUint64(&c.height, 1)
+	return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Index: newHeight}, nil
 }
 
 func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) error {
@@ -95,7 +98,8 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 		}
 	}
 
-	return c.wal.Write(c.height, req.Key, req.Value)
+	currentHeight := atomic.LoadUint64(&c.height)
+	return c.wal.Write(currentHeight, req.Key, req.Value)
 }
 
 func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalCommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
@@ -105,11 +109,12 @@ func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalC
 	)
 
 	for {
+		currentHeight := atomic.LoadUint64(&c.height)
 		resp, err = cohort.Propose(ctx, &pb.ProposeRequest{
 			Key:        req.Key,
 			Value:      req.Value,
 			CommitType: commitType,
-			Index:      c.height,
+			Index:      currentHeight,
 		})
 
 		if err == nil && resp.Type == pb.Type_ACK {
@@ -117,24 +122,33 @@ func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalC
 		}
 
 		// if cohort has bigger height, update coordinator's height and retry
-		if resp != nil && resp.Index > c.height {
-			log.Warnf("Updating stale height: %d -> %d", c.height, resp.Index)
-			c.height = resp.Index
+		if resp != nil && resp.Index > currentHeight {
+			c.syncHeight(resp.Index)
 			continue
 		}
 		if err != nil {
+			// send abort to all cohorts on error
+			c.abort(ctx, fmt.Sprintf("node %s rejected proposed msg: %v", name, err))
 			return fmt.Errorf("node %s rejected proposed msg: %w", name, err)
 		}
-		
+
+		// send abort to all cohorts on NACK
+		c.abort(ctx, fmt.Sprintf("cohort %s sent NACK for propose", name))
 		return fmt.Errorf("cohort %s not acknowledged msg %v", name, req)
 	}
 	return nil
 }
 
 func (c *coordinator) preCommit(ctx context.Context) error {
-	for _, cohort := range c.cohorts {
-		resp, err := cohort.Precommit(ctx, &pb.PrecommitRequest{Index: c.height})
-		if err != nil || resp.Type != pb.Type_ACK {
+	currentHeight := atomic.LoadUint64(&c.height)
+	for name, cohort := range c.cohorts {
+		resp, err := cohort.Precommit(ctx, &pb.PrecommitRequest{Index: currentHeight})
+		if err != nil {
+			c.abort(ctx, fmt.Sprintf("cohort %s precommit error: %v", name, err))
+			return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg")
+		}
+		if resp.Type != pb.Type_ACK {
+			c.abort(ctx, fmt.Sprintf("cohort %s sent NACK for precommit", name))
 			return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg")
 		}
 	}
@@ -143,8 +157,9 @@ func (c *coordinator) preCommit(ctx context.Context) error {
 }
 
 func (c *coordinator) commit(ctx context.Context) error {
+	currentHeight := atomic.LoadUint64(&c.height)
 	for _, cohort := range c.cohorts {
-		resp, err := cohort.Commit(ctx, &pb.CommitRequest{Index: c.height})
+		resp, err := cohort.Commit(ctx, &pb.CommitRequest{Index: currentHeight})
 		if err != nil {
 			return err
 		}
@@ -158,7 +173,8 @@ func (c *coordinator) commit(ctx context.Context) error {
 }
 
 func (c *coordinator) persistMessage() error {
-	key, value, ok := c.wal.Get(c.height)
+	currentHeight := atomic.LoadUint64(&c.height)
+	key, value, ok := c.wal.Get(currentHeight)
 	if !ok {
 		return status.Error(codes.Internal, "can't find msg in wal")
 	}
@@ -166,8 +182,37 @@ func (c *coordinator) persistMessage() error {
 	return c.database.Put(key, value)
 }
 
+// syncHeight atomically updates coordinator height to match cohort height if needed
+func (c *coordinator) syncHeight(cohortHeight uint64) {
+	for {
+		currentHeight := atomic.LoadUint64(&c.height)
+		if cohortHeight <= currentHeight {
+			return // height is already up to date
+		}
+
+		if atomic.CompareAndSwapUint64(&c.height, currentHeight, cohortHeight) {
+			log.Warnf("Updating coordinator height: %d -> %d", currentHeight, cohortHeight)
+			return
+		}
+	}
+}
+
 func (c *coordinator) Height() uint64 {
-	return c.height
+	return atomic.LoadUint64(&c.height)
+}
+
+// abort sends abort requests to all cohorts in a fire-and-forget manner
+func (c *coordinator) abort(ctx context.Context, reason string) {
+	currentHeight := atomic.LoadUint64(&c.height)
+	log.Warnf("Aborting transaction at height %d: %s", currentHeight, reason)
+
+	for name, cohort := range c.cohorts {
+		go func(name string, cohort *client.InternalCommitClient) {
+			if err := cohort.Abort(ctx, &dto.AbortRequest{Height: currentHeight, Reason: reason}); err != nil {
+				log.Errorf("Failed to send abort to cohort %s: %v", name, err)
+			}
+		}(name, cohort)
+	}
 }
 
 func nackResponse(err error, msg string) (*dto.BroadcastResponse, error) {
