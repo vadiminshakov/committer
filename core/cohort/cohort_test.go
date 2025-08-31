@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/mocks"
 	"go.uber.org/mock/gomock"
 )
@@ -235,4 +234,3 @@ func TestCohort_ModeValidation(t *testing.T) {
 		require.Equal(t, mode, cohort.commitType)
 	}
 }
-
