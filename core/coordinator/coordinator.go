@@ -9,7 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
@@ -25,15 +24,22 @@ type wal interface {
 	Close() error
 }
 
+//go:generate mockgen -destination=../../mocks/mock_repository.go -package=mocks . Repository
+type Repository interface {
+	Put(key string, value []byte) error
+	Get(key string) ([]byte, error)
+	Close() error
+}
+
 type coordinator struct {
 	wal      wal
-	database db.Repository
+	database Repository
 	cohorts  map[string]*client.InternalCommitClient
 	config   *config.Config
 	height   uint64
 }
 
-func New(conf *config.Config, wal wal, database db.Repository) (*coordinator, error) {
+func New(conf *config.Config, wal wal, database Repository) (*coordinator, error) {
 	cohorts := make(map[string]*client.InternalCommitClient, len(conf.Cohorts))
 	for _, f := range conf.Cohorts {
 		cl, err := client.NewInternalClient(f)
