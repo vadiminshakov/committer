@@ -162,7 +162,7 @@ func startnodes(commitType pb.CommitType) func() error {
 			MaxSegments:      100,
 			IsInSyncDiskMode: false,
 		}
-		c, err := gowal.NewWAL(walConfig)
+		w, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
 		ct := server.TWO_PHASE
@@ -170,7 +170,7 @@ func startnodes(commitType pb.CommitType) func() error {
 			ct = server.THREE_PHASE
 		}
 
-		committer := commitalgo.NewCommitter(database, ct, c, node.Timeout)
+		committer := commitalgo.NewCommitter(database, ct, w, node.Timeout)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
 		cohortServer, err := server.New(node, cohortImpl, nil, database)
