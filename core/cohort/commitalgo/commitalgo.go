@@ -10,7 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,9 +21,16 @@ type wal interface {
 	Close() error
 }
 
+//go:generate mockgen -destination=../../../mocks/mock_commitalgo_repository.go -package=mocks -mock_names=Repository=MockCommitalgoRepository . Repository
+type Repository interface {
+	Put(key string, value []byte) error
+	Get(key string) ([]byte, error)
+	Close() error
+}
+
 type CommitterImpl struct {
 	noAutoCommit map[uint64]struct{}
-	db           db.Repository
+	db           Repository
 	wal          wal
 	hookRegistry *hooks.Registry
 	state        *stateMachine
@@ -34,7 +40,7 @@ type CommitterImpl struct {
 	commitMutex  sync.Mutex
 }
 
-func NewCommitter(d db.Repository, commitType string, wal wal, timeout uint64, customHooks ...hooks.Hook) *CommitterImpl {
+func NewCommitter(d Repository, commitType string, wal wal, timeout uint64, customHooks ...hooks.Hook) *CommitterImpl {
 	registry := hooks.NewRegistry()
 
 	for _, hook := range customHooks {
