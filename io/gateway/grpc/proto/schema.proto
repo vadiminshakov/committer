@@ -7,6 +7,7 @@ service InternalCommitAPI {
   rpc Propose(ProposeRequest) returns (Response);
   rpc Precommit(PrecommitRequest) returns (Response);
   rpc Commit(CommitRequest) returns (Response);
+  rpc Abort(AbortRequest) returns (Response);
 }
 
 service ClientAPI {
@@ -61,4 +62,9 @@ message Value {
 
 message Info {
   uint64 height = 1;
+}
+
+message AbortRequest {
+  uint64 height = 1;
+  string reason = 2;
 }

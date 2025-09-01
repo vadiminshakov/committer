@@ -22,6 +22,7 @@ type InternalCommitAPIClient interface {
 	Propose(ctx context.Context, in *ProposeRequest, opts ...grpc.CallOption) (*Response, error)
 	Precommit(ctx context.Context, in *PrecommitRequest, opts ...grpc.CallOption) (*Response, error)
 	Commit(ctx context.Context, in *CommitRequest, opts ...grpc.CallOption) (*Response, error)
+	Abort(ctx context.Context, in *AbortRequest, opts ...grpc.CallOption) (*Response, error)
 }
 
 type internalCommitAPIClient struct {
@@ -59,6 +60,15 @@ func (c *internalCommitAPIClient) Commit(ctx context.Context, in *CommitRequest,
 	return out, nil
 }
 
+func (c *internalCommitAPIClient) Abort(ctx context.Context, in *AbortRequest, opts ...grpc.CallOption) (*Response, error) {
+	out := new(Response)
+	err := c.cc.Invoke(ctx, "/schema.InternalCommitAPI/Abort", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InternalCommitAPIServer is the server API for InternalCommitAPI service.
 // All implementations must embed UnimplementedInternalCommitAPIServer
 // for forward compatibility
@@ -66,6 +76,7 @@ type InternalCommitAPIServer interface {
 	Propose(context.Context, *ProposeRequest) (*Response, error)
 	Precommit(context.Context, *PrecommitRequest) (*Response, error)
 	Commit(context.Context, *CommitRequest) (*Response, error)
+	Abort(context.Context, *AbortRequest) (*Response, error)
 	mustEmbedUnimplementedInternalCommitAPIServer()
 }
 
@@ -81,6 +92,9 @@ func (UnimplementedInternalCommitAPIServer) Precommit(context.Context, *Precommi
 }
 func (UnimplementedInternalCommitAPIServer) Commit(context.Context, *CommitRequest) (*Response, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Commit not implemented")
+}
+func (UnimplementedInternalCommitAPIServer) Abort(context.Context, *AbortRequest) (*Response, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Abort not implemented")
 }
 func (UnimplementedInternalCommitAPIServer) mustEmbedUnimplementedInternalCommitAPIServer() {}
 
@@ -149,6 +163,24 @@ func _InternalCommitAPI_Commit_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InternalCommitAPI_Abort_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AbortRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalCommitAPIServer).Abort(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/schema.InternalCommitAPI/Abort",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalCommitAPIServer).Abort(ctx, req.(*AbortRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InternalCommitAPI_ServiceDesc is the grpc.ServiceDesc for InternalCommitAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -167,6 +199,10 @@ var InternalCommitAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Commit",
 			Handler:    _InternalCommitAPI_Commit_Handler,
+		},
+		{
+			MethodName: "Abort",
+			Handler:    _InternalCommitAPI_Abort_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
