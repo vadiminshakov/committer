@@ -57,3 +57,7 @@ func (s *CohortImpl) Precommit(ctx context.Context, index uint64) (*dto.CohortRe
 func (c *CohortImpl) Commit(ctx context.Context, in *dto.CommitRequest) (resp *dto.CohortResponse, err error) {
 	return c.committer.Commit(ctx, in)
 }
+
+func (c *CohortImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error) {
+	return c.committer.Abort(ctx, req)
+}

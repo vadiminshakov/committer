@@ -214,7 +214,7 @@ func (c *coordinator) abort(ctx context.Context, reason string) {
 
 	for name, cohort := range c.cohorts {
 		go func(name string, cohort *client.InternalCommitClient) {
-			if err := cohort.Abort(ctx, &dto.AbortRequest{Height: currentHeight, Reason: reason}); err != nil {
+			if _, err := cohort.Abort(ctx, &dto.AbortRequest{Height: currentHeight, Reason: reason}); err != nil {
 				log.Errorf("Failed to send abort to cohort %s: %v", name, err)
 			}
 		}(name, cohort)
