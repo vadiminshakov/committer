@@ -9,9 +9,7 @@ import (
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/db"
-	"github.com/vadiminshakov/committer/mocks"
 	"github.com/vadiminshakov/gowal"
-	"go.uber.org/mock/gomock"
 )
 
 // testHook for testing purposes
