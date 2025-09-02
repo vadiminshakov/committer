@@ -3,16 +3,16 @@ package server
 import (
 	"context"
 	"errors"
+	"net"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"net"
-	"time"
 )
 
 type Option func(server *Server) error
@@ -27,13 +27,22 @@ type Coordinator interface {
 	Height() uint64
 }
 
+//go:generate mockgen -destination=../../../../mocks/mock_cohort.go -package=mocks . Cohort
+type Cohort interface {
+	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
+	Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error)
+	Commit(ctx context.Context, in *dto.CommitRequest) (*dto.CohortResponse, error)
+	Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error)
+	Height() uint64
+}
+
 // Server holds server instance, node config and connections to followers (if it's a coordinator node)
 type Server struct {
 	proto.UnimplementedInternalCommitAPIServer
 	proto.UnimplementedClientAPIServer
-	
-	cohort      cohort.Cohort
-	DB          db.Repository
+
+	cohort      Cohort
+	DB          *db.BadgerDB
 	coordinator Coordinator
 	GRPCServer  *grpc.Server
 	Config      *config.Config
@@ -55,6 +64,15 @@ func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*p
 
 func (s *Server) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.Response, error) {
 	resp, err := s.cohort.Commit(ctx, commitRequestPbToEntity(req))
+	return cohortResponseToProto(resp), err
+}
+
+func (s *Server) Abort(ctx context.Context, req *proto.AbortRequest) (*proto.Response, error) {
+	abortReq := &dto.AbortRequest{
+		Height: req.Height,
+		Reason: req.Reason,
+	}
+	resp, err := s.cohort.Abort(ctx, abortReq)
 	return cohortResponseToProto(resp), err
 }
 
@@ -86,7 +104,7 @@ func (s *Server) NodeInfo(ctx context.Context, req *emptypb.Empty) (*proto.Info,
 }
 
 // New fabric func for Server
-func New(conf *config.Config, cohort cohort.Cohort, coordinator Coordinator, database db.Repository, opts ...Option) (*Server, error) {
+func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database *db.BadgerDB, opts ...Option) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
 		FullTimestamp:   true,
