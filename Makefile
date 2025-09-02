@@ -35,11 +35,14 @@ test-chaos: start-toxiproxy
 	@go test -v -tags=chaos -run "TestChaos" ./...
 	@$(MAKE) stop-toxiproxy
 
-upgrade:
-	@sudo apt-get update
-	@wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
-	@sudo tar -xvf go1.21.0.linux-amd64.tar.gz
-	@sudo mv go /usr/local
-	@export GOROOT=/usr/local/go
-	@export GOPATH=$HOME/go
-	@export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
+proto-gen:
+	@echo "Generating proto files..."
+	@protoc --go_out=io/gateway/grpc/proto --go_opt=paths=source_relative \
+		--go-grpc_out=io/gateway/grpc/proto --go-grpc_opt=paths=source_relative \
+		--proto_path=io/gateway/grpc/proto io/gateway/grpc/proto/schema.proto
+	@echo "Proto files generated successfully"
+
+generate: proto-gen
+	@echo "Generating mocks..."
+	@go generate ./...
+	@echo "All files generated successfully"
