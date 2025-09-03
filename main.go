@@ -31,7 +31,7 @@ func main() {
 	s.Stop()
 }
 
-func initDB(dbpath string) db.Repository {
+func initDB(dbpath string) *db.BadgerDB {
 	database, err := db.New(dbpath)
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
@@ -57,7 +57,7 @@ func initWAL() *gowal.Wal {
 	return w
 }
 
-func initServer(conf *config.Config, database db.Repository, wal *gowal.Wal) *server.Server {
+func initServer(conf *config.Config, database *db.BadgerDB, wal *gowal.Wal) *server.Server {
 	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, conf.Timeout)
 	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 	coordinatorImpl, err := coordinator.New(conf, wal, database)
