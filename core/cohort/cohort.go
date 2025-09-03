@@ -14,7 +14,7 @@ const THREE_PHASE Mode = "three-phase"
 
 // Committer defines the interface for commit algorithms
 //
-//go:generate mockgen -destination=../../mocks/mock_committer.go -package=mocks . Committer
+//go:generate mockgen -destination=../../../mocks/mock_committer.go -package=mocks . Committer
 type Committer interface {
 	Height() uint64
 	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
