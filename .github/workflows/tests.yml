@@ -22,6 +22,12 @@ jobs:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - uses: actions/checkout@v2
 
+    # Set up Go
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.25'
+
     # Runs a single command using the runners shell
     - name: Run tests
-      run: make upgrade && make prepare && make tests
+      run: make prepare && make tests
