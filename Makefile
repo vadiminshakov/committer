@@ -16,7 +16,7 @@ run-example-client:
 	@go run ./examples/client
 
 tests:
-	@/usr/local/go/bin/go test ./...
+	@go test ./...
 
 start-toxiproxy:
 	@echo "Starting Toxiproxy server..."
