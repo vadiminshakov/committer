@@ -24,16 +24,15 @@ type wal interface {
 	Close() error
 }
 
-//go:generate mockgen -destination=../../mocks/mock_repository.go -package=mocks . Repository
-type Repository interface {
+//go:generate mockgen -destination=../../mocks/mock_state_store.go -package=mocks . StateStore
+type StateStore interface {
 	Put(key string, value []byte) error
-	Get(key string) ([]byte, error)
 	Close() error
 }
 
 type coordinator struct {
 	wal        wal
-	database   Repository
+	store      StateStore
 	cohorts    map[string]*client.InternalCommitClient
 	config     *config.Config
 	commitType pb.CommitType
@@ -41,7 +40,7 @@ type coordinator struct {
 	height     uint64
 }
 
-func New(conf *config.Config, wal wal, database Repository) (*coordinator, error) {
+func New(conf *config.Config, wal wal, store StateStore) (*coordinator, error) {
 	cohorts := make(map[string]*client.InternalCommitClient, len(conf.Cohorts))
 	for _, f := range conf.Cohorts {
 		cl, err := client.NewInternalClient(f)
@@ -60,7 +59,7 @@ func New(conf *config.Config, wal wal, database Repository) (*coordinator, error
 
 	return &coordinator{
 		wal:        wal,
-		database:   database,
+		store:      store,
 		cohorts:    cohorts,
 		config:     conf,
 		commitType: commitType,
@@ -196,7 +195,7 @@ func (c *coordinator) persistMessage() error {
 		return status.Error(codes.Internal, "can't find msg in wal")
 	}
 
-	return c.database.Put(key, value)
+	return c.store.Put(key, value)
 }
 
 // syncHeight atomically updates coordinator height to match cohort height if needed
@@ -216,6 +215,11 @@ func (c *coordinator) syncHeight(cohortHeight uint64) {
 
 func (c *coordinator) Height() uint64 {
 	return atomic.LoadUint64(&c.height)
+}
+
+// SetHeight initializes coordinator height during recovery.
+func (c *coordinator) SetHeight(height uint64) {
+	atomic.StoreUint64(&c.height, height)
 }
 
 // abort sends abort requests to all cohorts in a fire-and-forget manner
