@@ -113,7 +113,7 @@ func TestCoordinator_PersistMessage(t *testing.T) {
 	testValue := []byte("test-value")
 
 	// expect WAL.Get to return the test data
-	mockWAL.EXPECT().Get(uint64(0)).Return(testKey, testValue, true)
+	mockWAL.EXPECT().Get(uint64(0)).Return(testKey, testValue, nil)
 
 	// expect DB.Put to be called with the test data
 	mockDB.EXPECT().Put(testKey, testValue).Return(nil)
@@ -140,7 +140,7 @@ func TestCoordinator_PersistMessage_NoDataInWAL(t *testing.T) {
 	require.NoError(t, err)
 
 	// expect WAL.Get to return no data
-	mockWAL.EXPECT().Get(uint64(0)).Return("", nil, false)
+	mockWAL.EXPECT().Get(uint64(0)).Return("", nil, nil)
 
 	// test persist message when no data in WAL
 	err = coord.persistMessage()

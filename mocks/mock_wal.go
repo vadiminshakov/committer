@@ -54,12 +54,12 @@ func (mr *MockwalMockRecorder) Close() *gomock.Call {
 }
 
 // Get mocks base method.
-func (m *Mockwal) Get(index uint64) (string, []byte, bool) {
+func (m *Mockwal) Get(index uint64) (string, []byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", index)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].([]byte)
-	ret2, _ := ret[2].(bool)
+	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
 

@@ -17,7 +17,7 @@ import (
 type wal interface {
 	Write(index uint64, key string, value []byte) error
 	WriteTombstone(index uint64) error
-	Get(index uint64) (string, []byte, bool)
+	Get(index uint64) (string, []byte, error)
 	Close() error
 }
 
@@ -183,15 +183,20 @@ func (c *CommitterImpl) handlePrecommitTimeout(ctx context.Context, index uint64
 	}
 
 	// check if we have the data in WAL before attempting autocommit
-	key, _, ok := c.wal.Get(index)
-	if !ok {
-		log.Errorf("No data found in WAL for height %d during precommit timeout, cannot autocommit", index)
+	key, value, err := c.wal.Get(index)
+	if err != nil {
+		log.Errorf("Failed to read WAL for height %d during precommit timeout: %v", index, err)
+		c.recoverToPropose(index)
+		return
+	}
+	if key == "skip" {
+		log.Infof("Found skip record for height %d during precommit timeout, transitioning to propose", index)
 		c.recoverToPropose(index)
 		return
 	}
 
-	if key == "skip" {
-		log.Infof("Found skip record for height %d during precommit timeout, transitioning to propose", index)
+	if value == nil {
+		log.Errorf("No data found in WAL for height %d during precommit timeout, cannot autocommit", index)
 		c.recoverToPropose(index)
 		return
 	}
@@ -275,19 +280,23 @@ func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dt
 	if c.hookRegistry.ExecuteCommit(req) {
 		log.Printf("Committing on height: %d\n", req.Height)
 
-		key, value, ok := c.wal.Get(req.Height)
-		if !ok {
+		key, value, err := c.wal.Get(req.Height)
+		if err != nil {
 			// restore state on WAL error - transition back to propose
 			c.state.Transition(proposeStage)
-			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
+			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, fmt.Errorf("failed to read wal on index %d: %w", req.Height, err)
 		}
-
 		if key == "skip" {
 			log.Infof("Cannot commit height %d: operation was cancelled (skip record found)", req.Height)
 			// restore state on skip record - transition back to propose
 			c.state.Transition(proposeStage)
 			return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, nil
 		} else {
+			if value == nil {
+				// restore state on WAL miss - transition back to propose
+				c.state.Transition(proposeStage)
+				return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
+			}
 			if err := c.db.Put(key, value); err != nil {
 				// restore state on database error - transition back to propose
 				c.state.Transition(proposeStage)

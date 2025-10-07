@@ -20,7 +20,7 @@ import (
 type wal interface {
 	Write(index uint64, key string, value []byte) error
 	WriteTombstone(index uint64) error
-	Get(index uint64) (string, []byte, bool)
+	Get(index uint64) (string, []byte, error)
 	Close() error
 }
 
@@ -180,8 +180,11 @@ func (c *coordinator) commit(ctx context.Context) error {
 
 func (c *coordinator) persistMessage() error {
 	currentHeight := atomic.LoadUint64(&c.height)
-	key, value, ok := c.wal.Get(currentHeight)
-	if !ok {
+	key, value, err := c.wal.Get(currentHeight)
+	if err != nil {
+		return status.Error(codes.Internal, fmt.Sprintf("failed to read msg at height %d from wal: %v", currentHeight, err))
+	}
+	if value == nil {
 		return status.Error(codes.Internal, "can't find msg in wal")
 	}
 

@@ -71,12 +71,8 @@ github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81P
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8/go.mod h1:VFNgLljTbGfSG7qAOspJ7OScBnGdDN/yBr0sguwnwf0=
-github.com/vadiminshakov/gowal v0.0.2 h1:tIc+sWwIVlHnIvtWHA1Lr7xDKGKpSoV0GuIFLEr0Tqc=
-github.com/vadiminshakov/gowal v0.0.2/go.mod h1:MixWBivF0qsRLcHGyfRFPbujtxYkpD1VNcO0yD7Xla0=
-github.com/vadiminshakov/gowal v0.0.3 h1:XMxHfAgyonyBi8aoU4o01Rqthmo43xKTQLCRR+lFD5Q=
-github.com/vadiminshakov/gowal v0.0.3/go.mod h1:NMvNH0xjRPYSrcaIg/JhqB5uTneFdgo45+Fs2sk+Esc=
-github.com/vadiminshakov/gowal v0.0.4-0.20250828183735-a7a4c41cae62 h1:npyO9uazmmZ2gPTyxDev+BqB+yKXKy8y9VE6wCWmgU0=
-github.com/vadiminshakov/gowal v0.0.4-0.20250828183735-a7a4c41cae62/go.mod h1:NMvNH0xjRPYSrcaIg/JhqB5uTneFdgo45+Fs2sk+Esc=
+github.com/vadiminshakov/gowal v0.0.4 h1:99mJRkHL7GFNo7f6TMXkUEkRdeVeNIpmywkbVnPaPMM=
+github.com/vadiminshakov/gowal v0.0.4/go.mod h1:NMvNH0xjRPYSrcaIg/JhqB5uTneFdgo45+Fs2sk+Esc=
 github.com/vmihailenco/msgpack/v5 v5.4.1 h1:cQriyiUvjTwOHg8QZaPihLWeRAAVoCpE00IUPn0Bjt8=
 github.com/vmihailenco/msgpack/v5 v5.4.1/go.mod h1:GaZTsDaehaPpQVyxrf5mtQlH+pc21PIudVV/E3rRQok=
 github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAhO7/IwNM9g=

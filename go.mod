@@ -7,7 +7,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.9.0
-	github.com/vadiminshakov/gowal v0.0.4-0.20250828183735-a7a4c41cae62
+	github.com/vadiminshakov/gowal v0.0.4
+	go.uber.org/mock v0.6.0
 	google.golang.org/grpc v1.50.0
 	google.golang.org/protobuf v1.36.1
 )
@@ -27,7 +28,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	go.uber.org/mock v0.6.0 // indirect
 	golang.org/x/crypto v0.0.0-20221010152910-d6f0a8c073c2 // indirect
 	golang.org/x/net v0.0.0-20221004154528-8021a29435af // indirect
 	golang.org/x/sys v0.0.0-20221010170243-090e33056c14 // indirect

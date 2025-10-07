@@ -728,8 +728,9 @@ func TestAbort_CurrentHeight(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// should have the original data in WAL (can't overwrite existing entries)
-	key, val, ok := wal.Get(0)
-	require.True(t, ok)
+	key, val, err := wal.Get(0)
+	require.NoError(t, err)
+	require.NotNil(t, val)
 	require.Equal(t, "test-key", key) // original data remains
 	require.Equal(t, "tombstone", string(val), "Value should be tombstone after abort")
 
@@ -777,8 +778,10 @@ func TestAbort_FutureHeight(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 	require.Equal(t, uint64(0), committer.Height())
 
-	_, _, ok := wal.Get(0)
-	require.False(t, ok, "WAL should not have entry for current height without propose")
+	key, val, err := wal.Get(0)
+	require.NoError(t, err)
+	require.Equal(t, "", key)
+	require.Nil(t, val, "WAL should not have entry for current height without propose")
 }
 
 func TestAbort_PastHeight(t *testing.T) {
@@ -838,8 +841,9 @@ func TestAbort_PastHeight(t *testing.T) {
 	require.Equal(t, uint64(1), committer.Height())
 
 	// check wal unchanged
-	key, val, ok := wal.Get(0)
-	require.True(t, ok, "WAL should have entry for past committed transaction")
+	key, val, err := wal.Get(0)
+	require.NoError(t, err)
+	require.NotNil(t, val, "WAL should have entry for past committed transaction")
 	require.Equal(t, "test-key", key)
 	require.Equal(t, "test-value", string(val), "Value should remain original (not tombstone) for past height")
 
@@ -902,8 +906,9 @@ func TestAbort_StateRecovery_3PC(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// check wal
-	key, val, ok := wal.Get(0)
-	require.True(t, ok)
+	key, val, err := wal.Get(0)
+	require.NoError(t, err)
+	require.NotNil(t, val)
 	require.Equal(t, "test-key", key)
 	require.Equal(t, "tombstone", string(val), "Value should be tombstone after abort")
 }
@@ -958,8 +963,9 @@ func TestAbort_StateRecovery_2PC(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// check wal
-	key, val, ok := wal.Get(0)
-	require.True(t, ok)
+	key, val, err := wal.Get(0)
+	require.NoError(t, err)
+	require.NotNil(t, val)
 	require.Equal(t, "test-key", key)
 	require.Equal(t, "tombstone", string(val), "Value should be tombstone after abort")
 }
