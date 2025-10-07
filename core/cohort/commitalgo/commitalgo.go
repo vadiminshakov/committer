@@ -21,16 +21,15 @@ type wal interface {
 	Close() error
 }
 
-//go:generate mockgen -destination=../../../mocks/mock_commitalgo_repository.go -package=mocks -mock_names=Repository=MockCommitalgoRepository . Repository
-type Repository interface {
+//go:generate mockgen -destination=../../../mocks/mock_commitalgo_state_store.go -package=mocks -mock_names=StateStore=MockCommitalgoStateStore . StateStore
+type StateStore interface {
 	Put(key string, value []byte) error
-	Get(key string) ([]byte, error)
 	Close() error
 }
 
 type CommitterImpl struct {
 	noAutoCommit map[uint64]struct{}
-	db           Repository
+	store        StateStore
 	wal          wal
 	hookRegistry *hooks.Registry
 	state        *stateMachine
@@ -40,7 +39,7 @@ type CommitterImpl struct {
 	commitMutex  sync.Mutex
 }
 
-func NewCommitter(d Repository, commitType string, wal wal, timeout uint64, customHooks ...hooks.Hook) *CommitterImpl {
+func NewCommitter(store StateStore, commitType string, wal wal, timeout uint64, customHooks ...hooks.Hook) *CommitterImpl {
 	registry := hooks.NewRegistry()
 
 	for _, hook := range customHooks {
@@ -53,7 +52,7 @@ func NewCommitter(d Repository, commitType string, wal wal, timeout uint64, cust
 
 	return &CommitterImpl{
 		hookRegistry: registry,
-		db:           d,
+		store:        store,
 		wal:          wal,
 		noAutoCommit: make(map[uint64]struct{}),
 		timeout:      timeout,
@@ -68,6 +67,11 @@ func (c *CommitterImpl) RegisterHook(hook hooks.Hook) {
 
 func (c *CommitterImpl) Height() uint64 {
 	return atomic.LoadUint64(&c.height)
+}
+
+// SetHeight initializes committer height from recovered WAL state.
+func (c *CommitterImpl) SetHeight(height uint64) {
+	atomic.StoreUint64(&c.height, height)
 }
 
 func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
@@ -297,8 +301,8 @@ func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dt
 				c.state.Transition(proposeStage)
 				return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, fmt.Errorf("no value in node cache on the index %d", req.Height)
 			}
-			if err := c.db.Put(key, value); err != nil {
-				// restore state on database error - transition back to propose
+			if err := c.store.Put(key, value); err != nil {
+				// restore state on state write error - transition back to propose
 				c.state.Transition(proposeStage)
 				return nil, err
 			}
