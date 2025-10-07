@@ -32,11 +32,13 @@ type Repository interface {
 }
 
 type coordinator struct {
-	wal      wal
-	database Repository
-	cohorts  map[string]*client.InternalCommitClient
-	config   *config.Config
-	height   uint64
+	wal        wal
+	database   Repository
+	cohorts    map[string]*client.InternalCommitClient
+	config     *config.Config
+	commitType pb.CommitType
+	threePhase bool
+	height     uint64
 }
 
 func New(conf *config.Config, wal wal, database Repository) (*coordinator, error) {
@@ -50,11 +52,19 @@ func New(conf *config.Config, wal wal, database Repository) (*coordinator, error
 		cohorts[f] = cl
 	}
 
+	threePhase := conf.CommitType == server.THREE_PHASE
+	commitType := pb.CommitType_TWO_PHASE_COMMIT
+	if threePhase {
+		commitType = pb.CommitType_THREE_PHASE_COMMIT
+	}
+
 	return &coordinator{
-		wal:      wal,
-		database: database,
-		cohorts:  cohorts,
-		config:   conf,
+		wal:        wal,
+		database:   database,
+		cohorts:    cohorts,
+		config:     conf,
+		commitType: commitType,
+		threePhase: threePhase,
 	}, nil
 }
 
@@ -64,7 +74,7 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 		return nackResponse(err, "failed to send propose")
 	}
 
-	if c.config.CommitType == server.THREE_PHASE {
+	if c.threePhase {
 		log.Infof("Precommitting key %s", req.Key)
 		if err := c.preCommit(ctx); err != nil {
 			return nackResponse(err, "failed to send precommit")
@@ -93,13 +103,8 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 }
 
 func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) error {
-	commitType := pb.CommitType_TWO_PHASE_COMMIT
-	if c.config.CommitType == server.THREE_PHASE {
-		commitType = pb.CommitType_THREE_PHASE_COMMIT
-	}
-
 	for name, cohort := range c.cohorts {
-		if err := c.sendProposal(ctx, cohort, name, req, commitType); err != nil {
+		if err := c.sendProposal(ctx, cohort, name, req, c.commitType); err != nil {
 			return err
 		}
 	}
@@ -123,7 +128,7 @@ func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalC
 			Index:      currentHeight,
 		})
 
-		if err == nil && resp.Type == pb.Type_ACK {
+		if err == nil && resp != nil && resp.Type == pb.Type_ACK {
 			break // success
 		}
 
@@ -153,7 +158,7 @@ func (c *coordinator) preCommit(ctx context.Context) error {
 			c.abort(ctx, fmt.Sprintf("cohort %s precommit error: %v", name, err))
 			return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg")
 		}
-		if resp.Type != pb.Type_ACK {
+		if !isAck(resp) {
 			c.abort(ctx, fmt.Sprintf("cohort %s sent NACK for precommit", name))
 			return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg")
 		}
@@ -169,13 +174,16 @@ func (c *coordinator) commit(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-
-		if resp.Type != pb.Type_ACK {
+		if !isAck(resp) {
 			return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg")
 		}
 	}
 
 	return nil
+}
+
+func isAck(resp *pb.Response) bool {
+	return resp != nil && resp.Type == pb.Type_ACK
 }
 
 func (c *coordinator) persistMessage() error {
