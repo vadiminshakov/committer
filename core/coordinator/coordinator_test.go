@@ -20,7 +20,7 @@ func TestCoordinator_New(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockWAL := mocks.NewMockwal(ctrl)
-	mockDB := mocks.NewMockRepository(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
 
 	conf := &config.Config{
 		Nodeaddr:   "localhost:8080",
@@ -29,7 +29,7 @@ func TestCoordinator_New(t *testing.T) {
 		CommitType: server.TWO_PHASE,
 	}
 
-	coord, err := New(conf, mockWAL, mockDB)
+	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 	require.NotNil(t, coord)
 	require.Equal(t, uint64(0), coord.Height())
@@ -41,7 +41,7 @@ func TestCoordinator_Height(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockWAL := mocks.NewMockwal(ctrl)
-	mockDB := mocks.NewMockRepository(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
 
 	conf := &config.Config{
 		Nodeaddr:   "localhost:8080",
@@ -50,7 +50,7 @@ func TestCoordinator_Height(t *testing.T) {
 		CommitType: server.TWO_PHASE,
 	}
 
-	coord, err := New(conf, mockWAL, mockDB)
+	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 
 	// test initial height
@@ -66,7 +66,7 @@ func TestCoordinator_SyncHeight(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockWAL := mocks.NewMockwal(ctrl)
-	mockDB := mocks.NewMockRepository(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
 
 	conf := &config.Config{
 		Nodeaddr:   "localhost:8080",
@@ -75,7 +75,7 @@ func TestCoordinator_SyncHeight(t *testing.T) {
 		CommitType: server.TWO_PHASE,
 	}
 
-	coord, err := New(conf, mockWAL, mockDB)
+	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 
 	// test sync to higher height
@@ -96,7 +96,7 @@ func TestCoordinator_PersistMessage(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockWAL := mocks.NewMockwal(ctrl)
-	mockDB := mocks.NewMockRepository(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
 
 	conf := &config.Config{
 		Nodeaddr:   "localhost:8080",
@@ -105,7 +105,7 @@ func TestCoordinator_PersistMessage(t *testing.T) {
 		CommitType: server.TWO_PHASE,
 	}
 
-	coord, err := New(conf, mockWAL, mockDB)
+	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 
 	// test persist message success
@@ -116,7 +116,7 @@ func TestCoordinator_PersistMessage(t *testing.T) {
 	mockWAL.EXPECT().Get(uint64(0)).Return(testKey, testValue, nil)
 
 	// expect DB.Put to be called with the test data
-	mockDB.EXPECT().Put(testKey, testValue).Return(nil)
+	mockStore.EXPECT().Put(testKey, testValue).Return(nil)
 
 	err = coord.persistMessage()
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestCoordinator_PersistMessage_NoDataInWAL(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockWAL := mocks.NewMockwal(ctrl)
-	mockDB := mocks.NewMockRepository(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
 
 	conf := &config.Config{
 		Nodeaddr:   "localhost:8080",
@@ -136,7 +136,7 @@ func TestCoordinator_PersistMessage_NoDataInWAL(t *testing.T) {
 		CommitType: server.TWO_PHASE,
 	}
 
-	coord, err := New(conf, mockWAL, mockDB)
+	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 
 	// expect WAL.Get to return no data
@@ -153,7 +153,7 @@ func TestCoordinator_Abort(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockWAL := mocks.NewMockwal(ctrl)
-	mockDB := mocks.NewMockRepository(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
 
 	conf := &config.Config{
 		Nodeaddr:   "localhost:8080",
@@ -162,7 +162,7 @@ func TestCoordinator_Abort(t *testing.T) {
 		CommitType: server.TWO_PHASE,
 	}
 
-	coord, err := New(conf, mockWAL, mockDB)
+	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -187,7 +187,7 @@ func TestCoordinator_SyncHeight_Concurrent(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockWAL := mocks.NewMockwal(ctrl)
-	mockDB := mocks.NewMockRepository(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
 
 	conf := &config.Config{
 		Nodeaddr:   "localhost:8080",
@@ -196,7 +196,7 @@ func TestCoordinator_SyncHeight_Concurrent(t *testing.T) {
 		CommitType: server.TWO_PHASE,
 	}
 
-	coord, err := New(conf, mockWAL, mockDB)
+	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 
 	// test concurrent height sync
@@ -236,7 +236,7 @@ func TestCoordinator_Config_Validation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockWAL := mocks.NewMockwal(ctrl)
-	mockDB := mocks.NewMockRepository(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
 
 	// test with empty cohorts list
 	conf := &config.Config{
@@ -246,14 +246,14 @@ func TestCoordinator_Config_Validation(t *testing.T) {
 		CommitType: server.TWO_PHASE,
 	}
 
-	coord, err := New(conf, mockWAL, mockDB)
+	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 	require.NotNil(t, coord)
 	require.Len(t, coord.cohorts, 0)
 
 	// test with multiple cohorts
 	conf.Cohorts = []string{"localhost:8081", "localhost:8082", "localhost:8083"}
-	coord, err = New(conf, mockWAL, mockDB)
+	coord, err = New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 	require.NotNil(t, coord)
 	require.Len(t, coord.cohorts, 3)

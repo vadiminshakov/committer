@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/db"
+	"github.com/vadiminshakov/committer/io/store"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -30,15 +30,7 @@ func (t *testHook) OnCommit(req *dto.CommitRequest) bool {
 	return t.commitResult
 }
 
-func TestNewCommitter_DefaultHook(t *testing.T) {
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
-	walPath := filepath.Join(tempDir, "wal")
-
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
+func openTestWAL(t *testing.T, walPath string) *gowal.Wal {
 	walConfig := gowal.Config{
 		Dir:              walPath,
 		Prefix:           "test",
@@ -49,67 +41,51 @@ func TestNewCommitter_DefaultHook(t *testing.T) {
 
 	wal, err := gowal.NewWAL(walConfig)
 	require.NoError(t, err)
-	defer wal.Close()
+	t.Cleanup(func() { wal.Close() })
 
-	// test: create committer without hooks (should use default)
-	committer := NewCommitter(database, "3pc", wal, 5000)
+	return wal
+}
+
+func newStateStore(t *testing.T, wal *gowal.Wal) (*store.Store, *store.RecoveryState) {
+	dbPath := filepath.Join(t.TempDir(), "badger")
+	stateStore, recovery, err := store.New(wal, dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { stateStore.Close() })
+	return stateStore, recovery
+}
+
+func prepareCommitter(t *testing.T, walPath, commitType string, timeout uint64, hooks ...hooks.Hook) (*CommitterImpl, *store.Store, *gowal.Wal, *store.RecoveryState) {
+	wal := openTestWAL(t, walPath)
+	stateStore, recovery := newStateStore(t, wal)
+
+	committer := NewCommitter(stateStore, commitType, wal, timeout, hooks...)
+	committer.SetHeight(recovery.NextHeight)
+
+	return committer, stateStore, wal, recovery
+}
+
+func TestNewCommitter_DefaultHook(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, _, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "3pc", 5000)
 
 	require.Equal(t, 1, committer.hookRegistry.Count(), "Expected 1 default hook")
 }
 
 func TestNewCommitter_CustomHooks(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
-	walPath := filepath.Join(tempDir, "wal")
-
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
-
 	// test: create committer with custom hooks
 	testHook1 := &testHook{proposeResult: true, commitResult: true}
 	testHook2 := &testHook{proposeResult: true, commitResult: true}
 
-	committer := NewCommitter(database, "3pc", wal, 5000, testHook1, testHook2)
+	committer, _, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "3pc", 5000, testHook1, testHook2)
 
 	require.Equal(t, 2, committer.hookRegistry.Count(), "Expected 2 custom hooks")
 }
 
 func TestNewCommitter_DynamicHookRegistration(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
-	walPath := filepath.Join(tempDir, "wal")
-
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
-
 	// test: create committer and add hooks dynamically
-	committer := NewCommitter(database, "3pc", wal, 5000)
+	committer, _, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "3pc", 5000)
 
 	require.Equal(t, 1, committer.hookRegistry.Count(), "Expected 1 default hook initially")
 
@@ -122,30 +98,12 @@ func TestNewCommitter_DynamicHookRegistration(t *testing.T) {
 
 func TestNewCommitter_BuiltinHooks(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
-	walPath := filepath.Join(tempDir, "wal")
-
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
 
 	metricsHook := hooks.NewMetricsHook()
 	validationHook := hooks.NewValidationHook(100, 1024)
 	auditHook := hooks.NewAuditHook("test_audit.log")
 
-	committer := NewCommitter(database, "3pc", wal, 5000,
+	committer, _, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "3pc", 5000,
 		metricsHook,
 		validationHook,
 		auditHook,
@@ -159,27 +117,14 @@ func TestNewCommitter_BuiltinHooks(t *testing.T) {
 }
 func TestCommit_StateValidation_2PC(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 2PC committer
-	committer := NewCommitter(database, "two-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "two-phase", wal, 5000)
+	committer.SetHeight(recovery.NextHeight)
 
 	require.Equal(t, "propose", committer.getCurrentState())
 
@@ -190,7 +135,7 @@ func TestCommit_StateValidation_2PC(t *testing.T) {
 		Value:  []byte("test-value"),
 	}
 
-	_, err = committer.Propose(context.Background(), proposeReq)
+	_, err := committer.Propose(context.Background(), proposeReq)
 	require.NoError(t, err)
 
 	// should still be in propose state for 2PC
@@ -208,27 +153,14 @@ func TestCommit_StateValidation_2PC(t *testing.T) {
 
 func TestCommit_StateValidation_3PC(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	wal := openTestWAL(t, walPath)
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(database, "three-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer.SetHeight(recovery.NextHeight)
 
 	require.Equal(t, "propose", committer.getCurrentState())
 
@@ -239,7 +171,7 @@ func TestCommit_StateValidation_3PC(t *testing.T) {
 		Value:  []byte("test-value"),
 	}
 
-	_, err = committer.Propose(context.Background(), proposeReq)
+	_, err := committer.Propose(context.Background(), proposeReq)
 	require.NoError(t, err)
 
 	// should still be in propose state
@@ -271,28 +203,15 @@ func TestCommit_StateValidation_3PC(t *testing.T) {
 func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 	t.Run("Hook failure", func(t *testing.T) {
 		tempDir := t.TempDir()
-		dbPath := filepath.Join(tempDir, "db")
 		walPath := filepath.Join(tempDir, "wal")
+		wal := openTestWAL(t, walPath)
 
-		database, err := db.New(dbPath)
-		require.NoError(t, err)
-		defer database.Close()
-
-		walConfig := gowal.Config{
-			Dir:              walPath,
-			Prefix:           "test",
-			SegmentThreshold: 1024,
-			MaxSegments:      10,
-			IsInSyncDiskMode: false,
-		}
-
-		wal, err := gowal.NewWAL(walConfig)
-		require.NoError(t, err)
-		defer wal.Close()
+		stateStore, recovery := newStateStore(t, wal)
 
 		// create 3PC committer with a hook that will fail commit
 		failingHook := &testHook{proposeResult: true, commitResult: false}
-		committer := NewCommitter(database, "three-phase", wal, 5000, failingHook)
+		committer := NewCommitter(stateStore, "three-phase", wal, 5000, failingHook)
+		committer.SetHeight(recovery.NextHeight)
 
 		// go through proper 3PC flow: propose -> precommit
 		proposeReq := &dto.ProposeRequest{
@@ -301,7 +220,7 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 			Value:  []byte("test-value"),
 		}
 
-		_, err = committer.Propose(context.Background(), proposeReq)
+		_, err := committer.Propose(context.Background(), proposeReq)
 		require.NoError(t, err)
 
 		_, err = committer.Precommit(context.Background(), 0)
@@ -322,27 +241,14 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 
 	t.Run("Skip record (tombstone)", func(t *testing.T) {
 		tempDir := t.TempDir()
-		dbPath := filepath.Join(tempDir, "db")
 		walPath := filepath.Join(tempDir, "wal")
+		wal := openTestWAL(t, walPath)
 
-		database, err := db.New(dbPath)
-		require.NoError(t, err)
-		defer database.Close()
-
-		walConfig := gowal.Config{
-			Dir:              walPath,
-			Prefix:           "test",
-			SegmentThreshold: 1024,
-			MaxSegments:      10,
-			IsInSyncDiskMode: false,
-		}
-
-		wal, err := gowal.NewWAL(walConfig)
-		require.NoError(t, err)
-		defer wal.Close()
+		stateStore, recovery := newStateStore(t, wal)
 
 		// create 3PC committer
-		committer := NewCommitter(database, "three-phase", wal, 5000)
+		committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+		committer.SetHeight(recovery.NextHeight)
 
 		// first propose a normal transaction
 		proposeReq := &dto.ProposeRequest{
@@ -351,7 +257,7 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 			Value:  []byte("test-value"),
 		}
 
-		_, err = committer.Propose(context.Background(), proposeReq)
+		_, err := committer.Propose(context.Background(), proposeReq)
 		require.NoError(t, err)
 
 		_, err = committer.Precommit(context.Background(), 0)
@@ -374,7 +280,7 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 		require.Equal(t, uint64(0), committer.Height())
 
 		// data should not be in database (commit was skipped)
-		value, err := database.Get("test-key")
+		value, err := stateStore.Get("test-key")
 		require.Error(t, err) // should not exist
 		require.Nil(t, value)
 	})
@@ -382,56 +288,29 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 
 func TestGetExpectedCommitState(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, _ := newStateStore(t, wal)
 
 	// test 2PC mode
-	committer2PC := NewCommitter(database, "two-phase", wal, 5000)
+	committer2PC := NewCommitter(stateStore, "two-phase", wal, 5000)
 	require.Equal(t, "propose", committer2PC.getExpectedCommitState())
 
 	// test 3PC mode
-	committer3PC := NewCommitter(database, "three-phase", wal, 5000)
+	committer3PC := NewCommitter(stateStore, "three-phase", wal, 5000)
 	require.Equal(t, "precommit", committer3PC.getExpectedCommitState())
 }
 func TestPrecommitTimeout_StateValidation(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// сreate 3PC committer with short timeout for testing
-	committer := NewCommitter(database, "three-phase", wal, 50) // 50ms timeout
+	committer := NewCommitter(stateStore, "three-phase", wal, 50) // 50ms timeout
+	committer.SetHeight(recovery.NextHeight)
 
 	ctx := context.Background()
 
@@ -456,27 +335,14 @@ func TestPrecommitTimeout_StateValidation(t *testing.T) {
 
 func TestPrecommitTimeout_AutocommitSuccess(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(database, "three-phase", wal, 50)
+	committer := NewCommitter(stateStore, "three-phase", wal, 50)
+	committer.SetHeight(recovery.NextHeight)
 
 	ctx := context.Background()
 
@@ -486,7 +352,7 @@ func TestPrecommitTimeout_AutocommitSuccess(t *testing.T) {
 		Key:    "test-key",
 		Value:  []byte("test-value"),
 	}
-	_, err = committer.Propose(ctx, proposeReq)
+	_, err := committer.Propose(ctx, proposeReq)
 	require.NoError(t, err)
 
 	// move to precommit state
@@ -504,32 +370,19 @@ func TestPrecommitTimeout_AutocommitSuccess(t *testing.T) {
 
 func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(database, "three-phase", wal, 50)
+	committer := NewCommitter(stateStore, "three-phase", wal, 50)
+	committer.SetHeight(recovery.NextHeight)
 
 	ctx := context.Background()
 
 	// write skip record directly to WAL
-	err = wal.Write(0, "skip", nil)
+	err := wal.Write(0, "skip", nil)
 	require.NoError(t, err)
 
 	// move to precommit state
@@ -546,28 +399,15 @@ func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
 
 func TestPrecommitTimeout_AutocommitFailure(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer with failing hook
 	failingHook := &testHook{proposeResult: true, commitResult: false}
-	committer := NewCommitter(database, "three-phase", wal, 50, failingHook)
+	committer := NewCommitter(stateStore, "three-phase", wal, 50, failingHook)
+	committer.SetHeight(recovery.NextHeight)
 
 	ctx := context.Background()
 
@@ -577,7 +417,7 @@ func TestPrecommitTimeout_AutocommitFailure(t *testing.T) {
 		Key:    "test-key",
 		Value:  []byte("test-value"),
 	}
-	_, err = committer.Propose(ctx, proposeReq)
+	_, err := committer.Propose(ctx, proposeReq)
 	require.NoError(t, err)
 
 	// move to precommit state
@@ -595,27 +435,14 @@ func TestPrecommitTimeout_AutocommitFailure(t *testing.T) {
 
 func TestPrecommitTimeout_NoDataInWAL(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(database, "three-phase", wal, 50)
+	committer := NewCommitter(stateStore, "three-phase", wal, 50)
+	committer.SetHeight(recovery.NextHeight)
 
 	// set up state without data in WAL
 	ctx := context.Background()
@@ -634,27 +461,14 @@ func TestPrecommitTimeout_NoDataInWAL(t *testing.T) {
 
 func TestRecoverToPropose(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(database, "three-phase", wal, 50)
+	committer := NewCommitter(stateStore, "three-phase", wal, 50)
+	committer.SetHeight(recovery.NextHeight)
 
 	// test recovery from precommit state
 	committer.state.Transition(precommitStage)
@@ -676,27 +490,14 @@ func TestRecoverToPropose(t *testing.T) {
 
 func TestAbort_CurrentHeight(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(database, "three-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer.SetHeight(recovery.NextHeight)
 
 	// set up a transaction at current height
 	ctx := context.Background()
@@ -706,7 +507,7 @@ func TestAbort_CurrentHeight(t *testing.T) {
 		Value:  []byte("test-value"),
 	}
 
-	_, err = committer.Propose(ctx, proposeReq)
+	_, err := committer.Propose(ctx, proposeReq)
 	require.NoError(t, err)
 
 	// move to precommit state
@@ -734,34 +535,21 @@ func TestAbort_CurrentHeight(t *testing.T) {
 	require.Equal(t, "test-key", key) // original data remains
 	require.Equal(t, "tombstone", string(val), "Value should be tombstone after abort")
 
-	value, err := database.Get("test-key")
+	value, err := stateStore.Get("test-key")
 	require.Error(t, err, "Original value should not exist in database after abort")
 	require.Nil(t, value)
 }
 
 func TestAbort_FutureHeight(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create committer
-	committer := NewCommitter(database, "three-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer.SetHeight(recovery.NextHeight)
 
 	// test abort for future height (should be ignored)
 	ctx := context.Background()
@@ -786,27 +574,14 @@ func TestAbort_FutureHeight(t *testing.T) {
 
 func TestAbort_PastHeight(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create committer and advance height
-	committer := NewCommitter(database, "two-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "two-phase", wal, 5000)
+	committer.SetHeight(recovery.NextHeight)
 
 	// complete a transaction to advance height
 	ctx := context.Background()
@@ -816,7 +591,7 @@ func TestAbort_PastHeight(t *testing.T) {
 		Value:  []byte("test-value"),
 	}
 
-	_, err = committer.Propose(ctx, proposeReq)
+	_, err := committer.Propose(ctx, proposeReq)
 	require.NoError(t, err)
 
 	commitReq := &dto.CommitRequest{Height: 0}
@@ -848,34 +623,21 @@ func TestAbort_PastHeight(t *testing.T) {
 	require.Equal(t, "test-value", string(val), "Value should remain original (not tombstone) for past height")
 
 	// check normal data is in db
-	value, err := database.Get("test-key")
+	value, err := stateStore.Get("test-key")
 	require.NoError(t, err, "Data should exist in database for past committed transaction")
 	require.Equal(t, "test-value", string(value))
 }
 
 func TestAbort_StateRecovery_3PC(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(database, "three-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer.SetHeight(recovery.NextHeight)
 
 	// set up transaction and move to precommit state
 	ctx := context.Background()
@@ -885,7 +647,7 @@ func TestAbort_StateRecovery_3PC(t *testing.T) {
 		Value:  []byte("test-value"),
 	}
 
-	_, err = committer.Propose(ctx, proposeReq)
+	_, err := committer.Propose(ctx, proposeReq)
 	require.NoError(t, err)
 
 	_, err = committer.Precommit(ctx, 0)
@@ -915,27 +677,14 @@ func TestAbort_StateRecovery_3PC(t *testing.T) {
 
 func TestAbort_StateRecovery_2PC(t *testing.T) {
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "db")
 	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
 
-	database, err := db.New(dbPath)
-	require.NoError(t, err)
-	defer database.Close()
-
-	walConfig := gowal.Config{
-		Dir:              walPath,
-		Prefix:           "test",
-		SegmentThreshold: 1024,
-		MaxSegments:      10,
-		IsInSyncDiskMode: false,
-	}
-
-	wal, err := gowal.NewWAL(walConfig)
-	require.NoError(t, err)
-	defer wal.Close()
+	stateStore, recovery := newStateStore(t, wal)
 
 	// create 2PC committer
-	committer := NewCommitter(database, "two-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "two-phase", wal, 5000)
+	committer.SetHeight(recovery.NextHeight)
 
 	// set up transaction (in 2PC, we stay in propose state)
 	ctx := context.Background()
@@ -945,7 +694,7 @@ func TestAbort_StateRecovery_2PC(t *testing.T) {
 		Value:  []byte("test-value"),
 	}
 
-	_, err = committer.Propose(ctx, proposeReq)
+	_, err := committer.Propose(ctx, proposeReq)
 	require.NoError(t, err)
 	require.Equal(t, "propose", committer.getCurrentState())
 
