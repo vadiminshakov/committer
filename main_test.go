@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -14,10 +15,10 @@ import (
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
 	"github.com/vadiminshakov/committer/core/coordinator"
-	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
+	"github.com/vadiminshakov/committer/io/store"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -32,10 +33,10 @@ var (
 	nodes     = map[string][]*config.Config{
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:2938", Role: "coordinator",
-				Cohorts: []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
+				Cohorts:   []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
 				Whitelist: whitelist, CommitType: "two-phase", Timeout: 100},
 			{Nodeaddr: "localhost:5002", Role: "coordinator",
-				Cohorts: []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
+				Cohorts:   []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
 				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100},
 		},
 		COHORT_TYPE: {
@@ -148,13 +149,9 @@ func startnodes(commitType pb.CommitType) func() error {
 		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
 			node.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 		}
-		// create db dir
-		node.DBPath = fmt.Sprintf("%s%s%s", COHORT_BADGER, strconv.Itoa(i), "~")
-		failfast(os.Mkdir(node.DBPath, os.FileMode(0777)))
-		// start cohort
-		database, err := db.New(node.DBPath)
-		failfast(err)
+		node.DBPath = filepath.Join(COHORT_BADGER, strconv.Itoa(i))
 
+		failfast(os.MkdirAll(node.DBPath, os.FileMode(0o777)))
 		walConfig := gowal.Config{
 			Dir:              "./tmp/cohort/" + strconv.Itoa(i),
 			Prefix:           "msgs_",
@@ -165,15 +162,19 @@ func startnodes(commitType pb.CommitType) func() error {
 		w, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
+		stateStore, recovery, err := store.New(w, node.DBPath)
+		failfast(err)
+
 		ct := server.TWO_PHASE
 		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
 			ct = server.THREE_PHASE
 		}
 
-		committer := commitalgo.NewCommitter(database, ct, w, node.Timeout)
+		committer := commitalgo.NewCommitter(stateStore, ct, w, node.Timeout)
+		committer.SetHeight(recovery.NextHeight)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
-		cohortServer, err := server.New(node, cohortImpl, nil, database)
+		cohortServer, err := server.New(node, cohortImpl, nil, stateStore)
 		failfast(err)
 
 		go cohortServer.Run(server.WhiteListChecker)
@@ -183,14 +184,8 @@ func startnodes(commitType pb.CommitType) func() error {
 
 	// start coordinators (in two- and three-phase modes)
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
-		// create db dir
-		coordConfig.DBPath = fmt.Sprintf("%s%s%s", COORDINATOR_BADGER, strconv.Itoa(i), "~")
-		failfast(os.Mkdir(coordConfig.DBPath, os.FileMode(0777)))
-
-		// start coordinator
-		database, err := db.New(coordConfig.DBPath)
-		failfast(err)
-
+		coordConfig.DBPath = filepath.Join(COORDINATOR_BADGER, strconv.Itoa(i))
+		failfast(os.MkdirAll(coordConfig.DBPath, os.FileMode(0o777)))
 		walConfig := gowal.Config{
 			Dir:              "./tmp/coord/msgs" + strconv.Itoa(i),
 			Prefix:           "msgs",
@@ -202,10 +197,14 @@ func startnodes(commitType pb.CommitType) func() error {
 		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		coord, err := coordinator.New(coordConfig, c, database)
+		stateStore, recovery, err := store.New(c, coordConfig.DBPath)
 		failfast(err)
 
-		coordServer, err := server.New(coordConfig, nil, coord, database)
+		coord, err := coordinator.New(coordConfig, c, stateStore)
+		failfast(err)
+		coord.SetHeight(recovery.NextHeight)
+
+		coordServer, err := server.New(coordConfig, nil, coord, stateStore)
 		failfast(err)
 
 		go coordServer.Run(server.WhiteListChecker)

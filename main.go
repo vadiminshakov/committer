@@ -10,8 +10,8 @@ import (
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
 	"github.com/vadiminshakov/committer/core/coordinator"
-	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
+	"github.com/vadiminshakov/committer/io/store"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -21,23 +21,14 @@ func main() {
 
 	conf := config.Get()
 
-	database := initDB(conf.DBPath)
 	wal := initWAL()
+	stateStore, recovery := initStore(conf, wal)
 
-	s := initServer(conf, database, wal)
+	s := initServer(conf, stateStore, wal, recovery.NextHeight)
 	s.Run(server.WhiteListChecker)
 
 	<-ch
 	s.Stop()
-}
-
-func initDB(dbpath string) *db.BadgerDB {
-	database, err := db.New(dbpath)
-	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
-	}
-
-	return database
 }
 
 func initWAL() *gowal.Wal {
@@ -57,15 +48,27 @@ func initWAL() *gowal.Wal {
 	return w
 }
 
-func initServer(conf *config.Config, database *db.BadgerDB, wal *gowal.Wal) *server.Server {
-	committer := commitalgo.NewCommitter(database, conf.CommitType, wal, conf.Timeout)
+func initStore(conf *config.Config, wal *gowal.Wal) (*store.Store, *store.RecoveryState) {
+	stateStore, recovery, err := store.New(wal, conf.DBPath)
+	if err != nil {
+		log.Fatalf("failed to initialize state store: %v", err)
+	}
+
+	log.Printf("Recovered state from WAL: next height %d, keys %d\n", recovery.NextHeight, stateStore.Size())
+	return stateStore, recovery
+}
+
+func initServer(conf *config.Config, stateStore *store.Store, wal *gowal.Wal, initialHeight uint64) *server.Server {
+	committer := commitalgo.NewCommitter(stateStore, conf.CommitType, wal, conf.Timeout)
+	committer.SetHeight(initialHeight)
 	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
-	coordinatorImpl, err := coordinator.New(conf, wal, database)
+	coordinatorImpl, err := coordinator.New(conf, wal, stateStore)
 	if err != nil {
 		log.Fatalf("failed to create coordinator: %v", err)
 	}
+	coordinatorImpl.SetHeight(initialHeight)
 
-	s, err := server.New(conf, cohortImpl, coordinatorImpl, database)
+	s, err := server.New(conf, cohortImpl, coordinatorImpl, stateStore)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}
