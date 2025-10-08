@@ -9,13 +9,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/db"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/io/store"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
-
-type Option func(server *Server) error
 
 const (
 	TWO_PHASE   = "two-phase"
@@ -42,14 +40,13 @@ type Server struct {
 	proto.UnimplementedClientAPIServer
 
 	cohort      Cohort
-	DB          *db.BadgerDB
+	store       *store.Store
 	coordinator Coordinator
 	GRPCServer  *grpc.Server
 	Config      *config.Config
 	ProposeHook func(req *proto.ProposeRequest) bool
 	CommitHook  func(req *proto.CommitRequest) bool
 	Addr        string
-	DBPath      string
 }
 
 func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
@@ -77,7 +74,7 @@ func (s *Server) Abort(ctx context.Context, req *proto.AbortRequest) (*proto.Res
 }
 
 func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) {
-	value, err := s.DB.Get(req.Key)
+	value, err := s.store.Get(req.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -104,21 +101,19 @@ func (s *Server) NodeInfo(ctx context.Context, req *emptypb.Empty) (*proto.Info,
 }
 
 // New fabric func for Server
-func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database *db.BadgerDB, opts ...Option) (*Server, error) {
+func New(conf *config.Config, cohort Cohort, coordinator Coordinator, stateStore *store.Store) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
 		FullTimestamp:   true,
 		TimestampFormat: time.RFC822,
 	})
 
-	server := &Server{Addr: conf.Nodeaddr, cohort: cohort, coordinator: coordinator,
-		DB: database, Config: conf}
-	var err error
-	for _, option := range opts {
-		err = option(server)
-		if err != nil {
-			return nil, err
-		}
+	server := &Server{
+		Addr:        conf.Nodeaddr,
+		cohort:      cohort,
+		coordinator: coordinator,
+		store:       stateStore,
+		Config:      conf,
 	}
 
 	if server.Config.CommitType == TWO_PHASE {
@@ -126,22 +121,13 @@ func New(conf *config.Config, cohort Cohort, coordinator Coordinator, database *
 	} else {
 		log.Info("three-phase-commit mode enabled")
 	}
-	err = checkServerFields(server)
+	err := checkServerFields(server)
 	return server, err
 }
 
-// WithBadgerDB adds BadgerDB manager to the Server instance
-func WithBadgerDB(path string) func(*Server) error {
-	return func(server *Server) error {
-		var err error
-		server.DB, err = db.New(path)
-		return err
-	}
-}
-
 func checkServerFields(server *Server) error {
-	if server.DB == nil {
-		return errors.New("database is not selected")
+	if server.store == nil {
+		return errors.New("store is not configured")
 	}
 	return nil
 }
@@ -166,8 +152,10 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 func (s *Server) Stop() {
 	log.Info("stopping server")
 	s.GRPCServer.GracefulStop()
-	if err := s.DB.Close(); err != nil {
-		log.Infof("failed to close db, err: %s\n", err)
+	if s.store != nil {
+		if err := s.store.Close(); err != nil {
+			log.Infof("failed to close store: %s\n", err)
+		}
 	}
 	log.Info("server stopped")
 }
