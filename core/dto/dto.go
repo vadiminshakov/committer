@@ -1,7 +1,7 @@
-// Package dto provides data transfer objects for inter-node communication.
-//
-// This package defines the request and response structures used in the
-// distributed consensus protocols between coordinators and cohorts.
+// Package dto defines the data transfer objects used for communication in
+// distributed atomic commit protocols between coordinators and cohorts.
+// These structures represent the messages exchanged during the two-phase
+// and three-phase commit protocols.
 package dto
 
 // ProposeRequest represents a proposal for a new transaction.

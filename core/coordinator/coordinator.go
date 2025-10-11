@@ -1,7 +1,6 @@
-// Package coordinator implements the coordinator role in distributed consensus protocols.
-//
-// The coordinator is responsible for initiating and managing 2PC and 3PC transactions.
-// It broadcasts requests to cohorts and handles the consensus decision making process.
+// Package coordinator implements the coordinator role in distributed atomic commit protocols.
+// The coordinator is responsible for managing the atomic commit process by
+// sending prepare requests to cohorts and collecting their responses.
 package coordinator
 
 import (

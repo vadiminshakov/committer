@@ -263,7 +263,7 @@ func (c *CommitterImpl) recoverToPropose(index uint64) {
 	}
 }
 
-// Commit handles the commit phase of the consensus protocol.
+// Commit handles the commit phase of the atomic commit protocol.
 func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
 	c.commitMutex.Lock()
 	defer c.commitMutex.Unlock()

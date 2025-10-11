@@ -8,7 +8,7 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 )
 
-// InternalCommitClient provides access to the internal API of the consensus protocol
+// InternalCommitClient provides access to the internal API of the atomic commit protocol
 type InternalCommitClient struct {
 	Connection proto.InternalCommitAPIClient
 }

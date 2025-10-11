@@ -1,8 +1,9 @@
 // Package main provides a distributed consensus system implementing Two-Phase Commit (2PC)
 // and Three-Phase Commit (3PC) protocols for distributed transactions.
 //
-// Committer is a Go implementation of distributed consensus protocols that allows
-// multiple nodes to agree on transaction outcomes in a distributed environment.
+// Committer is a Go implementation of distributed atomic commit protocols that allows
+// you to achieve data consistency in distributed systems using Two-Phase Commit (2PC)
+// and Three-Phase Commit (3PC) protocols for distributed transactions.
 // The system consists of coordinators that manage transactions and cohorts that
 // participate in the consensus process.
 //

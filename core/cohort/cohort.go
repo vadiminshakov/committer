@@ -1,4 +1,6 @@
-// Package cohort implements the cohort role in distributed consensus protocols.
+// Package cohort implements the cohort role in distributed atomic commit protocols.
+// A cohort is a participant in the atomic commit protocol that receives
+// proposals from the coordinator and responds with either commit or abort.
 //
 // Cohorts participate in 2PC and 3PC transactions by responding to coordinator
 // requests and maintaining local transaction state.
