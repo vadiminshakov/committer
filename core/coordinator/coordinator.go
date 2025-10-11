@@ -107,7 +107,7 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 	}
 
 	newHeight := atomic.AddUint64(&c.height, 1)
-	return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Index: newHeight}, nil
+	return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Height: newHeight}, nil
 }
 
 func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) error {

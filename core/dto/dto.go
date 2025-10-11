@@ -41,8 +41,8 @@ type BroadcastRequest struct {
 
 // BroadcastResponse represents a response to a broadcast request.
 type BroadcastResponse struct {
-	Type  ResponseType // Response type (ACK/NACK)
-	Index uint64       // Transaction index
+	Type   ResponseType // Response type (ACK/NACK)
+	Height uint64       // Height of the committed transaction
 }
 
 // AbortRequest represents a request to abort a transaction.
