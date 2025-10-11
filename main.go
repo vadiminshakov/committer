@@ -1,3 +1,25 @@
+// Package main provides a distributed consensus system implementing Two-Phase Commit (2PC)
+// and Three-Phase Commit (3PC) protocols for distributed transactions.
+//
+// Committer is a Go implementation of distributed consensus protocols that allows
+// multiple nodes to agree on transaction outcomes in a distributed environment.
+// The system consists of coordinators that manage transactions and cohorts that
+// participate in the consensus process.
+//
+// Key features:
+//   - Support for both 2PC and 3PC protocols
+//   - BadgerDB for persistent storage with WAL for reliability
+//   - Configurable timeouts and node addresses
+//   - Extensible hook system for custom validation and business logic
+//   - gRPC-based communication between nodes
+//
+// Usage:
+//
+//	# Start coordinator
+//	./committer -role=coordinator -nodeaddr=localhost:3000 -cohorts=localhost:3001,3002
+//
+//	# Start cohort
+//	./committer -role=cohort -coordinator=localhost:3000 -nodeaddr=localhost:3001
 package main
 
 import (

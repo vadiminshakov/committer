@@ -1,3 +1,7 @@
+// Package cohort implements the cohort role in distributed consensus protocols.
+//
+// Cohorts participate in 2PC and 3PC transactions by responding to coordinator
+// requests and maintaining local transaction state.
 package cohort
 
 import (
@@ -8,11 +12,13 @@ import (
 	"github.com/vadiminshakov/committer/core/dto"
 )
 
+// Mode represents the commit protocol mode.
 type Mode string
 
+// THREE_PHASE represents the three-phase commit protocol mode.
 const THREE_PHASE Mode = "three-phase"
 
-// Committer defines the interface for commit algorithms
+// Committer defines the interface for commit algorithms.
 //
 //go:generate mockgen -destination=../../../mocks/mock_committer.go -package=mocks . Committer
 type Committer interface {
@@ -24,11 +30,13 @@ type Committer interface {
 	RegisterHook(hook hooks.Hook)
 }
 
+// CohortImpl implements the cohort node functionality.
 type CohortImpl struct {
 	committer  Committer
 	commitType Mode
 }
 
+// NewCohort creates a new cohort instance.
 func NewCohort(
 	committer Committer,
 	commitType Mode) *CohortImpl {

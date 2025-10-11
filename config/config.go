@@ -1,3 +1,7 @@
+// Package config provides configuration management for the committer application.
+//
+// This package handles command-line flag parsing and configuration validation
+// for both coordinator and cohort nodes in the distributed consensus system.
 package config
 
 import (
@@ -6,22 +10,28 @@ import (
 )
 
 const (
-	DefaultWalDir              string = "wal"
-	DefaultWalSegmentPrefix    string = "msgs_"
-	DefaultWalSegmentThreshold int    = 10000
-	DefaultWalMaxSegments      int    = 100
-	DefaultWalIsInSyncDiskMode bool   = true
+	// DefaultWalDir is the default directory for write-ahead logs.
+	DefaultWalDir string = "wal"
+	// DefaultWalSegmentPrefix is the default prefix for WAL segment files.
+	DefaultWalSegmentPrefix string = "msgs_"
+	// DefaultWalSegmentThreshold is the default number of entries per WAL segment.
+	DefaultWalSegmentThreshold int = 10000
+	// DefaultWalMaxSegments is the default maximum number of WAL segments to retain.
+	DefaultWalMaxSegments int = 100
+	// DefaultWalIsInSyncDiskMode enables synchronous disk writes for WAL by default.
+	DefaultWalIsInSyncDiskMode bool = true
 )
 
+// Config holds the configuration settings for the committer application.
 type Config struct {
-	Role        string
-	Nodeaddr    string
-	Coordinator string
-	CommitType  string
-	DBPath      string
-	Cohorts   []string
-	Whitelist   []string
-	Timeout     uint64
+	Role        string   // Node role: "coordinator" or "cohort"
+	Nodeaddr    string   // Address of this node
+	Coordinator string   // Address of the coordinator (for cohorts)
+	CommitType  string   // Commit protocol: "two-phase" or "three-phase"
+	DBPath      string   // Path to the database directory
+	Cohorts     []string // List of cohort addresses (for coordinators)
+	Whitelist   []string // Whitelist of allowed node addresses
+	Timeout     uint64   // Timeout in milliseconds for 3PC operations
 }
 
 // Get creates configuration from yaml configuration file (if '-config=' flag specified) or command-line arguments.
