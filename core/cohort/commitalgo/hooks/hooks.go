@@ -1,3 +1,7 @@
+// Package hooks provides an extensible hook system for commit algorithms.
+//
+// Hooks allow custom validation, metrics collection, and business logic
+// to be executed during propose and commit phases without modifying core logic.
 package hooks
 
 import (

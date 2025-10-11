@@ -8,21 +8,21 @@ import (
 	"github.com/vadiminshakov/committer/core/dto"
 )
 
-// MetricsHook collects metrics about propose and commit operations
+// MetricsHook collects metrics about propose and commit operations.
 type MetricsHook struct {
 	proposeCount uint64
 	commitCount  uint64
 	startTime    time.Time
 }
 
-// NewMetricsHook creates a new metrics hook
+// NewMetricsHook creates a new metrics hook.
 func NewMetricsHook() *MetricsHook {
 	return &MetricsHook{
 		startTime: time.Now(),
 	}
 }
 
-// OnPropose increments propose counter and logs metrics
+// OnPropose increments propose counter and logs metrics.
 func (m *MetricsHook) OnPropose(req *dto.ProposeRequest) bool {
 	m.proposeCount++
 	log.WithFields(log.Fields{

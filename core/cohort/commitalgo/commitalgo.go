@@ -1,3 +1,7 @@
+// Package commitalgo implements the core commit algorithms for 2PC and 3PC protocols.
+//
+// This package provides the finite state machine logic and transaction handling
+// for cohort nodes participating in distributed consensus.
 package commitalgo
 
 import (
@@ -14,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// wal defines the interface for write-ahead log operations.
 type wal interface {
 	Write(index uint64, key string, value []byte) error
 	WriteTombstone(index uint64) error
@@ -21,12 +26,15 @@ type wal interface {
 	Close() error
 }
 
+// StateStore defines the interface for state storage.
+//
 //go:generate mockgen -destination=../../../mocks/mock_commitalgo_state_store.go -package=mocks -mock_names=StateStore=MockCommitalgoStateStore . StateStore
 type StateStore interface {
 	Put(key string, value []byte) error
 	Close() error
 }
 
+// CommitterImpl implements the commit algorithm with state machine and hooks.
 type CommitterImpl struct {
 	noAutoCommit map[uint64]struct{}
 	store        StateStore
@@ -39,6 +47,7 @@ type CommitterImpl struct {
 	commitMutex  sync.Mutex
 }
 
+// NewCommitter creates a new committer instance with the specified configuration.
 func NewCommitter(store StateStore, commitType string, wal wal, timeout uint64, customHooks ...hooks.Hook) *CommitterImpl {
 	registry := hooks.NewRegistry()
 
@@ -60,11 +69,12 @@ func NewCommitter(store StateStore, commitType string, wal wal, timeout uint64, 
 	}
 }
 
-// RegisterHook adds a new hook to the committer
+// RegisterHook adds a new hook to the committer.
 func (c *CommitterImpl) RegisterHook(hook hooks.Hook) {
 	c.hookRegistry.Register(hook)
 }
 
+// Height returns the current transaction height.
 func (c *CommitterImpl) Height() uint64 {
 	return atomic.LoadUint64(&c.height)
 }
@@ -74,6 +84,7 @@ func (c *CommitterImpl) SetHeight(height uint64) {
 	atomic.StoreUint64(&c.height, height)
 }
 
+// Propose handles the propose phase of the commit protocol.
 func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
 	if err := c.state.Transition(proposeStage); err != nil {
 		return nil, err
@@ -133,6 +144,7 @@ func (c *CommitterImpl) getExpectedCommitState() string {
 	return precommitStage
 }
 
+// Precommit handles the precommit phase of the three-phase commit protocol.
 func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
 	if err := c.state.Transition(precommitStage); err != nil {
 		return nil, err
@@ -251,6 +263,7 @@ func (c *CommitterImpl) recoverToPropose(index uint64) {
 	}
 }
 
+// Commit handles the commit phase of the consensus protocol.
 func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
 	c.commitMutex.Lock()
 	defer c.commitMutex.Unlock()
@@ -333,7 +346,7 @@ func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dt
 	return response, nil
 }
 
-// Abort handles abort requests from coordinator
+// Abort handles abort requests from coordinator.
 func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error) {
 	log.Warnf("Received abort request for height %d: %s", req.Height, req.Reason)
 

@@ -1,3 +1,7 @@
+// Package coordinator implements the coordinator role in distributed consensus protocols.
+//
+// The coordinator is responsible for initiating and managing 2PC and 3PC transactions.
+// It broadcasts requests to cohorts and handles the consensus decision making process.
 package coordinator
 
 import (
@@ -24,6 +28,8 @@ type wal interface {
 	Close() error
 }
 
+// StateStore defines the interface for persistent state storage.
+//
 //go:generate mockgen -destination=../../mocks/mock_state_store.go -package=mocks . StateStore
 type StateStore interface {
 	Put(key string, value []byte) error
@@ -40,6 +46,7 @@ type coordinator struct {
 	height     uint64
 }
 
+// New creates a new coordinator instance with the specified configuration.
 func New(conf *config.Config, wal wal, store StateStore) (*coordinator, error) {
 	cohorts := make(map[string]*client.InternalCommitClient, len(conf.Cohorts))
 	for _, f := range conf.Cohorts {
@@ -67,6 +74,8 @@ func New(conf *config.Config, wal wal, store StateStore) (*coordinator, error) {
 	}, nil
 }
 
+// Broadcast executes the complete distributed consensus algorithm (2PC or 3PC) for a transaction.
+// It runs through all phases: propose, precommit (if 3PC), commit, and persistence.
 func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error) {
 	log.Infof("Proposing key %s", req.Key)
 	if err := c.propose(ctx, req); err != nil {
@@ -213,6 +222,7 @@ func (c *coordinator) syncHeight(cohortHeight uint64) {
 	}
 }
 
+// Height returns the current transaction height.
 func (c *coordinator) Height() uint64 {
 	return atomic.LoadUint64(&c.height)
 }
