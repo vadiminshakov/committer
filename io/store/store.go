@@ -1,3 +1,7 @@
+// Package store provides persistent storage capabilities using BadgerDB.
+//
+// This package handles state persistence and recovery from write-ahead logs,
+// ensuring data consistency across system restarts.
 package store
 
 import (
@@ -11,6 +15,7 @@ import (
 	"github.com/vadiminshakov/gowal"
 )
 
+// tombstoneMarker is used to mark aborted transactions in the WAL.
 const tombstoneMarker = "tombstone"
 
 // ErrNotFound returned when key does not exist in the store.

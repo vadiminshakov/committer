@@ -1,3 +1,7 @@
+// Package server provides gRPC server implementation for the committer service.
+//
+// This package implements both internal commit API for node-to-node communication
+// and client API for external interactions with the distributed consensus system.
 package server
 
 import (
@@ -16,15 +20,20 @@ import (
 )
 
 const (
-	TWO_PHASE   = "two-phase"
+	// TWO_PHASE represents the two-phase commit protocol.
+	TWO_PHASE = "two-phase"
+	// THREE_PHASE represents the three-phase commit protocol.
 	THREE_PHASE = "three-phase"
 )
 
+// Coordinator defines the interface for coordinator operations.
 type Coordinator interface {
 	Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error)
 	Height() uint64
 }
 
+// Cohort defines the interface for cohort operations.
+//
 //go:generate mockgen -destination=../../../../mocks/mock_cohort.go -package=mocks . Cohort
 type Cohort interface {
 	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
@@ -34,19 +43,19 @@ type Cohort interface {
 	Height() uint64
 }
 
-// Server holds server instance, node config and connections to followers (if it's a coordinator node)
+// Server holds server instance, node config and connections to followers (if it's a coordinator node).
 type Server struct {
 	proto.UnimplementedInternalCommitAPIServer
 	proto.UnimplementedClientAPIServer
 
-	cohort      Cohort
-	store       *store.Store
-	coordinator Coordinator
-	GRPCServer  *grpc.Server
-	Config      *config.Config
-	ProposeHook func(req *proto.ProposeRequest) bool
-	CommitHook  func(req *proto.CommitRequest) bool
-	Addr        string
+	cohort      Cohort                               // Cohort implementation for this node
+	store       *store.Store                         // Persistent storage
+	coordinator Coordinator                          // Coordinator implementation (if this node is a coordinator)
+	GRPCServer  *grpc.Server                         // gRPC server instance
+	Config      *config.Config                       // Node configuration
+	ProposeHook func(req *proto.ProposeRequest) bool // Hook for propose phase
+	CommitHook  func(req *proto.CommitRequest) bool  // Hook for commit phase
+	Addr        string                               // Server address
 }
 
 func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
@@ -81,6 +90,7 @@ func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) 
 	return &proto.Value{Value: value}, nil
 }
 
+// Put initiates a distributed transaction to store a key-value pair.
 func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, error) {
 	resp, err := s.coordinator.Broadcast(ctx, dto.BroadcastRequest{
 		Key:   req.Key,
@@ -92,15 +102,16 @@ func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, er
 
 	return &proto.Response{
 		Type:  proto.Type(resp.Type),
-		Index: resp.Index,
+		Index: resp.Height,
 	}, nil
 }
 
+// NodeInfo returns information about the current node.
 func (s *Server) NodeInfo(ctx context.Context, req *emptypb.Empty) (*proto.Info, error) {
 	return &proto.Info{Height: s.cohort.Height()}, nil
 }
 
-// New fabric func for Server
+// New creates a new Server instance with the specified configuration.
 func New(conf *config.Config, cohort Cohort, coordinator Coordinator, stateStore *store.Store) (*Server, error) {
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
@@ -132,7 +143,7 @@ func checkServerFields(server *Server) error {
 	return nil
 }
 
-// Run starts non-blocking GRPC server
+// Run starts the gRPC server in a non-blocking manner.
 func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	var err error
 	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
@@ -148,7 +159,7 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	go s.GRPCServer.Serve(l)
 }
 
-// Stop stops server
+// Stop gracefully stops the gRPC server.
 func (s *Server) Stop() {
 	log.Info("stopping server")
 	s.GRPCServer.GracefulStop()

@@ -1,3 +1,7 @@
+// Package client provides gRPC client implementations for communicating with committer nodes.
+//
+// This package contains both internal client for node-to-node communication
+// and external client API for application integration.
 package client
 
 import (
@@ -7,13 +11,13 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// ClientAPIClient provides access to the client API
+// ClientAPIClient provides access to the client API.
 type ClientAPIClient struct {
 	Connection proto.ClientAPIClient
 }
 
 // NewClientAPI creates an instance of the client API client.
-// 'addr' - the network address of the coordinator (host + port).
+// The addr parameter should be the network address of the coordinator (host + port).
 func NewClientAPI(addr string) (*ClientAPIClient, error) {
 	conn, err := createConnection(addr)
 	if err != nil {
@@ -22,7 +26,7 @@ func NewClientAPI(addr string) (*ClientAPIClient, error) {
 	return &ClientAPIClient{Connection: proto.NewClientAPIClient(conn)}, nil
 }
 
-// Put sends a put request to the client API
+// Put sends a put request to the client API.
 func (client *ClientAPIClient) Put(ctx context.Context, key string, value []byte) (*proto.Response, error) {
 	return client.Connection.Put(ctx, &proto.Entry{Key: key, Value: value})
 }
@@ -32,7 +36,7 @@ func (client *ClientAPIClient) NodeInfo(ctx context.Context) (*proto.Info, error
 	return client.Connection.NodeInfo(ctx, &emptypb.Empty{})
 }
 
-// Get gets the value by the specified key
+// Get gets the value by the specified key.
 func (client *ClientAPIClient) Get(ctx context.Context, key string) (*proto.Value, error) {
 	return client.Connection.Get(ctx, &proto.Msg{Key: key})
 }
