@@ -17,9 +17,58 @@ The system consists of two types of nodes: **Coordinator** and **Cohorts**.
 The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Cohorts** participate in the protocol by responding to the coordinator's requests.
 The communication between nodes is handled using gRPC, and the state of each node is managed using a state machine.
 
+## **Atomic Commit Protocols**
+
+### **Two-Phase Commit (2PC)**
+
+The Two-Phase Commit protocol ensures atomicity in distributed transactions through two distinct phases:
+
+#### **Phase 1: Voting Phase (Propose)**
+1. **Coordinator** sends a `PROPOSE` request to all cohorts with transaction data
+2. Each **Cohort** validates the transaction locally and responds:
+   - `ACK` (Yes) - if ready to commit
+   - `NACK` (No) - if unable to commit
+3. **Coordinator** waits for all responses
+
+#### **Phase 2: Commit Phase**
+1. If **all cohorts** voted `ACK`:
+   - **Coordinator** sends `COMMIT` to all cohorts
+   - Each **Cohort** commits the transaction and responds with `ACK`
+2. If **any cohort** voted `NACK`:
+   - **Coordinator** sends `ABORT` to all cohorts
+   - Each **Cohort** aborts the transaction
+
+### **Three-Phase Commit (3PC)**
+
+The Three-Phase Commit protocol extends 2PC with an additional phase to reduce blocking scenarios:
+
+#### **Phase 1: Voting Phase (Propose)**
+1. **Coordinator** sends `PROPOSE` request to all cohorts
+2. **Cohorts** respond with `ACK`/`NACK` (same as 2PC)
+
+#### **Phase 2: Preparation Phase (Precommit)**
+1. If all cohorts voted `ACK`:
+   - **Coordinator** sends `PRECOMMIT` to all cohorts
+   - **Cohorts** acknowledge they're prepared to commit
+   - **Timeout mechanism**: If cohort doesn't receive `COMMIT` within timeout, it auto-commits
+2. If any cohort voted `NACK`:
+   - **Coordinator** sends `ABORT` to all cohorts
+
+#### **Phase 3: Commit Phase**
+1. **Coordinator** sends `COMMIT` to all cohorts
+2. **Cohorts** perform the actual commit operation
+
+### **Protocol Comparison**
+
+| Aspect | 2PC | 3PC |
+|--------|-----|-----|
+| **Phases** | 2 (Propose → Commit) | 3 (Propose → Precommit → Commit) |
+| **Blocking** | Yes (during phase 2) | Reduced (timeout auto-commit) |
+| **Fault Tolerance** | Coordinator failure blocks | Better resilience to failures |
+
 ## **Key Features**
 
-- **2PC and 3PC support**: Implements two widely used consensus protocols for distributed transactions.
+- **2PC and 3PC support**: Implements two widely used atomic commit protocols for distributed transactions.
 - **Persistence**: Uses **BadgerDB** and WAL for reliable data storage and transaction logs.
 - **Configurable**: All options can be specified using command-line flags.
 - **Flexible Hook System**: Extensible hook system for custom validation, metrics, auditing, and business logic without code changes.
