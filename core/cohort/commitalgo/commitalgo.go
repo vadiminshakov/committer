@@ -86,16 +86,16 @@ func (c *CommitterImpl) SetHeight(height uint64) {
 
 // Propose handles the propose phase of the commit protocol.
 func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
-	if err := c.state.Transition(proposeStage); err != nil {
-		return nil, err
-	}
-
 	if atomic.LoadUint64(&c.height) > req.Height {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: atomic.LoadUint64(&c.height)}, nil
 	}
 
 	if !c.hookRegistry.ExecutePropose(req) {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: req.Height}, nil
+	}
+
+	if err := c.state.Transition(proposeStage); err != nil {
+		return nil, err
 	}
 
 	log.Infof("received: %s=%s\n", req.Key, string(req.Value))
