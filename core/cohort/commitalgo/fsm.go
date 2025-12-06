@@ -74,7 +74,7 @@ func (sm *stateMachine) Transition(nextState string) error {
 	return errors.New("invalid state transition")
 }
 
-func (sm *stateMachine) GetCurrentState() string {
+func (sm *stateMachine) getCurrentState() string {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.currentState

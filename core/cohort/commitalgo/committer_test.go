@@ -474,7 +474,7 @@ func TestRecoverToPropose(t *testing.T) {
 	committer.state.Transition(precommitStage)
 	require.Equal(t, "precommit", committer.getCurrentState())
 
-	committer.recoverToPropose(0)
+	committer.resetToPropose(0, "test")
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// test recovery from commit state (should transition to propose)
@@ -483,7 +483,7 @@ func TestRecoverToPropose(t *testing.T) {
 	committer.state.Transition(commitStage)
 	require.Equal(t, "commit", committer.getCurrentState())
 
-	committer.recoverToPropose(0)
+	committer.resetToPropose(0, "test")
 	// should transition to propose since commit -> propose is valid in FSM
 	require.Equal(t, "propose", committer.getCurrentState())
 }
