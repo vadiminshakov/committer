@@ -24,6 +24,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -39,22 +40,45 @@ import (
 )
 
 func main() {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-
-	conf := config.Get()
-
-	wal := initWAL()
-	stateStore, recovery := initStore(conf, wal)
-
-	s := initServer(conf, stateStore, wal, recovery.NextHeight)
-	s.Run(server.WhiteListChecker)
-
-	<-ch
-	s.Stop()
+	if err := run(); err != nil {
+		log.Fatalf("committer failed: %v", err)
+	}
 }
 
-func initWAL() *gowal.Wal {
+func run() error {
+	ctx := make(chan os.Signal, 1)
+	signal.Notify(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	conf := config.Get()
+
+	wal, err := newWAL()
+	if err != nil {
+		return err
+	}
+	defer wal.Close()
+
+	stateStore, recovery, err := newStore(conf, wal)
+	if err != nil {
+		return err
+	}
+
+	roles, err := buildRoles(conf, stateStore, wal, recovery.NextHeight)
+	if err != nil {
+		return err
+	}
+
+	srv, err := server.New(conf, roles.cohort, roles.coordinator, stateStore)
+	if err != nil {
+		return fmt.Errorf("failed to create server: %w", err)
+	}
+
+	srv.Run(server.WhiteListChecker)
+	<-ctx
+	srv.Stop()
+
+	return nil
+}
+
+func newWAL() (*gowal.Wal, error) {
 	walConfig := gowal.Config{
 		Dir:              config.DefaultWalDir,
 		Prefix:           config.DefaultWalSegmentPrefix,
@@ -65,36 +89,44 @@ func initWAL() *gowal.Wal {
 
 	w, err := gowal.NewWAL(walConfig)
 	if err != nil {
-		log.Fatalf("failed to create WAL: %v", err)
+		return nil, fmt.Errorf("failed to create WAL: %w", err)
 	}
 
-	return w
+	return w, nil
 }
 
-func initStore(conf *config.Config, wal *gowal.Wal) (*store.Store, *store.RecoveryState) {
+func newStore(conf *config.Config, wal *gowal.Wal) (*store.Store, *store.RecoveryState, error) {
 	stateStore, recovery, err := store.New(wal, conf.DBPath)
 	if err != nil {
-		log.Fatalf("failed to initialize state store: %v", err)
+		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
 
 	log.Printf("Recovered state from WAL: next height %d, keys %d\n", recovery.NextHeight, stateStore.Size())
-	return stateStore, recovery
+	return stateStore, recovery, nil
 }
 
-func initServer(conf *config.Config, stateStore *store.Store, wal *gowal.Wal, initialHeight uint64) *server.Server {
-	committer := commitalgo.NewCommitter(stateStore, conf.CommitType, wal, conf.Timeout)
-	committer.SetHeight(initialHeight)
-	cohortImpl := cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
-	coordinatorImpl, err := coordinator.New(conf, wal, stateStore)
-	if err != nil {
-		log.Fatalf("failed to create coordinator: %v", err)
-	}
-	coordinatorImpl.SetHeight(initialHeight)
+type roleComponents struct {
+	cohort      server.Cohort
+	coordinator server.Coordinator
+}
 
-	s, err := server.New(conf, cohortImpl, coordinatorImpl, stateStore)
-	if err != nil {
-		log.Fatalf("failed to create server: %v", err)
+func buildRoles(conf *config.Config, stateStore *store.Store, wal *gowal.Wal, initialHeight uint64) (*roleComponents, error) {
+	rc := &roleComponents{}
+	switch conf.Role {
+	case "cohort":
+		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, wal, conf.Timeout)
+		committer.SetHeight(initialHeight)
+		rc.cohort = cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
+	case "coordinator":
+		coord, err := coordinator.New(conf, wal, stateStore)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create coordinator: %w", err)
+		}
+		coord.SetHeight(initialHeight)
+		rc.coordinator = coord
+	default:
+		return nil, fmt.Errorf("unsupported role %q, expected coordinator or cohort", conf.Role)
 	}
 
-	return s
+	return rc, nil
 }

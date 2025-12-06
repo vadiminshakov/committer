@@ -16,6 +16,8 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/store"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -30,6 +32,7 @@ const (
 type Coordinator interface {
 	Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error)
 	Height() uint64
+	SetHeight(height uint64)
 }
 
 // Cohort defines the interface for cohort operations.
@@ -59,21 +62,33 @@ type Server struct {
 }
 
 func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
+	if s.cohort == nil {
+		return nil, status.Error(codes.FailedPrecondition, "cohort role not enabled on this node")
+	}
 	resp, err := s.cohort.Propose(ctx, proposeRequestPbToEntity(req))
 	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*proto.Response, error) {
+	if s.cohort == nil {
+		return nil, status.Error(codes.FailedPrecondition, "cohort role not enabled on this node")
+	}
 	resp, err := s.cohort.Precommit(ctx, req.Index)
 	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.Response, error) {
+	if s.cohort == nil {
+		return nil, status.Error(codes.FailedPrecondition, "cohort role not enabled on this node")
+	}
 	resp, err := s.cohort.Commit(ctx, commitRequestPbToEntity(req))
 	return cohortResponseToProto(resp), err
 }
 
 func (s *Server) Abort(ctx context.Context, req *proto.AbortRequest) (*proto.Response, error) {
+	if s.cohort == nil {
+		return nil, status.Error(codes.FailedPrecondition, "cohort role not enabled on this node")
+	}
 	abortReq := &dto.AbortRequest{
 		Height: req.Height,
 		Reason: req.Reason,
@@ -92,6 +107,9 @@ func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) 
 
 // Put initiates a distributed transaction to store a key-value pair.
 func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, error) {
+	if s.coordinator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "coordinator role not enabled on this node")
+	}
 	resp, err := s.coordinator.Broadcast(ctx, dto.BroadcastRequest{
 		Key:   req.Key,
 		Value: req.Value,
@@ -108,7 +126,14 @@ func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, er
 
 // NodeInfo returns information about the current node.
 func (s *Server) NodeInfo(ctx context.Context, req *emptypb.Empty) (*proto.Info, error) {
-	return &proto.Info{Height: s.cohort.Height()}, nil
+	switch {
+	case s.cohort != nil:
+		return &proto.Info{Height: s.cohort.Height()}, nil
+	case s.coordinator != nil:
+		return &proto.Info{Height: s.coordinator.Height()}, nil
+	default:
+		return nil, status.Error(codes.FailedPrecondition, "node has neither cohort nor coordinator role configured")
+	}
 }
 
 // New creates a new Server instance with the specified configuration.
@@ -140,6 +165,12 @@ func checkServerFields(server *Server) error {
 	if server.store == nil {
 		return errors.New("store is not configured")
 	}
+	if server.Config.Role == "cohort" && server.cohort == nil {
+		return errors.New("cohort role selected but cohort implementation is nil")
+	}
+	if server.Config.Role == "coordinator" && server.coordinator == nil {
+		return errors.New("coordinator role selected but coordinator implementation is nil")
+	}
 	return nil
 }
 
@@ -147,7 +178,9 @@ func checkServerFields(server *Server) error {
 func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	var err error
 	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
-	proto.RegisterInternalCommitAPIServer(s.GRPCServer, s)
+	if s.cohort != nil {
+		proto.RegisterInternalCommitAPIServer(s.GRPCServer, s)
+	}
 	proto.RegisterClientAPIServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)

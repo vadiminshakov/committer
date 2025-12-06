@@ -6,6 +6,7 @@ package config
 
 import (
 	"flag"
+	"log"
 	"strings"
 )
 
@@ -47,16 +48,28 @@ func Get() *Config {
 	whitelist := flag.String("whitelist", "127.0.0.1", "allowed hosts")
 	flag.Parse()
 
-	cohortsArray := strings.Split(*cohorts, ",")
+	cohortsArray := filterEmpty(strings.Split(*cohorts, ","))
 	if *role != "coordinator" {
 		if !includes(cohortsArray, *nodeaddr) {
 			cohortsArray = append(cohortsArray, *nodeaddr)
 		}
 	}
-	whitelistArray := strings.Split(*whitelist, ",")
-	return &Config{Role: *role, Nodeaddr: *nodeaddr, Coordinator: *coordinator,
-		CommitType: *committype, DBPath: *dbpath, Cohorts: cohortsArray, Whitelist: whitelistArray,
-		Timeout: *timeout}
+	whitelistArray := filterEmpty(strings.Split(*whitelist, ","))
+
+	if *role == "coordinator" && len(cohortsArray) == 0 {
+		log.Fatalf("coordinator role requires at least one cohort address")
+	}
+
+	return &Config{
+		Role:        *role,
+		Nodeaddr:    *nodeaddr,
+		Coordinator: *coordinator,
+		CommitType:  *committype,
+		DBPath:      *dbpath,
+		Cohorts:     cohortsArray,
+		Whitelist:   whitelistArray,
+		Timeout:     *timeout,
+	}
 
 }
 
@@ -68,4 +81,15 @@ func includes(arr []string, value string) bool {
 		}
 	}
 	return false
+}
+
+// filterEmpty trims and removes empty entries from a slice of strings
+func filterEmpty(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, v := range values {
+		if trimmed := strings.TrimSpace(v); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

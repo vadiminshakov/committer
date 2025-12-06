@@ -6,6 +6,8 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -43,6 +45,7 @@ type coordinator struct {
 	commitType pb.CommitType
 	threePhase bool
 	height     uint64
+	mu         sync.Mutex // serialize broadcast to keep height/WAL alignment
 }
 
 // New creates a new coordinator instance with the specified configuration.
@@ -76,6 +79,9 @@ func New(conf *config.Config, wal wal, store StateStore) (*coordinator, error) {
 // Broadcast executes the complete distributed consensus algorithm (2PC or 3PC) for a transaction.
 // It runs through all phases: propose, precommit (if 3PC), commit, and persistence.
 func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	log.Infof("Proposing key %s", req.Key)
 	if err := c.propose(ctx, req); err != nil {
 		return nackResponse(err, "failed to send propose")
@@ -176,14 +182,20 @@ func (c *coordinator) preCommit(ctx context.Context) error {
 
 func (c *coordinator) commit(ctx context.Context) error {
 	currentHeight := atomic.LoadUint64(&c.height)
-	for _, cohort := range c.cohorts {
+	var errs []string
+	for name, cohort := range c.cohorts {
 		resp, err := cohort.Commit(ctx, &pb.CommitRequest{Index: currentHeight})
 		if err != nil {
-			return err
+			errs = append(errs, fmt.Sprintf("%s: %v", name, err))
+			continue
 		}
 		if !isAck(resp) {
-			return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg")
+			errs = append(errs, fmt.Sprintf("%s: NACK", name))
 		}
+	}
+
+	if len(errs) > 0 {
+		return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg: "+strings.Join(errs, "; "))
 	}
 
 	return nil

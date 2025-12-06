@@ -99,16 +99,22 @@ func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*
 	}
 
 	log.Infof("received: %s=%s\n", req.Key, string(req.Value))
-	c.wal.Write(req.Height, req.Key, req.Value)
+	if err := c.wal.Write(req.Height, req.Key, req.Value); err != nil {
+		// return to propose state to allow retry on coordinator side
+		_ = c.state.Transition(proposeStage)
+		return nil, status.Errorf(codes.Internal, "failed to write wal on index %d: %v", req.Height, err)
+	}
 
 	if c.state.mode == twophase {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
 	}
 
-	go func(ctx context.Context) {
-		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
+	go func(height uint64) {
+		timer := time.NewTimer(time.Duration(c.timeout) * time.Millisecond)
+		defer timer.Stop()
+
 		select {
-		case <-deadline:
+		case <-timer.C:
 			// check of state and write to WAL under timeout mutex
 			c.timeoutMutex.Lock()
 			currentState := c.getCurrentState()
@@ -118,16 +124,14 @@ func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*
 			}
 
 			// write skip record atomically with state check
-			if err := c.wal.Write(req.Height, "skip", nil); err != nil {
-				log.Errorf("Failed to write skip record for height %d: %v", req.Height, err)
+			if err := c.wal.Write(height, "skip", nil); err != nil {
+				log.Errorf("Failed to write skip record for height %d: %v", height, err)
 			} else {
-				log.Warnf("skip proposed message after timeout for height %d", req.Height)
+				log.Warnf("skip proposed message after timeout for height %d", height)
 			}
 			c.timeoutMutex.Unlock()
-		case <-ctx.Done():
-			return
 		}
-	}(ctx)
+	}(req.Height)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
 }
@@ -146,21 +150,40 @@ func (c *CommitterImpl) getExpectedCommitState() string {
 
 // Precommit handles the precommit phase of the three-phase commit protocol.
 func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
+	currentHeight := atomic.LoadUint64(&c.height)
+	if index != currentHeight {
+		return nil, status.Errorf(codes.FailedPrecondition, "invalid precommit height: expected %d, got %d", currentHeight, index)
+	}
+
+	if c.getCurrentState() != proposeStage {
+		return nil, status.Errorf(codes.FailedPrecondition, "precommit allowed only from propose state, current: %s", c.getCurrentState())
+	}
+
+	key, value, err := c.wal.Get(index)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read wal on index %d: %v", index, err)
+	}
+	if key == "skip" {
+		return nil, status.Errorf(codes.Aborted, "transaction %d was skipped", index)
+	}
+	if value == nil {
+		return nil, status.Errorf(codes.Internal, "no data found for index %d in wal", index)
+	}
+
 	if err := c.state.Transition(precommitStage); err != nil {
 		return nil, err
 	}
 
-	go func(ctx context.Context) {
-		deadline := time.After(time.Duration(c.timeout) * time.Millisecond)
+	go func(height uint64) {
+		timer := time.NewTimer(time.Duration(c.timeout) * time.Millisecond)
+		defer timer.Stop()
+
 		select {
-		case <-deadline:
-			log.Debugf("Precommit timeout triggered for height %d", index)
-			c.handlePrecommitTimeout(ctx, index)
-		case <-ctx.Done():
-			log.Debugf("Precommit timeout cancelled for height %d due to context cancellation", index)
-			return
+		case <-timer.C:
+			log.Debugf("Precommit timeout triggered for height %d", height)
+			c.handlePrecommitTimeout(ctx, height)
 		}
-	}(ctx)
+	}(index)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
 }
