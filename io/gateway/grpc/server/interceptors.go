@@ -30,7 +30,7 @@ func WhiteListChecker(ctx context.Context,
 		return nil, status.Errorf(codes.PermissionDenied, "host %s is not in whitelist", host)
 	}
 
-	// Calls the handler
+	// calls the handler
 	h, err := handler(ctx, req)
 
 	return h, err

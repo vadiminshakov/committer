@@ -1,22 +1,16 @@
-// Package store provides persistent storage capabilities using BadgerDB.
-//
-// This package handles state persistence and recovery from write-ahead logs,
-// ensuring data consistency across system restarts.
 package store
 
 import (
-	"bytes"
 	stdErrors "errors"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/pkg/errors"
+	"github.com/vadiminshakov/committer/core/walproto"
 	"github.com/vadiminshakov/gowal"
 )
-
-// tombstoneMarker is used to mark aborted transactions in the WAL.
-const tombstoneMarker = "tombstone"
 
 // ErrNotFound returned when key does not exist in the store.
 var ErrNotFound = errors.New("key not found")
@@ -74,8 +68,8 @@ func (s *Store) Size() int {
 
 // RecoveryState contains information extracted from WAL during startup.
 type RecoveryState struct {
-	// NextHeight is the next transaction height to use after recovery.
-	NextHeight uint64
+	// Height is the current protocol height (next proposal should use this height).
+	Height uint64
 }
 
 // New creates a new WAL-backed store and reconstructs state from WAL entries using BadgerDB.
@@ -162,46 +156,56 @@ func (s *Store) Close() error {
 
 func (s *Store) recover() (*RecoveryState, error) {
 	var (
-		maxIndex   uint64
-		hasEntries bool
+		hasProto       bool
+		maxProtoHeight uint64
+		maxProtoStatus string // last seen status for maxProtoHeight
 	)
 
 	for msg := range s.wal.Iterator() {
-		hasEntries = true
-		if msg.Idx > maxIndex {
-			maxIndex = msg.Idx
-		}
-
 		if msg.Key == "" || msg.Key == "skip" {
 			continue
 		}
 
-		if err := s.db.Update(func(txn *badger.Txn) error {
-			key := []byte(msg.Key)
-			switch {
-			case bytes.Equal(msg.Value, []byte(tombstoneMarker)):
-				if err := txn.Delete(key); err != nil && !stdErrors.Is(err, badger.ErrKeyNotFound) {
-					return err
-				}
-			case msg.Value == nil:
-				return nil
-			default:
-				if err := txn.Set(key, cloneBytes(msg.Value)); err != nil {
-					return err
+		// check if it is a system/protocol key
+		if strings.HasPrefix(msg.Key, "__tx:") {
+			hasProto = true
+			height := msg.Idx / walproto.Stride
+
+			// track max proto height and its status
+			if height > maxProtoHeight {
+				maxProtoHeight = height
+				maxProtoStatus = msg.Key
+			} else if height == maxProtoHeight {
+				// if multiple messages for same height, commit/abort override prepared/precommit as "final" status
+				if msg.Key == walproto.KeyCommit || msg.Key == walproto.KeyAbort {
+					maxProtoStatus = msg.Key
 				}
 			}
-			return nil
-		}); err != nil {
-			return nil, errors.Wrap(err, "apply wal entry")
+
+			// apply strictly on commit
+			if msg.Key == walproto.KeyCommit {
+				walTx, err := walproto.Decode(msg.Value)
+				if err != nil {
+					return nil, errors.Wrapf(err, "decode wal tx at idx %d", msg.Idx)
+				}
+				if err := s.Put(walTx.Key, walTx.Value); err != nil {
+					return nil, errors.Wrapf(err, "apply committed tx at idx %d", msg.Idx)
+				}
+			}
 		}
 	}
 
-	nextHeight := uint64(0)
-	if hasEntries {
-		nextHeight = maxIndex + 1
+	var height uint64
+	if hasProto {
+		if maxProtoStatus == walproto.KeyCommit || maxProtoStatus == walproto.KeyAbort {
+			height = maxProtoHeight + 1
+		} else {
+			// incomplete transaction at maxProtoHeight
+			height = maxProtoHeight
+		}
 	}
 
-	return &RecoveryState{NextHeight: nextHeight}, nil
+	return &RecoveryState{Height: height}, nil
 }
 
 func cloneBytes(src []byte) []byte {

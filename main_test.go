@@ -171,7 +171,7 @@ func startnodes(commitType pb.CommitType) func() error {
 		}
 
 		committer := commitalgo.NewCommitter(stateStore, ct, w, node.Timeout)
-		committer.SetHeight(recovery.NextHeight)
+		committer.SetHeight(recovery.Height)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
 		cohortServer, err := server.New(node, cohortImpl, nil, stateStore)
@@ -202,7 +202,7 @@ func startnodes(commitType pb.CommitType) func() error {
 
 		coord, err := coordinator.New(coordConfig, c, stateStore)
 		failfast(err)
-		coord.SetHeight(recovery.NextHeight)
+		coord.SetHeight(recovery.Height)
 
 		coordServer, err := server.New(coordConfig, nil, coord, stateStore)
 		failfast(err)

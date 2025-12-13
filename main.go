@@ -7,13 +7,6 @@
 // The system consists of coordinators that manage transactions and cohorts that
 // participate in the consensus process.
 //
-// Key features:
-//   - Support for both 2PC and 3PC protocols
-//   - BadgerDB for persistent storage with WAL for reliability
-//   - Configurable timeouts and node addresses
-//   - Extensible hook system for custom validation and business logic
-//   - gRPC-based communication between nodes
-//
 // Usage:
 //
 //	# Start coordinator
@@ -61,7 +54,7 @@ func run() error {
 		return err
 	}
 
-	roles, err := buildRoles(conf, stateStore, wal, recovery.NextHeight)
+	roles, err := buildRoles(conf, stateStore, wal, recovery.Height)
 	if err != nil {
 		return err
 	}
@@ -101,7 +94,7 @@ func newStore(conf *config.Config, wal *gowal.Wal) (*store.Store, *store.Recover
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
 
-	log.Printf("Recovered state from WAL: next height %d, keys %d\n", recovery.NextHeight, stateStore.Size())
+	log.Printf("Recovered state from WAL: next height %d, keys %d\n", recovery.Height, stateStore.Size())
 	return stateStore, recovery, nil
 }
 

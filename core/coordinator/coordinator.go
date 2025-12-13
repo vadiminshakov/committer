@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
+	"github.com/vadiminshakov/committer/core/walproto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
@@ -107,9 +108,6 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 	}
 
 	log.Infof("coordinator committed key %s", req.Key)
-	if err := c.persistMessage(); err != nil {
-		return nackResponse(err, "failed to persist message")
-	}
 
 	newHeight := atomic.AddUint64(&c.height, 1)
 	return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Height: newHeight}, nil
@@ -123,7 +121,14 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 	}
 
 	currentHeight := atomic.LoadUint64(&c.height)
-	return c.wal.Write(currentHeight, req.Key, req.Value)
+
+	// write Prepared to WAL to persist payload
+	ptx := walproto.WalTx{Key: req.Key, Value: req.Value}
+	pbBytes, err := walproto.Encode(ptx)
+	if err != nil {
+		return err
+	}
+	return c.wal.Write(walproto.PreparedSlot(currentHeight), walproto.KeyPrepared, pbBytes)
 }
 
 func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalCommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
@@ -198,24 +203,36 @@ func (c *coordinator) commit(ctx context.Context) error {
 		return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg: "+strings.Join(errs, "; "))
 	}
 
+	// Persist Decision (Commit) and Apply
+	// 1. read Payload from Prepared
+	k, v, err := c.wal.Get(walproto.PreparedSlot(currentHeight))
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to read prepared tx: %v", err)
+	}
+	if k != walproto.KeyPrepared {
+		return status.Errorf(codes.Internal, "expected prepared tx, got %s", k)
+	}
+
+	// 2. write commit
+	if err := c.wal.Write(walproto.CommitSlot(currentHeight), walproto.KeyCommit, v); err != nil {
+		return status.Errorf(codes.Internal, "failed to write commit val: %v", err)
+	}
+
+	// 3. apply
+	walTx, err := walproto.Decode(v)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to decode tx: %v", err)
+	}
+	if err := c.store.Put(walTx.Key, walTx.Value); err != nil {
+		log.Errorf("failed to apply to store: %v", err)
+		return err // committed but not applied? critical error
+	}
+
 	return nil
 }
 
 func isAck(resp *pb.Response) bool {
 	return resp != nil && resp.Type == pb.Type_ACK
-}
-
-func (c *coordinator) persistMessage() error {
-	currentHeight := atomic.LoadUint64(&c.height)
-	key, value, err := c.wal.Get(currentHeight)
-	if err != nil {
-		return status.Error(codes.Internal, fmt.Sprintf("failed to read msg at height %d from wal: %v", currentHeight, err))
-	}
-	if value == nil {
-		return status.Error(codes.Internal, "can't find msg in wal")
-	}
-
-	return c.store.Put(key, value)
 }
 
 // syncHeight atomically updates coordinator height to match cohort height if needed
@@ -248,6 +265,10 @@ func (c *coordinator) abort(ctx context.Context, reason string) {
 	currentHeight := atomic.LoadUint64(&c.height)
 	log.Warnf("Aborting transaction at height %d: %s", currentHeight, reason)
 
+	if err := c.wal.Write(walproto.AbortSlot(currentHeight), walproto.KeyAbort, nil); err != nil {
+		log.Errorf("Failed to write abort to WAL: %v", err)
+	}
+
 	for name, cohort := range c.cohorts {
 		go func(name string, cohort *client.InternalCommitClient) {
 			if _, err := cohort.Abort(ctx, &dto.AbortRequest{Height: currentHeight, Reason: reason}); err != nil {
@@ -259,4 +280,28 @@ func (c *coordinator) abort(ctx context.Context, reason string) {
 
 func nackResponse(err error, msg string) (*dto.BroadcastResponse, error) {
 	return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, errors.Wrap(err, msg)
+}
+
+func (c *coordinator) persistMessage() error {
+	currentHeight := atomic.LoadUint64(&c.height)
+
+	// read prepared
+	k, v, err := c.wal.Get(walproto.PreparedSlot(currentHeight))
+	if err != nil {
+		return status.Error(codes.Internal, fmt.Sprintf("failed to read msg at height %d from wal: %v", currentHeight, err))
+	}
+	if v == nil {
+		return status.Error(codes.Internal, "can't find msg in wal")
+	}
+	if k != walproto.KeyPrepared {
+		return status.Error(codes.Internal, fmt.Sprintf("expected prepared key, got %s", k))
+	}
+
+	walTx, err := walproto.Decode(v)
+	if err != nil {
+		return status.Error(codes.Internal, "failed to decode tx")
+	}
+
+	// save
+	return c.store.Put(walTx.Key, walTx.Value)
 }
