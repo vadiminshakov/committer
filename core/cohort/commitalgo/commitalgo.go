@@ -252,6 +252,20 @@ func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dt
 }
 
 func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
+	currentHeight := atomic.LoadUint64(&c.height)
+
+	// idempotent commit: if already applied, return ACK without error
+	if height < currentHeight {
+		log.Debugf("commit for height %d already applied (current height: %d)", height, currentHeight)
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: height}, nil
+	}
+
+	// future height: reject
+	if height > currentHeight {
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, nil
+	}
+
+	// height == currentHeight: process the commit
 	currentState := c.state.getCurrentState()
 	expectedState := c.getExpectedCommitState()
 
@@ -263,14 +277,6 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 
 	if err := c.state.Transition(commitStage); err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "invalid state transition to commit: %v", err)
-	}
-
-	currentHeight := atomic.LoadUint64(&c.height)
-	if height != currentHeight {
-		if terr := c.state.Transition(proposeStage); terr != nil {
-			log.Errorf("failed to reset state after height mismatch: %v", terr)
-		}
-		return nil, status.Errorf(codes.AlreadyExists, "invalid commit height (got %d, but expected %d)", height, currentHeight)
 	}
 
 	if !c.hookRegistry.ExecuteCommit(&dto.CommitRequest{Height: height}) {
