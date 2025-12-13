@@ -313,24 +313,22 @@ func TestPrecommitTimeout_StateValidation(t *testing.T) {
 	committer := NewCommitter(stateStore, "three-phase", wal, 50) // 50ms timeout
 	committer.SetHeight(recovery.Height)
 
-	ctx := context.Background()
-
 	// test case 1: should skip autocommit when in commit state
 	// first go to precommit, then to commit
 	committer.state.Transition(precommitStage)
 	committer.state.Transition(commitStage)
-	committer.handlePrecommitTimeout(ctx, 0)
+	committer.handlePrecommitTimeout(0)
 	require.Equal(t, "commit", committer.getCurrentState()) // state unchanged
 
 	// test case 2: should skip autocommit when in propose state
 	// transition back to propose (commit -> propose is valid)
 	committer.state.Transition(proposeStage)
-	committer.handlePrecommitTimeout(ctx, 0)
+	committer.handlePrecommitTimeout(0)
 	require.Equal(t, "propose", committer.getCurrentState()) // state unchanged
 
 	// test case 3: should skip autocommit when height doesn't match
 	committer.state.Transition(precommitStage)
-	committer.handlePrecommitTimeout(ctx, 999)                 // wrong height
+	committer.handlePrecommitTimeout(999)                      // wrong height
 	require.Equal(t, "precommit", committer.getCurrentState()) // state unchanged
 }
 
@@ -362,7 +360,7 @@ func TestPrecommitTimeout_AutocommitSuccess(t *testing.T) {
 	require.Equal(t, "precommit", committer.getCurrentState())
 
 	// test successful autocommit
-	committer.handlePrecommitTimeout(ctx, 0)
+	committer.handlePrecommitTimeout(0)
 
 	// should be back in propose state after successful autocommit
 	require.Equal(t, "propose", committer.getCurrentState())
@@ -380,8 +378,6 @@ func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
 	committer := NewCommitter(stateStore, "three-phase", wal, 50)
 	committer.SetHeight(recovery.Height)
 
-	ctx := context.Background()
-
 	// write abort record directly to WAL
 	err := wal.Write(walproto.AbortSlot(0), walproto.KeyAbort, nil)
 	require.NoError(t, err)
@@ -391,7 +387,7 @@ func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
 	require.Equal(t, "precommit", committer.getCurrentState())
 
 	// test autocommit with skip record - should recover to propose
-	committer.handlePrecommitTimeout(ctx, 0)
+	committer.handlePrecommitTimeout(0)
 
 	// should be back in propose state after recovery
 	require.Equal(t, "propose", committer.getCurrentState())
@@ -427,7 +423,7 @@ func TestPrecommitTimeout_AutocommitFailure(t *testing.T) {
 	require.Equal(t, "precommit", committer.getCurrentState())
 
 	// test autocommit failure - should recover to propose
-	committer.handlePrecommitTimeout(ctx, 0)
+	committer.handlePrecommitTimeout(0)
 
 	// should be back in propose state after recovery from failed autocommit
 	require.Equal(t, "propose", committer.getCurrentState())
@@ -446,14 +442,13 @@ func TestPrecommitTimeout_NoDataInWAL(t *testing.T) {
 	committer.SetHeight(recovery.Height)
 
 	// set up state without data in WAL
-	ctx := context.Background()
 
 	// move to precommit state without proposing first
 	committer.state.Transition(precommitStage)
 	require.Equal(t, "precommit", committer.getCurrentState())
 
 	// test autocommit with no data in WAL - should recover to propose
-	committer.handlePrecommitTimeout(ctx, 0)
+	committer.handlePrecommitTimeout(0)
 
 	// should be back in propose state after recovery
 	require.Equal(t, "propose", committer.getCurrentState())

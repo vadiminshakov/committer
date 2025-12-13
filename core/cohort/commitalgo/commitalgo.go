@@ -136,7 +136,12 @@ func (c *CommitterImpl) handleProposeTimeout(height uint64) {
 	defer c.mu.Unlock()
 
 	currentState := c.state.getCurrentState()
-	if currentState == precommitStage || currentState == commitStage {
+	currentHeight := atomic.LoadUint64(&c.height)
+
+	log.Debugf("propose timeout handler: state=%s, height=%d, index=%d", currentState, currentHeight, height)
+
+	if currentState != proposeStage || currentHeight != height {
+		log.Debugf("skipping propose timeout handling for height %d: state=%s, currentHeight=%d", height, currentState, currentHeight)
 		return
 	}
 
@@ -182,12 +187,12 @@ func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.Cohor
 
 	c.state.Transition(precommitStage)
 
-	go c.handlePrecommitTimeout(ctx, index)
+	go c.handlePrecommitTimeout(index)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: index}, nil
 }
 
-func (c *CommitterImpl) handlePrecommitTimeout(ctx context.Context, height uint64) {
+func (c *CommitterImpl) handlePrecommitTimeout(height uint64) {
 	timer := time.NewTimer(time.Duration(c.timeout) * time.Millisecond)
 	defer timer.Stop()
 	<-timer.C
