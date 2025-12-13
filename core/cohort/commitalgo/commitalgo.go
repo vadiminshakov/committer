@@ -90,8 +90,9 @@ func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.height > req.Height {
-		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: c.height}, nil
+	currentHeight := atomic.LoadUint64(&c.height)
+	if currentHeight > req.Height {
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, nil
 	}
 
 	if !c.hookRegistry.ExecutePropose(req) {
@@ -144,7 +145,7 @@ func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.Cohor
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	currentHeight := c.height
+	currentHeight := atomic.LoadUint64(&c.height)
 	if index != currentHeight {
 		return nil, status.Errorf(codes.FailedPrecondition, "invalid precommit height: expected %d, got %d", currentHeight, index)
 	}
@@ -182,7 +183,7 @@ func (c *CommitterImpl) handlePrecommitTimeout(ctx context.Context, height uint6
 	defer c.mu.Unlock()
 
 	currentState := c.state.getCurrentState()
-	currentHeight := c.height
+	currentHeight := atomic.LoadUint64(&c.height)
 
 	log.Debugf("precommit timeout handler: state=%s, height=%d, index=%d", currentState, currentHeight, height)
 
@@ -264,7 +265,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 		return nil, status.Errorf(codes.FailedPrecondition, "invalid state transition to commit: %v", err)
 	}
 
-	currentHeight := c.height
+	currentHeight := atomic.LoadUint64(&c.height)
 	if height != currentHeight {
 		if terr := c.state.Transition(proposeStage); terr != nil {
 			log.Errorf("failed to reset state after height mismatch: %v", terr)
@@ -311,7 +312,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 		return nil, err
 	}
 
-	c.height = currentHeight + 1
+	atomic.StoreUint64(&c.height, currentHeight+1)
 
 	if terr := c.state.Transition(proposeStage); terr != nil {
 		log.Errorf("failed to transition back to propose state after successful commit: %v", terr)
@@ -334,7 +335,7 @@ func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	currentHeight := c.height
+	currentHeight := atomic.LoadUint64(&c.height)
 
 	if req.Height > currentHeight {
 		log.Debugf("ignoring abort for future height %d (current: %d)", req.Height, currentHeight)
