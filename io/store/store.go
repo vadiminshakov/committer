@@ -8,7 +8,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/pkg/errors"
-	"github.com/vadiminshakov/committer/core/walproto"
+	"github.com/vadiminshakov/committer/core/walrecord"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -169,7 +169,7 @@ func (s *Store) recover() (*RecoveryState, error) {
 		// check if it is a system/protocol key
 		if strings.HasPrefix(msg.Key, "__tx:") {
 			hasProto = true
-			height := msg.Idx / walproto.Stride
+			height := msg.Idx / walrecord.Stride
 
 			// track max proto height and its status
 			if height > maxProtoHeight {
@@ -177,14 +177,14 @@ func (s *Store) recover() (*RecoveryState, error) {
 				maxProtoStatus = msg.Key
 			} else if height == maxProtoHeight {
 				// if multiple messages for same height, commit/abort override prepared/precommit as "final" status
-				if msg.Key == walproto.KeyCommit || msg.Key == walproto.KeyAbort {
+				if msg.Key == walrecord.KeyCommit || msg.Key == walrecord.KeyAbort {
 					maxProtoStatus = msg.Key
 				}
 			}
 
 			// apply strictly on commit
-			if msg.Key == walproto.KeyCommit {
-				walTx, err := walproto.Decode(msg.Value)
+			if msg.Key == walrecord.KeyCommit {
+				walTx, err := walrecord.Decode(msg.Value)
 				if err != nil {
 					return nil, errors.Wrapf(err, "decode wal tx at idx %d", msg.Idx)
 				}
@@ -197,7 +197,7 @@ func (s *Store) recover() (*RecoveryState, error) {
 
 	var height uint64
 	if hasProto {
-		if maxProtoStatus == walproto.KeyCommit || maxProtoStatus == walproto.KeyAbort {
+		if maxProtoStatus == walrecord.KeyCommit || maxProtoStatus == walrecord.KeyAbort {
 			height = maxProtoHeight + 1
 		} else {
 			// incomplete transaction at maxProtoHeight

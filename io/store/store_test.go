@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/walproto"
+	"github.com/vadiminshakov/committer/core/walrecord"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -28,16 +28,16 @@ func TestStore_Recovery_Commit(t *testing.T) {
 
 	// 2. write prepared (should require commit to apply)
 	height := uint64(10)
-	prepIdx := walproto.PreparedSlot(height)
-	tx := walproto.WalTx{Key: "key1", Value: []byte("value1")}
-	encoded, _ := walproto.Encode(tx)
+	prepIdx := walrecord.PreparedSlot(height)
+	tx := walrecord.WalTx{Key: "key1", Value: []byte("value1")}
+	encoded, _ := walrecord.Encode(tx)
 
-	err = w.Write(prepIdx, walproto.KeyPrepared, encoded)
+	err = w.Write(prepIdx, walrecord.KeyPrepared, encoded)
 	require.NoError(t, err)
 
 	// 3. write commit
-	commitIdx := walproto.CommitSlot(height)
-	err = w.Write(commitIdx, walproto.KeyCommit, encoded)
+	commitIdx := walrecord.CommitSlot(height)
+	err = w.Write(commitIdx, walrecord.KeyCommit, encoded)
 	require.NoError(t, err)
 
 	w.Close()
@@ -74,11 +74,11 @@ func TestStore_Recovery_PreparedOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	height := uint64(15)
-	prepIdx := walproto.PreparedSlot(height)
-	tx := walproto.WalTx{Key: "key2", Value: []byte("value2")}
-	encoded, _ := walproto.Encode(tx)
+	prepIdx := walrecord.PreparedSlot(height)
+	tx := walrecord.WalTx{Key: "key2", Value: []byte("value2")}
+	encoded, _ := walrecord.Encode(tx)
 
-	err = w.Write(prepIdx, walproto.KeyPrepared, encoded)
+	err = w.Write(prepIdx, walrecord.KeyPrepared, encoded)
 	require.NoError(t, err)
 	w.Close()
 
@@ -115,8 +115,8 @@ func TestStore_Recovery_Abort(t *testing.T) {
 	height := uint64(20)
 	
 	// write abort
-	abortIdx := walproto.AbortSlot(height)
-	err = w.Write(abortIdx, walproto.KeyAbort, nil)
+	abortIdx := walrecord.AbortSlot(height)
+	err = w.Write(abortIdx, walrecord.KeyAbort, nil)
 	require.NoError(t, err)
 	w.Close()
 

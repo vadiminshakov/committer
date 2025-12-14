@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/core/walproto"
+	"github.com/vadiminshakov/committer/core/walrecord"
 	"github.com/vadiminshakov/committer/io/store"
 	"github.com/vadiminshakov/gowal"
 )
@@ -266,7 +266,7 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 		require.Equal(t, "precommit", committer.getCurrentState())
 
 		// simulate abort by writing abort record to WAL (this would normally be done by Abort method)
-		err = wal.Write(walproto.AbortSlot(0), walproto.KeyAbort, nil)
+		err = wal.Write(walrecord.AbortSlot(0), walrecord.KeyAbort, nil)
 		require.NoError(t, err)
 
 		// commit should detect skip record and restore state
@@ -379,7 +379,7 @@ func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
 	committer.SetHeight(recovery.Height)
 
 	// write abort record directly to WAL
-	err := wal.Write(walproto.AbortSlot(0), walproto.KeyAbort, nil)
+	err := wal.Write(walrecord.AbortSlot(0), walrecord.KeyAbort, nil)
 	require.NoError(t, err)
 
 	// move to precommit state
@@ -525,19 +525,19 @@ func TestAbort_CurrentHeight(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// should have the original data in WAL (Prepared)
-	k, val, err := wal.Get(walproto.PreparedSlot(0))
+	k, val, err := wal.Get(walrecord.PreparedSlot(0))
 	require.NoError(t, err)
-	require.Equal(t, walproto.KeyPrepared, k)
+	require.Equal(t, walrecord.KeyPrepared, k)
 
 	// verify payload
-	walTx, err := walproto.Decode(val)
+	walTx, err := walrecord.Decode(val)
 	require.NoError(t, err)
 	require.Equal(t, "test-key", walTx.Key)
 
 	// verify Abort
-	k, _, err = wal.Get(walproto.AbortSlot(0))
+	k, _, err = wal.Get(walrecord.AbortSlot(0))
 	require.NoError(t, err)
-	require.Equal(t, walproto.KeyAbort, k)
+	require.Equal(t, walrecord.KeyAbort, k)
 
 	value, err := stateStore.Get("test-key")
 	require.Error(t, err, "Original value should not exist in database after abort")
@@ -621,14 +621,14 @@ func TestAbort_PastHeight(t *testing.T) {
 
 	// check wal unchanged
 	// check Prepared
-	k, _, err := wal.Get(walproto.PreparedSlot(0))
+	k, _, err := wal.Get(walrecord.PreparedSlot(0))
 	require.NoError(t, err)
-	require.Equal(t, walproto.KeyPrepared, k)
+	require.Equal(t, walrecord.KeyPrepared, k)
 
 	// check Commit
-	k, _, err = wal.Get(walproto.CommitSlot(0))
+	k, _, err = wal.Get(walrecord.CommitSlot(0))
 	require.NoError(t, err)
-	require.Equal(t, walproto.KeyCommit, k)
+	require.Equal(t, walrecord.KeyCommit, k)
 
 	// check normal data is in db
 	value, err := stateStore.Get("test-key")
@@ -676,9 +676,9 @@ func TestAbort_StateRecovery_3PC(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// check wal
-	k, _, err := wal.Get(walproto.AbortSlot(0))
+	k, _, err := wal.Get(walrecord.AbortSlot(0))
 	require.NoError(t, err)
-	require.Equal(t, walproto.KeyAbort, k)
+	require.Equal(t, walrecord.KeyAbort, k)
 }
 
 func TestAbort_StateRecovery_2PC(t *testing.T) {
@@ -718,7 +718,7 @@ func TestAbort_StateRecovery_2PC(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// check wal
-	k, _, err := wal.Get(walproto.AbortSlot(0))
+	k, _, err := wal.Get(walrecord.AbortSlot(0))
 	require.NoError(t, err)
-	require.Equal(t, walproto.KeyAbort, k)
+	require.Equal(t, walrecord.KeyAbort, k)
 }

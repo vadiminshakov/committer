@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/core/walproto"
+	"github.com/vadiminshakov/committer/core/walrecord"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/mocks"
 	"go.uber.org/mock/gomock"
@@ -115,9 +115,9 @@ func TestCoordinator_PersistMessage(t *testing.T) {
 
 	// expect WAL.Get to return the test data
 	// expect WAL.Get to return the test data
-	ptx := walproto.WalTx{Key: testKey, Value: testValue}
-	encoded, _ := walproto.Encode(ptx)
-	mockWAL.EXPECT().Get(walproto.PreparedSlot(0)).Return(walproto.KeyPrepared, encoded, nil)
+	ptx := walrecord.WalTx{Key: testKey, Value: testValue}
+	encoded, _ := walrecord.Encode(ptx)
+	mockWAL.EXPECT().Get(walrecord.PreparedSlot(0)).Return(walrecord.KeyPrepared, encoded, nil)
 
 	// expect DB.Put to be called with the test data
 	mockStore.EXPECT().Put(testKey, testValue).Return(nil)
@@ -144,7 +144,7 @@ func TestCoordinator_PersistMessage_NoDataInWAL(t *testing.T) {
 	require.NoError(t, err)
 
 	// expect WAL.Get to return no data
-	mockWAL.EXPECT().Get(walproto.PreparedSlot(0)).Return("", nil, nil)
+	mockWAL.EXPECT().Get(walrecord.PreparedSlot(0)).Return("", nil, nil)
 
 	// test persist message when no data in WAL
 	err = coord.persistMessage()
@@ -172,7 +172,7 @@ func TestCoordinator_Abort(t *testing.T) {
 	ctx := context.Background()
 
 	// expect WAL abort write
-	mockWAL.EXPECT().Write(walproto.AbortSlot(0), walproto.KeyAbort, gomock.Any()).Return(nil)
+	mockWAL.EXPECT().Write(walrecord.AbortSlot(0), walrecord.KeyAbort, gomock.Any()).Return(nil)
 
 	// test abort
 	done := make(chan bool, 1)
