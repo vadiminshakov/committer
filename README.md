@@ -58,24 +58,6 @@ The Three-Phase Commit protocol extends 2PC with an additional phase to reduce b
 1. **Coordinator** sends `COMMIT` to all cohorts
 2. **Cohorts** perform the actual commit operation
 
-### **Protocol Comparison**
-
-| Aspect | 2PC | 3PC |
-|--------|-----|-----|
-| **Phases** | 2 (Propose → Commit) | 3 (Propose → Precommit → Commit) |
-| **Blocking** | Yes (during phase 2) | Reduced (timeout auto-commit) |
-| **Fault Tolerance** | Coordinator failure blocks | Better resilience to failures |
-
-## **Key Features**
-
-- **2PC and 3PC support**: Implements two widely used atomic commit protocols for distributed transactions.
-- **Persistence**: Uses **BadgerDB** and WAL for reliable data storage and transaction logs.
-- **Configurable**: All options can be specified using command-line flags.
-- **Flexible Hook System**: Extensible hook system for custom validation, metrics, auditing, and business logic without code changes.
-- **Built-in Hooks**: Ready-to-use hooks for metrics collection, validation, and audit logging.
-- **Timeout Handling**: Automatic timeout management for 3PC with proper skip record handling in WAL.
-- **gRPC-based communication**: Efficient inter-node communication using gRPC.
-
 ## **Configuration**
 
 All configuration parameters can be set using command-line flags:
