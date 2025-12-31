@@ -4,7 +4,6 @@ import (
 	stdErrors "errors"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/pkg/errors"
@@ -19,14 +18,10 @@ var ErrNotFound = errors.New("key not found")
 type Store struct {
 	wal *gowal.Wal
 	db  *badger.DB
-	mu  sync.RWMutex
 }
 
 // Snapshot returns a shallow copy of the current state.
 func (s *Store) Snapshot() map[string][]byte {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	snapshot := make(map[string][]byte)
 	_ = s.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
@@ -50,12 +45,11 @@ func (s *Store) Snapshot() map[string][]byte {
 
 // Size returns current number of keys in the store.
 func (s *Store) Size() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	count := 0
 	_ = s.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
 		defer it.Close()
 		for it.Rewind(); it.Valid(); it.Next() {
 			count++
@@ -111,9 +105,6 @@ func (s *Store) Put(key string, value []byte) error {
 		return errors.New("key cannot be empty")
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	return s.db.Update(func(txn *badger.Txn) error {
 		if value == nil {
 			if err := txn.Delete([]byte(key)); err != nil && !stdErrors.Is(err, badger.ErrKeyNotFound) {
@@ -127,9 +118,6 @@ func (s *Store) Put(key string, value []byte) error {
 
 // Get retrieves value by key. Returns ErrNotFound if key does not exist.
 func (s *Store) Get(key string) ([]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	var result []byte
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(key))
