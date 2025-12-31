@@ -321,10 +321,13 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 
 	// retrieve payload (try Precommit, then Prepared)
 	var payload []byte
+	// 2pc branch
 	if k, v, err := c.wal.Get(walrecord.PrecommitSlot(height)); err == nil && k == walrecord.KeyPrecommit {
 		payload = v
+		// 3pc branch
 	} else if k, v, err := c.wal.Get(walrecord.PreparedSlot(height)); err == nil && k == walrecord.KeyPrepared {
 		payload = v
+		// error branch
 	} else {
 		c.resetToPropose(height, "no prepared/precommit data found")
 		return nil, status.Errorf(codes.FailedPrecondition, "no prepared/precommit data found")
