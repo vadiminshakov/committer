@@ -259,6 +259,7 @@ func (c *CommitterImpl) resetToPropose(height uint64, reason string) {
 	currentState := c.state.getCurrentState()
 
 	if c.state.GetMode() == threephase && currentState == precommitStage {
+		// 3PC cannot transition directly from precommit -> propose; it must go via commit
 		if err := c.state.Transition(commitStage); err != nil {
 			log.Errorf("failed to transition to commit state during reset for height %d: %v", height, err)
 			return
