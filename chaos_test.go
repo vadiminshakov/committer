@@ -543,7 +543,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		cohortServer, err := server.New(node, cohortImpl, nil, stateStore)
 		failfast(err)
 
-		go cohortServer.Run(server.WhiteListChecker)
+		go cohortServer.Run(server.CoordinatorOnly)
 		stopfuncs = append(stopfuncs, cohortServer.Stop)
 	}
 
@@ -583,7 +583,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		coordServer, err := server.New(coordConfig, nil, coord, stateStore)
 		failfast(err)
 
-		go coordServer.Run(server.WhiteListChecker)
+		go coordServer.Run(server.CoordinatorOnly)
 		time.Sleep(100 * time.Millisecond)
 		stopfuncs = append(stopfuncs, coordServer.Stop)
 	}

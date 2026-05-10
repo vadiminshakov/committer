@@ -6,11 +6,11 @@ prepare:
 
 run-example-coordinator:
 	@rm -rf ./badger/coordinator
-	@go run . -role=coordinator -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=./badger/coordinator -whitelist=127.0.0.1
+	@go run . -role=coordinator -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=./badger/coordinator
 
 run-example-cohort:
 	@rm -rf ./badger/cohort
-	@go run . -role=cohort -coordinator=localhost:3000 -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=./badger/cohort -whitelist=127.0.0.1
+	@go run . -role=cohort -coordinator=localhost:3000 -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=./badger/cohort
 
 run-example-client:
 	@go run ./examples/client

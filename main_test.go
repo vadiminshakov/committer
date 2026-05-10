@@ -29,22 +29,21 @@ const (
 )
 
 var (
-	whitelist = []string{"127.0.0.1"}
-	nodes     = map[string][]*config.Config{
+	nodes = map[string][]*config.Config{
 		COORDINATOR_TYPE: {
 			{Nodeaddr: "localhost:2938", Role: "coordinator",
-				Cohorts:   []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
-				Whitelist: whitelist, CommitType: "two-phase", Timeout: 100},
+				Cohorts:    []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
+				CommitType: "two-phase", Timeout: 100},
 			{Nodeaddr: "localhost:5002", Role: "coordinator",
-				Cohorts:   []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
-				Whitelist: whitelist, CommitType: "three-phase", Timeout: 100},
+				Cohorts:    []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
+				CommitType: "three-phase", Timeout: 100},
 		},
 		COHORT_TYPE: {
-			&config.Config{Nodeaddr: "localhost:2345", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:2384", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:7532", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:5743", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
-			&config.Config{Nodeaddr: "localhost:4991", Role: "cohort", Coordinator: "localhost:2938", Whitelist: whitelist, Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2345", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:2384", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:7532", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:5743", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800, CommitType: "three-phase"},
+			&config.Config{Nodeaddr: "localhost:4991", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800, CommitType: "three-phase"},
 		},
 	}
 )
@@ -177,7 +176,7 @@ func startnodes(commitType pb.CommitType) func() error {
 		cohortServer, err := server.New(node, cohortImpl, nil, stateStore)
 		failfast(err)
 
-		go cohortServer.Run(server.WhiteListChecker)
+		go cohortServer.Run(server.CoordinatorCheck)
 
 		stopfuncs = append(stopfuncs, cohortServer.Stop)
 	}
@@ -207,7 +206,7 @@ func startnodes(commitType pb.CommitType) func() error {
 		coordServer, err := server.New(coordConfig, nil, coord, stateStore)
 		failfast(err)
 
-		go coordServer.Run(server.WhiteListChecker)
+		go coordServer.Run(server.CoordinatorCheck)
 		time.Sleep(100 * time.Millisecond)
 		stopfuncs = append(stopfuncs, coordServer.Stop)
 	}

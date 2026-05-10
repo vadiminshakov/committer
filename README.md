@@ -71,7 +71,6 @@ All configuration parameters can be set using command-line flags:
 | `timeout`      | Timeout (ms) for unacknowledged messages (3PC only)     | `1000`              | `-timeout=500`                      |
 | `dbpath`       | Path to the BadgerDB database on the filesystem         | `./badger`          | `-dbpath=/tmp/badger`               |
 | `cohorts`      | Comma-separated list of cohort addresses                | `""`                | `-cohorts=localhost:3052,3053`      |
-| `whitelist`    | Comma-separated list of allowed hosts                   | `127.0.0.1`         | `-whitelist=192.168.0.1,192.168.0.2`|
 
 
 ## **Usage**

@@ -64,7 +64,7 @@ func run() error {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
-	srv.Run(server.WhiteListChecker)
+	srv.Run(server.CoordinatorCheck)
 	<-ctx
 	srv.Stop()
 

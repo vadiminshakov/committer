@@ -12,7 +12,7 @@ import (
 
 const (
 	// DefaultWalDir is the default directory for write-ahead logs.
-	DefaultWalDir string = "wal"
+	DefaultWalDir string = "./.data/wal"
 	// DefaultWalSegmentPrefix is the default prefix for WAL segment files.
 	DefaultWalSegmentPrefix string = "msgs_"
 	// DefaultWalSegmentThreshold is the default number of entries per WAL segment.
@@ -31,7 +31,6 @@ type Config struct {
 	CommitType  string   // Commit protocol: "two-phase" or "three-phase"
 	DBPath      string   // Path to the database directory
 	Cohorts     []string // List of cohort addresses (for coordinators)
-	Whitelist   []string // Whitelist of allowed node addresses
 	Timeout     uint64   // Timeout in milliseconds for 3PC operations
 }
 
@@ -45,7 +44,6 @@ func Get() *Config {
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
 	dbpath := flag.String("dbpath", "./badger", "database path on filesystem")
 	cohorts := flag.String("cohorts", "", "cohort addresses")
-	whitelist := flag.String("whitelist", "127.0.0.1", "allowed hosts")
 	flag.Parse()
 
 	cohortsArray := filterEmpty(strings.Split(*cohorts, ","))
@@ -54,7 +52,6 @@ func Get() *Config {
 			cohortsArray = append(cohortsArray, *nodeaddr)
 		}
 	}
-	whitelistArray := filterEmpty(strings.Split(*whitelist, ","))
 
 	if *role == "coordinator" && len(cohortsArray) == 0 {
 		log.Fatalf("coordinator role requires at least one cohort address")
@@ -67,7 +64,6 @@ func Get() *Config {
 		CommitType:  *committype,
 		DBPath:      *dbpath,
 		Cohorts:     cohortsArray,
-		Whitelist:   whitelistArray,
 		Timeout:     *timeout,
 	}
 
