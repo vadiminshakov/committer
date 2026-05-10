@@ -29,6 +29,7 @@ import (
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/store"
+	"github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -54,7 +55,7 @@ func run() error {
 		return err
 	}
 
-	roles, err := buildRoles(conf, stateStore, wal, recovery.Height)
+	roles, err := buildRoles(conf, stateStore, wal, recovery)
 	if err != nil {
 		return err
 	}
@@ -103,19 +104,20 @@ type roleComponents struct {
 	coordinator server.Coordinator
 }
 
-func buildRoles(conf *config.Config, stateStore *store.Store, wal *gowal.Wal, initialHeight uint64) (*roleComponents, error) {
+func buildRoles(conf *config.Config, stateStore *store.Store, w *gowal.Wal, recovery *store.RecoveryState) (*roleComponents, error) {
 	rc := &roleComponents{}
 	switch conf.Role {
 	case "cohort":
-		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, wal, conf.Timeout)
-		committer.SetHeight(initialHeight)
+		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, wal.New(w), conf.Timeout)
+		committer.SetHeight(recovery.Height)
+		committer.SetPendingPayload(recovery.PendingPayload)
 		rc.cohort = cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 	case "coordinator":
-		coord, err := coordinator.New(conf, wal, stateStore)
+		coord, err := coordinator.New(conf, wal.New(w), stateStore)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create coordinator: %w", err)
 		}
-		coord.SetHeight(initialHeight)
+		coord.SetHeight(recovery.Height)
 		rc.coordinator = coord
 	default:
 		return nil, fmt.Errorf("unsupported role %q, expected coordinator or cohort", conf.Role)

@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/core/walrecord"
+	iowal "github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
@@ -24,9 +24,7 @@ import (
 
 //go:generate mockgen -destination=../../mocks/mock_wal.go -package=mocks . wal
 type wal interface {
-	Write(index uint64, key string, value []byte) error
-	WriteTombstone(index uint64) error
-	Get(index uint64) (string, []byte, error)
+	Write(key string, value []byte) error
 	Close() error
 }
 
@@ -39,14 +37,15 @@ type StateStore interface {
 }
 
 type coordinator struct {
-	wal        wal
-	store      StateStore
-	cohorts    map[string]*client.InternalCommitClient
-	config     *config.Config
-	commitType pb.CommitType
-	threePhase bool
-	height     uint64
-	mu         sync.Mutex // serialize broadcast to keep height/WAL alignment
+	wal            wal
+	store          StateStore
+	cohorts        map[string]*client.InternalCommitClient
+	config         *config.Config
+	commitType     pb.CommitType
+	threePhase     bool
+	height         uint64
+	pendingPayload []byte     // encoded payload of the current in-progress broadcast
+	mu             sync.Mutex // serialize broadcast to keep height/WAL alignment
 }
 
 // New creates a new coordinator instance with the specified configuration.
@@ -123,12 +122,16 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 	currentHeight := atomic.LoadUint64(&c.height)
 
 	// write Prepared to WAL to persist payload
-	ptx := walrecord.WalTx{Key: req.Key, Value: req.Value}
-	pbBytes, err := walrecord.Encode(ptx)
+	ptx := iowal.Tx{Key: req.Key, Value: req.Value}
+	pbBytes, err := iowal.Encode(ptx)
 	if err != nil {
 		return err
 	}
-	return c.wal.Write(walrecord.PreparedSlot(currentHeight), walrecord.KeyPrepared, pbBytes)
+	if err := c.wal.Write(iowal.PreparedKey(currentHeight), pbBytes); err != nil {
+		return err
+	}
+	c.pendingPayload = pbBytes
+	return nil
 }
 
 func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalCommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
@@ -204,22 +207,13 @@ func (c *coordinator) commit(ctx context.Context) error {
 	}
 
 	// Persist Decision (Commit) and Apply
-	// 1. read Payload from Prepared
-	k, v, err := c.wal.Get(walrecord.PreparedSlot(currentHeight))
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to read prepared tx: %v", err)
-	}
-	if k != walrecord.KeyPrepared {
-		return status.Errorf(codes.Internal, "expected prepared tx, got %s", k)
-	}
-
-	// 2. write commit
-	if err := c.wal.Write(walrecord.CommitSlot(currentHeight), walrecord.KeyCommit, v); err != nil {
+	// 1. write commit
+	if err := c.wal.Write(iowal.CommitKey(currentHeight), c.pendingPayload); err != nil {
 		return status.Errorf(codes.Internal, "failed to write commit val: %v", err)
 	}
 
-	// 3. apply
-	walTx, err := walrecord.Decode(v)
+	// 2. apply
+	walTx, err := iowal.Decode(c.pendingPayload)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to decode tx: %v", err)
 	}
@@ -227,6 +221,7 @@ func (c *coordinator) commit(ctx context.Context) error {
 		log.Errorf("failed to apply to store: %v", err)
 		return err // committed but not applied? critical error
 	}
+	c.pendingPayload = nil
 
 	return nil
 }
@@ -265,7 +260,7 @@ func (c *coordinator) abort(ctx context.Context, reason string) {
 	currentHeight := atomic.LoadUint64(&c.height)
 	log.Warnf("Aborting transaction at height %d: %s", currentHeight, reason)
 
-	if err := c.wal.Write(walrecord.AbortSlot(currentHeight), walrecord.KeyAbort, nil); err != nil {
+	if err := c.wal.Write(iowal.AbortKey(currentHeight), nil); err != nil {
 		log.Errorf("Failed to write abort to WAL: %v", err)
 	}
 
@@ -283,25 +278,14 @@ func nackResponse(err error, msg string) (*dto.BroadcastResponse, error) {
 }
 
 func (c *coordinator) persistMessage() error {
-	currentHeight := atomic.LoadUint64(&c.height)
-
-	// read prepared
-	k, v, err := c.wal.Get(walrecord.PreparedSlot(currentHeight))
-	if err != nil {
-		return status.Error(codes.Internal, fmt.Sprintf("failed to read msg at height %d from wal: %v", currentHeight, err))
-	}
-	if v == nil {
+	if c.pendingPayload == nil {
 		return status.Error(codes.Internal, "can't find msg in wal")
 	}
-	if k != walrecord.KeyPrepared {
-		return status.Error(codes.Internal, fmt.Sprintf("expected prepared key, got %s", k))
-	}
 
-	walTx, err := walrecord.Decode(v)
+	walTx, err := iowal.Decode(c.pendingPayload)
 	if err != nil {
 		return status.Error(codes.Internal, "failed to decode tx")
 	}
 
-	// save
 	return c.store.Put(walTx.Key, walTx.Value)
 }

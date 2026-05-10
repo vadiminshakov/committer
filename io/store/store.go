@@ -3,11 +3,10 @@ package store
 import (
 	stdErrors "errors"
 	"os"
-	"strings"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/pkg/errors"
-	"github.com/vadiminshakov/committer/core/walrecord"
+	"github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -64,6 +63,9 @@ func (s *Store) Size() int {
 type RecoveryState struct {
 	// Height is the current protocol height (next proposal should use this height).
 	Height uint64
+	// PendingPayload is the encoded transaction payload for an incomplete transaction
+	// (nil if no incomplete transaction exists).
+	PendingPayload []byte
 }
 
 // New creates a new WAL-backed store and reconstructs state from WAL entries using BadgerDB.
@@ -142,58 +144,69 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func (s *Store) recover() (*RecoveryState, error) {
-	var (
-		hasProto       bool
-		maxProtoHeight uint64
-		maxProtoStatus string // last seen status for maxProtoHeight
-	)
+type heightState struct {
+	maxPhase       string
+	pendingPayload []byte // payload from the latest prepared/precommit record
+}
 
-	for msg := range s.wal.Iterator() {
-		if msg.Key == "" || msg.Key == "skip" {
+func (s *Store) recover() (*RecoveryState, error) {
+
+	states := make(map[uint64]*heightState)
+
+	for rec := range s.wal.Iterator() {
+		phase, height, ok := wal.ParseKey(rec.Key)
+		if !ok {
 			continue
 		}
 
-		// check if it is a system/protocol key
-		if strings.HasPrefix(msg.Key, "__tx:") {
-			hasProto = true
-			height := msg.Idx / walrecord.Stride
+		st, exists := states[height]
+		if !exists {
+			st = &heightState{}
+			states[height] = st
+		}
 
-			// track max proto height and its status
-			if height > maxProtoHeight {
-				maxProtoHeight = height
-				maxProtoStatus = msg.Key
-			} else if height == maxProtoHeight {
-				// if multiple messages for same height, commit/abort override prepared/precommit as "final" status
-				if msg.Key == walrecord.KeyCommit || msg.Key == walrecord.KeyAbort {
-					maxProtoStatus = msg.Key
-				}
+		switch phase {
+		case wal.PhaseKeyPrepared, wal.PhaseKeyPrecommit:
+			st.pendingPayload = rec.Value
+			st.maxPhase = phase
+		case wal.PhaseKeyCommit:
+			st.maxPhase = phase
+			walTx, err := wal.Decode(rec.Value)
+			if err != nil {
+				return nil, errors.Wrapf(err, "decode wal tx at idx %d", rec.Index)
 			}
-
-			// apply strictly on commit
-			if msg.Key == walrecord.KeyCommit {
-				walTx, err := walrecord.Decode(msg.Value)
-				if err != nil {
-					return nil, errors.Wrapf(err, "decode wal tx at idx %d", msg.Idx)
-				}
-				if err := s.Put(walTx.Key, walTx.Value); err != nil {
-					return nil, errors.Wrapf(err, "apply committed tx at idx %d", msg.Idx)
-				}
+			if err := s.Put(walTx.Key, walTx.Value); err != nil {
+				return nil, errors.Wrapf(err, "apply committed tx at idx %d", rec.Index)
 			}
+		case wal.PhaseKeyAbort:
+			st.maxPhase = phase
+			st.pendingPayload = nil
 		}
 	}
 
-	var height uint64
-	if hasProto {
-		if maxProtoStatus == walrecord.KeyCommit || maxProtoStatus == walrecord.KeyAbort {
-			height = maxProtoHeight + 1
-		} else {
-			// incomplete transaction at maxProtoHeight
-			height = maxProtoHeight
+	if len(states) == 0 {
+		return &RecoveryState{}, nil
+	}
+
+	var maxHeight uint64
+	for h := range states {
+		if h > maxHeight {
+			maxHeight = h
 		}
 	}
 
-	return &RecoveryState{Height: height}, nil
+	st := states[maxHeight]
+	result := &RecoveryState{}
+
+	switch st.maxPhase {
+	case wal.PhaseKeyCommit, wal.PhaseKeyAbort:
+		result.Height = maxHeight + 1
+	default:
+		result.Height = maxHeight
+		result.PendingPayload = st.pendingPayload
+	}
+
+	return result, nil
 }
 
 func cloneBytes(src []byte) []byte {

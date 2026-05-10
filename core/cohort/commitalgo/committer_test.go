@@ -8,10 +8,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/core/walrecord"
+	
 	"github.com/vadiminshakov/committer/io/store"
+	iowal "github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/gowal"
 )
+
+// findWalRecord scans the WAL and returns the first record with the given key.
+func findWalRecord(wal *gowal.Wal, key string) (gowal.Record, bool) {
+	for rec := range wal.Iterator() {
+		if rec.Key == key {
+			return rec, true
+		}
+	}
+	
+	return gowal.Record{}, false
+}
 
 // testHook for testing purposes
 type testHook struct {
@@ -59,7 +71,7 @@ func prepareCommitter(t *testing.T, walPath, commitType string, timeout uint64, 
 	wal := openTestWAL(t, walPath)
 	stateStore, recovery := newStateStore(t, wal)
 
-	committer := NewCommitter(stateStore, commitType, wal, timeout, hooks...)
+	committer := NewCommitter(stateStore, commitType, iowal.New(wal), timeout, hooks...)
 	committer.SetHeight(recovery.Height)
 
 	return committer, stateStore, wal, recovery
@@ -124,7 +136,7 @@ func TestCommit_StateValidation_2PC(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 2PC committer
-	committer := NewCommitter(stateStore, "two-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "two-phase", iowal.New(wal), 5000)
 	committer.SetHeight(recovery.Height)
 
 	require.Equal(t, "propose", committer.getCurrentState())
@@ -160,7 +172,7 @@ func TestCommit_StateValidation_3PC(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 5000)
 	committer.SetHeight(recovery.Height)
 
 	require.Equal(t, "propose", committer.getCurrentState())
@@ -211,7 +223,7 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 
 		// create 3PC committer with a hook that will fail commit
 		failingHook := &testHook{proposeResult: true, commitResult: false}
-		committer := NewCommitter(stateStore, "three-phase", wal, 5000, failingHook)
+		committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 5000, failingHook)
 		committer.SetHeight(recovery.Height)
 
 		// go through proper 3PC flow: propose -> precommit
@@ -248,7 +260,7 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 		stateStore, recovery := newStateStore(t, wal)
 
 		// create 3PC committer
-		committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+		committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 5000)
 		committer.SetHeight(recovery.Height)
 
 		// first propose a normal transaction
@@ -265,9 +277,10 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "precommit", committer.getCurrentState())
 
-		// simulate abort by writing abort record to WAL (this would normally be done by Abort method)
-		err = wal.Write(walrecord.AbortSlot(0), walrecord.KeyAbort, nil)
-		require.NoError(t, err)
+		// simulate abort via the Abort method (sets walAbortIdx so commit() detects it)
+		abortResp, aerr := committer.Abort(context.Background(), &dto.AbortRequest{Height: 0, Reason: "test"})
+		require.NoError(t, aerr)
+		require.Equal(t, dto.ResponseTypeAck, abortResp.ResponseType)
 
 		// commit should detect skip record and restore state
 		commitReq := &dto.CommitRequest{Height: 0}
@@ -295,11 +308,11 @@ func TestGetExpectedCommitState(t *testing.T) {
 	stateStore, _ := newStateStore(t, wal)
 
 	// test 2PC mode
-	committer2PC := NewCommitter(stateStore, "two-phase", wal, 5000)
+	committer2PC := NewCommitter(stateStore, "two-phase", iowal.New(wal), 5000)
 	require.Equal(t, "propose", committer2PC.getExpectedCommitState())
 
 	// test 3PC mode
-	committer3PC := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer3PC := NewCommitter(stateStore, "three-phase", iowal.New(wal), 5000)
 	require.Equal(t, "precommit", committer3PC.getExpectedCommitState())
 }
 func TestPrecommitTimeout_StateValidation(t *testing.T) {
@@ -310,7 +323,7 @@ func TestPrecommitTimeout_StateValidation(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// сreate 3PC committer with short timeout for testing
-	committer := NewCommitter(stateStore, "three-phase", wal, 50) // 50ms timeout
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 50) // 50ms timeout
 	committer.SetHeight(recovery.Height)
 
 	// test case 1: should skip autocommit when in commit state
@@ -340,7 +353,7 @@ func TestPrecommitTimeout_AutocommitSuccess(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(stateStore, "three-phase", wal, 50)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 50)
 	committer.SetHeight(recovery.Height)
 
 	ctx := context.Background()
@@ -375,12 +388,13 @@ func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(stateStore, "three-phase", wal, 50)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 50)
 	committer.SetHeight(recovery.Height)
 
-	// write abort record directly to WAL
-	err := wal.Write(walrecord.AbortSlot(0), walrecord.KeyAbort, nil)
+	// simulate abort via Abort method so walAbortIdx is set
+	abortResp, err := committer.Abort(context.Background(), &dto.AbortRequest{Height: 0, Reason: "test"})
 	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, abortResp.ResponseType)
 
 	// move to precommit state
 	committer.state.Transition(precommitStage)
@@ -403,7 +417,7 @@ func TestPrecommitTimeout_AutocommitFailure(t *testing.T) {
 
 	// create 3PC committer with failing hook
 	failingHook := &testHook{proposeResult: true, commitResult: false}
-	committer := NewCommitter(stateStore, "three-phase", wal, 50, failingHook)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 50, failingHook)
 	committer.SetHeight(recovery.Height)
 
 	ctx := context.Background()
@@ -438,7 +452,7 @@ func TestPrecommitTimeout_NoDataInWAL(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(stateStore, "three-phase", wal, 50)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 50)
 	committer.SetHeight(recovery.Height)
 
 	// set up state without data in WAL
@@ -463,7 +477,7 @@ func TestRecoverToPropose(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(stateStore, "three-phase", wal, 50)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 50)
 	committer.SetHeight(recovery.Height)
 
 	// test recovery from precommit state
@@ -492,7 +506,7 @@ func TestAbort_CurrentHeight(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 5000)
 	committer.SetHeight(recovery.Height)
 
 	// set up a transaction at current height
@@ -525,19 +539,17 @@ func TestAbort_CurrentHeight(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// should have the original data in WAL (Prepared)
-	k, val, err := wal.Get(walrecord.PreparedSlot(0))
-	require.NoError(t, err)
-	require.Equal(t, walrecord.KeyPrepared, k)
+	prepRec, ok := findWalRecord(wal, iowal.PreparedKey(0))
+	require.True(t, ok, "PREPARED record should be in WAL")
 
 	// verify payload
-	walTx, err := walrecord.Decode(val)
+	walTx, err := iowal.Decode(prepRec.Value)
 	require.NoError(t, err)
 	require.Equal(t, "test-key", walTx.Key)
 
 	// verify Abort
-	k, _, err = wal.Get(walrecord.AbortSlot(0))
-	require.NoError(t, err)
-	require.Equal(t, walrecord.KeyAbort, k)
+	_, ok = findWalRecord(wal, iowal.AbortKey(0))
+	require.True(t, ok, "ABORT record should be in WAL")
 
 	value, err := stateStore.Get("test-key")
 	require.Error(t, err, "Original value should not exist in database after abort")
@@ -552,7 +564,7 @@ func TestAbort_FutureHeight(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create committer
-	committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 5000)
 	committer.SetHeight(recovery.Height)
 
 	// test abort for future height (should be ignored)
@@ -570,10 +582,7 @@ func TestAbort_FutureHeight(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 	require.Equal(t, uint64(0), committer.Height())
 
-	key, val, err := wal.Get(0)
-	require.NoError(t, err)
-	require.Equal(t, "", key)
-	require.Nil(t, val, "WAL should not have entry for current height without propose")
+	require.Equal(t, uint64(0), wal.CurrentIndex(), "WAL should be empty when abort was for future height")
 }
 
 func TestAbort_PastHeight(t *testing.T) {
@@ -584,7 +593,7 @@ func TestAbort_PastHeight(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create committer and advance height
-	committer := NewCommitter(stateStore, "two-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "two-phase", iowal.New(wal), 5000)
 	committer.SetHeight(recovery.Height)
 
 	// complete a transaction to advance height
@@ -620,15 +629,10 @@ func TestAbort_PastHeight(t *testing.T) {
 	require.Equal(t, uint64(1), committer.Height())
 
 	// check wal unchanged
-	// check Prepared
-	k, _, err := wal.Get(walrecord.PreparedSlot(0))
-	require.NoError(t, err)
-	require.Equal(t, walrecord.KeyPrepared, k)
-
-	// check Commit
-	k, _, err = wal.Get(walrecord.CommitSlot(0))
-	require.NoError(t, err)
-	require.Equal(t, walrecord.KeyCommit, k)
+	_, ok := findWalRecord(wal, iowal.PreparedKey(0))
+	require.True(t, ok, "PREPARED record should be in WAL")
+	_, ok = findWalRecord(wal, iowal.CommitKey(0))
+	require.True(t, ok, "COMMIT record should be in WAL")
 
 	// check normal data is in db
 	value, err := stateStore.Get("test-key")
@@ -644,7 +648,7 @@ func TestAbort_StateRecovery_3PC(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 3PC committer
-	committer := NewCommitter(stateStore, "three-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(wal), 5000)
 	committer.SetHeight(recovery.Height)
 
 	// set up transaction and move to precommit state
@@ -676,9 +680,8 @@ func TestAbort_StateRecovery_3PC(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// check wal
-	k, _, err := wal.Get(walrecord.AbortSlot(0))
-	require.NoError(t, err)
-	require.Equal(t, walrecord.KeyAbort, k)
+	_, ok := findWalRecord(wal, iowal.AbortKey(0))
+	require.True(t, ok, "ABORT record should be in WAL")
 }
 
 func TestAbort_StateRecovery_2PC(t *testing.T) {
@@ -689,7 +692,7 @@ func TestAbort_StateRecovery_2PC(t *testing.T) {
 	stateStore, recovery := newStateStore(t, wal)
 
 	// create 2PC committer
-	committer := NewCommitter(stateStore, "two-phase", wal, 5000)
+	committer := NewCommitter(stateStore, "two-phase", iowal.New(wal), 5000)
 	committer.SetHeight(recovery.Height)
 
 	// set up transaction (in 2PC, we stay in propose state)
@@ -718,7 +721,6 @@ func TestAbort_StateRecovery_2PC(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState())
 
 	// check wal
-	k, _, err := wal.Get(walrecord.AbortSlot(0))
-	require.NoError(t, err)
-	require.Equal(t, walrecord.KeyAbort, k)
+	_, ok := findWalRecord(wal, iowal.AbortKey(0))
+	require.True(t, ok, "ABORT record should be in WAL")
 }

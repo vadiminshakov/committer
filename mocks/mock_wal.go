@@ -53,46 +53,16 @@ func (mr *MockwalMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*Mockwal)(nil).Close))
 }
 
-// Get mocks base method.
-func (m *Mockwal) Get(index uint64) (string, []byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Get", index)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].([]byte)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// Get indicates an expected call of Get.
-func (mr *MockwalMockRecorder) Get(index any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*Mockwal)(nil).Get), index)
-}
-
 // Write mocks base method.
-func (m *Mockwal) Write(index uint64, key string, value []byte) error {
+func (m *Mockwal) Write(key string, value []byte) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Write", index, key, value)
+	ret := m.ctrl.Call(m, "Write", key, value)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Write indicates an expected call of Write.
-func (mr *MockwalMockRecorder) Write(index, key, value any) *gomock.Call {
+func (mr *MockwalMockRecorder) Write(key, value any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Write", reflect.TypeOf((*Mockwal)(nil).Write), index, key, value)
-}
-
-// WriteTombstone mocks base method.
-func (m *Mockwal) WriteTombstone(index uint64) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteTombstone", index)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// WriteTombstone indicates an expected call of WriteTombstone.
-func (mr *MockwalMockRecorder) WriteTombstone(index any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteTombstone", reflect.TypeOf((*Mockwal)(nil).WriteTombstone), index)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Write", reflect.TypeOf((*Mockwal)(nil).Write), key, value)
 }

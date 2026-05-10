@@ -19,6 +19,7 @@ import (
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/store"
+	"github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -169,7 +170,7 @@ func startnodes(commitType pb.CommitType) func() error {
 			ct = server.THREE_PHASE
 		}
 
-		committer := commitalgo.NewCommitter(stateStore, ct, w, node.Timeout)
+		committer := commitalgo.NewCommitter(stateStore, ct, wal.New(w), node.Timeout)
 		committer.SetHeight(recovery.Height)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
@@ -199,7 +200,7 @@ func startnodes(commitType pb.CommitType) func() error {
 		stateStore, recovery, err := store.New(c, dbPath)
 		failfast(err)
 
-		coord, err := coordinator.New(coordConfig, c, stateStore)
+		coord, err := coordinator.New(coordConfig, wal.New(c), stateStore)
 		failfast(err)
 		coord.SetHeight(recovery.Height)
 

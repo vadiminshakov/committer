@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/walrecord"
+	"github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -26,18 +26,15 @@ func TestStore_Recovery_Commit(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 2. write prepared (should require commit to apply)
+	// 2. write prepared then commit sequentially (indices 1, 2)
 	height := uint64(10)
-	prepIdx := walrecord.PreparedSlot(height)
-	tx := walrecord.WalTx{Key: "key1", Value: []byte("value1")}
-	encoded, _ := walrecord.Encode(tx)
+	tx := wal.Tx{Key: "key1", Value: []byte("value1")}
+	encoded, _ := wal.Encode(tx)
 
-	err = w.Write(prepIdx, walrecord.KeyPrepared, encoded)
+	err = w.Write(gowal.Record{Index: 1, Key: wal.PreparedKey(height), Value: encoded})
 	require.NoError(t, err)
 
-	// 3. write commit
-	commitIdx := walrecord.CommitSlot(height)
-	err = w.Write(commitIdx, walrecord.KeyCommit, encoded)
+	err = w.Write(gowal.Record{Index: 2, Key: wal.CommitKey(height), Value: encoded})
 	require.NoError(t, err)
 
 	w.Close()
@@ -46,12 +43,12 @@ func TestStore_Recovery_Commit(t *testing.T) {
 	require.NoError(t, err)
 	defer w2.Close()
 
-	// 4. recover
+	// 3. recover
 	s, state, err := New(w2, dbDir)
 	require.NoError(t, err)
 	defer s.Close()
 
-	// 5. verify
+	// 4. verify
 	assert.Equal(t, height+1, state.Height)
 
 	val, err := s.Get("key1")
@@ -74,11 +71,10 @@ func TestStore_Recovery_PreparedOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	height := uint64(15)
-	prepIdx := walrecord.PreparedSlot(height)
-	tx := walrecord.WalTx{Key: "key2", Value: []byte("value2")}
-	encoded, _ := walrecord.Encode(tx)
+	tx := wal.Tx{Key: "key2", Value: []byte("value2")}
+	encoded, _ := wal.Encode(tx)
 
-	err = w.Write(prepIdx, walrecord.KeyPrepared, encoded)
+	err = w.Write(gowal.Record{Index: 1, Key: wal.PreparedKey(height), Value: encoded})
 	require.NoError(t, err)
 	w.Close()
 
@@ -113,10 +109,9 @@ func TestStore_Recovery_Abort(t *testing.T) {
 	require.NoError(t, err)
 
 	height := uint64(20)
-	
-	// write abort
-	abortIdx := walrecord.AbortSlot(height)
-	err = w.Write(abortIdx, walrecord.KeyAbort, nil)
+
+	// write abort at index 1
+	err = w.Write(gowal.Record{Index: 1, Key: wal.AbortKey(height)})
 	require.NoError(t, err)
 	w.Close()
 

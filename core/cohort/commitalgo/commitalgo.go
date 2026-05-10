@@ -13,16 +13,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/core/walrecord"
+	iowal "github.com/vadiminshakov/committer/io/wal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // wal defines the interface for write-ahead log operations.
 type wal interface {
-	Write(index uint64, key string, value []byte) error
-	WriteTombstone(index uint64) error
-	Get(index uint64) (string, []byte, error)
+	Write(key string, value []byte) error
 	Close() error
 }
 
@@ -36,13 +34,15 @@ type StateStore interface {
 
 // CommitterImpl implements the commit algorithm with state machine and hooks.
 type CommitterImpl struct {
-	store        StateStore
-	wal          wal
-	hookRegistry *hooks.Registry
-	state        *stateMachine
-	height       uint64
-	timeout      uint64
-	mu           sync.Mutex
+	store          StateStore
+	wal            wal
+	hookRegistry   *hooks.Registry
+	state          *stateMachine
+	height         uint64
+	timeout        uint64
+	mu             sync.Mutex
+	pendingPayload []byte // encoded payload of the current in-progress transaction
+	aborted        bool   // whether the current transaction was aborted
 }
 
 // NewCommitter creates a new committer instance with the specified configuration.
@@ -81,6 +81,16 @@ func (c *CommitterImpl) SetHeight(height uint64) {
 	atomic.StoreUint64(&c.height, height)
 }
 
+// SetPendingPayload restores the in-progress transaction payload after crash recovery.
+func (c *CommitterImpl) SetPendingPayload(payload []byte) {
+	c.pendingPayload = payload
+}
+
+func (c *CommitterImpl) resetPending() {
+	c.pendingPayload = nil
+	c.aborted = false
+}
+
 func (c *CommitterImpl) getCurrentState() string {
 	return c.state.getCurrentState()
 }
@@ -103,20 +113,19 @@ func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*
 		return nil, err
 	}
 
-	// prepare payload
-	ptx := walrecord.WalTx{Key: req.Key, Value: req.Value}
-	pb, err := walrecord.Encode(ptx)
+	payload, err := iowal.Encode(iowal.Tx{Key: req.Key, Value: req.Value})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "encode error: %v", err)
 	}
 
-	// save
-	if err := c.wal.Write(walrecord.PreparedSlot(req.Height), walrecord.KeyPrepared, pb); err != nil {
+	if err := c.wal.Write(iowal.PreparedKey(req.Height), payload); err != nil {
 		if terr := c.state.Transition(proposeStage); terr != nil {
 			log.Errorf("failed to reset state to propose after WAL error: %v", terr)
 		}
+		
 		return nil, status.Errorf(codes.Internal, "failed to write wal on index %d: %v", req.Height, err)
 	}
+	c.pendingPayload = payload
 
 	if c.state.mode == twophase {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
@@ -145,9 +154,10 @@ func (c *CommitterImpl) handleProposeTimeout(height uint64) {
 		return
 	}
 
-	if err := c.wal.Write(walrecord.AbortSlot(height), walrecord.KeyAbort, nil); err != nil {
+	if err := c.wal.Write(iowal.AbortKey(height), nil); err != nil {
 		log.Errorf("failed to write skip record for height %d: %v", height, err)
 	} else {
+		c.aborted = true
 		log.Warnf("skip proposed message after timeout for height %d", height)
 	}
 }
@@ -166,22 +176,15 @@ func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.Cohor
 		return nil, status.Errorf(codes.FailedPrecondition, "precommit allowed only from propose state, current: %s", c.state.getCurrentState())
 	}
 
-	// check if already aborted
-	if k, _, _ := c.wal.Get(walrecord.AbortSlot(index)); k == walrecord.KeyAbort {
+	if c.aborted {
 		return nil, status.Errorf(codes.Aborted, "transaction %d was aborted", index)
 	}
 
-	// read prepared to ensure we have data
-	pSlot := walrecord.PreparedSlot(index)
-	k, val, err := c.wal.Get(pSlot)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to read prepared slot %d: %v", pSlot, err)
-	}
-	if k != walrecord.KeyPrepared {
-		return nil, status.Errorf(codes.FailedPrecondition, "not prepared (key=%s)", k)
+	if c.pendingPayload == nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "no prepared record for height %d", index)
 	}
 
-	if err := c.wal.Write(walrecord.PrecommitSlot(index), walrecord.KeyPrecommit, val); err != nil {
+	if err := c.wal.Write(iowal.PrecommitKey(index), c.pendingPayload); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to write precommit: %v", err)
 	}
 
@@ -210,28 +213,17 @@ func (c *CommitterImpl) handlePrecommitTimeout(height uint64) {
 		return
 	}
 
-	// check abort
-	if k, _, _ := c.wal.Get(walrecord.AbortSlot(height)); k == walrecord.KeyAbort {
+	if c.aborted {
 		log.Infof("found abort record for height %d during precommit timeout", height)
 		c.resetToPropose(height, "abort record found")
+
 		return
 	}
 
-	// check data (prepared/precommit)
-	key, value, err := c.wal.Get(walrecord.PreparedSlot(height))
-	if err != nil {
-		log.Errorf("failed to read WAL for height %d during precommit timeout: %v", height, err)
-		c.resetToPropose(height, "WAL read error")
-		return
-	}
-	if key != walrecord.KeyPrepared {
-		log.Warnf("unexpected key at prepared slot: %s", key)
-		c.resetToPropose(height, "invalid prepared key")
-		return
-	}
-	if value == nil {
-		log.Errorf("no data found in WAL for height %d during precommit timeout", height)
-		c.resetToPropose(height, "no WAL data")
+	if c.pendingPayload == nil {
+		log.Errorf("no pending payload for height %d during precommit timeout", height)
+		c.resetToPropose(height, "no pending payload")
+
 		return
 	}
 
@@ -292,7 +284,13 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, nil
 	}
 
-	// height == currentHeight: process the commit
+	if c.aborted {
+		log.Warnf("rejecting commit for aborted height %d", height)
+		c.resetToPropose(height, "aborted")
+
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, nil
+	}
+
 	currentState := c.state.getCurrentState()
 	expectedState := c.getExpectedCommitState()
 
@@ -300,13 +298,6 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 		return nil, status.Errorf(codes.FailedPrecondition,
 			"invalid state for commit: expected %s for %s mode, but current state is %s",
 			expectedState, c.state.GetMode(), currentState)
-	}
-
-	// check if already Aborted
-	if k, _, _ := c.wal.Get(walrecord.AbortSlot(height)); k == walrecord.KeyAbort {
-		log.Warnf("rejecting commit for aborted height %d", height)
-		c.resetToPropose(height, "wal aborted")
-		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, nil
 	}
 
 	if err := c.state.Transition(commitStage); err != nil {
@@ -320,39 +311,28 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, nil
 	}
 
-	// retrieve payload (try Precommit, then Prepared)
-	var payload []byte
-	// 2pc branch
-	if k, v, err := c.wal.Get(walrecord.PrecommitSlot(height)); err == nil && k == walrecord.KeyPrecommit {
-		payload = v
-		// 3pc branch
-	} else if k, v, err := c.wal.Get(walrecord.PreparedSlot(height)); err == nil && k == walrecord.KeyPrepared {
-		payload = v
-		// error branch
-	} else {
-		c.resetToPropose(height, "no prepared/precommit data found")
-		return nil, status.Errorf(codes.FailedPrecondition, "no prepared/precommit data found")
+	if c.pendingPayload == nil {
+		c.resetToPropose(height, "no pending payload")
+		return nil, status.Errorf(codes.FailedPrecondition, "no pending payload")
 	}
 
-	// decode
-	walTx, err := walrecord.Decode(payload)
+	walTx, err := iowal.Decode(c.pendingPayload)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode error: %v", err)
 	}
 
-	// write commit to WAL
-	if err := c.wal.Write(walrecord.CommitSlot(height), walrecord.KeyCommit, payload); err != nil {
+	if err := c.wal.Write(iowal.CommitKey(height), c.pendingPayload); err != nil {
 		c.resetToPropose(height, "wal write failed")
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, err
 	}
 
-	// 2. apply to storage
 	if err := c.store.Put(walTx.Key, walTx.Value); err != nil {
 		log.Errorf("CRITICAL: failed to apply committed tx to store: %v", err)
 		return nil, err
 	}
 
 	atomic.StoreUint64(&c.height, currentHeight+1)
+	c.resetPending()
 
 	if terr := c.state.Transition(proposeStage); terr != nil {
 		log.Errorf("failed to transition back to propose state after successful commit: %v", terr)
@@ -389,10 +369,11 @@ func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.
 
 	log.Infof("processing abort for current height %d", req.Height)
 
-	if err := c.wal.Write(walrecord.AbortSlot(req.Height), walrecord.KeyAbort, nil); err != nil {
+	if err := c.wal.Write(iowal.AbortKey(req.Height), nil); err != nil {
 		log.Errorf("failed to write abort record for aborted transaction at height %d: %v", req.Height, err)
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, err
 	}
+	c.aborted = true
 
 	log.Infof("successfully wrote tombstone record for height %d", req.Height)
 
