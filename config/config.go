@@ -21,6 +21,8 @@ const (
 	DefaultWalMaxSegments int = 100
 	// DefaultWalIsInSyncDiskMode enables synchronous disk writes for WAL by default.
 	DefaultWalIsInSyncDiskMode bool = true
+	// DefaultDBPath is the fixed path for the BadgerDB database directory.
+	DefaultDBPath string = "./.data/db"
 )
 
 // Config holds the configuration settings for the committer application.
@@ -29,7 +31,6 @@ type Config struct {
 	Nodeaddr    string   // Address of this node
 	Coordinator string   // Address of the coordinator (for cohorts)
 	CommitType  string   // Commit protocol: "two-phase" or "three-phase"
-	DBPath      string   // Path to the database directory
 	Cohorts     []string // List of cohort addresses (for coordinators)
 	Timeout     uint64   // Timeout in milliseconds for 3PC operations
 }
@@ -42,7 +43,6 @@ func Get() *Config {
 	coordinator := flag.String("coordinator", "", "coordinator address")
 	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
-	dbpath := flag.String("dbpath", "./badger", "database path on filesystem")
 	cohorts := flag.String("cohorts", "", "cohort addresses")
 	flag.Parse()
 
@@ -62,7 +62,6 @@ func Get() *Config {
 		Nodeaddr:    *nodeaddr,
 		Coordinator: *coordinator,
 		CommitType:  *committype,
-		DBPath:      *dbpath,
 		Cohorts:     cohortsArray,
 		Timeout:     *timeout,
 	}

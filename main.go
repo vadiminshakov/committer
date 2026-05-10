@@ -49,7 +49,7 @@ func run() error {
 	}
 	defer wal.Close()
 
-	stateStore, recovery, err := newStore(conf, wal)
+	stateStore, recovery, err := newStore(wal)
 	if err != nil {
 		return err
 	}
@@ -88,8 +88,8 @@ func newWAL() (*gowal.Wal, error) {
 	return w, nil
 }
 
-func newStore(conf *config.Config, wal *gowal.Wal) (*store.Store, *store.RecoveryState, error) {
-	stateStore, recovery, err := store.New(wal, conf.DBPath)
+func newStore(wal *gowal.Wal) (*store.Store, *store.RecoveryState, error) {
+	stateStore, recovery, err := store.New(wal, config.DefaultDBPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
