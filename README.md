@@ -69,7 +69,6 @@ All configuration parameters can be set using command-line flags:
 | `coordinator`  | Coordinator address (required for cohorts)              | `""`                | `-coordinator=localhost:3050`       |
 | `committype`   | Commit protocol: `two-phase` or `three-phase`           | `three-phase`       | `-committype=two-phase`             |
 | `timeout`      | Timeout (ms) for unacknowledged messages (3PC only)     | `1000`              | `-timeout=500`                      |
-| `dbpath`       | Path to the BadgerDB database on the filesystem         | `./badger`          | `-dbpath=/tmp/badger`               |
 | `cohorts`      | Comma-separated list of cohort addresses                | `""`                | `-cohorts=localhost:3052,3053`      |
 
 
@@ -77,12 +76,12 @@ All configuration parameters can be set using command-line flags:
 
 ### **Running as a Cohort**
 ```bash
-./committer -role=cohort -nodeaddr=localhost:3001 -coordinator=localhost:3000 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/cohort
+./committer -role=cohort -nodeaddr=localhost:3001 -coordinator=localhost:3000 -committype=three-phase -timeout=1000
 ```
 
 ### **Running as a Coordinator**
 ```bash
-./committer -role=coordinator -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000 -dbpath=/tmp/badger/coordinator
+./committer -role=coordinator -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000
 ```
 
 ## **Hooks System**
