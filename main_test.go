@@ -148,9 +148,9 @@ func startnodes(commitType pb.CommitType) func() error {
 		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
 			node.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 		}
-		node.DBPath = filepath.Join(COHORT_BADGER, strconv.Itoa(i))
+		dbPath := filepath.Join(COHORT_BADGER, strconv.Itoa(i))
 
-		failfast(os.MkdirAll(node.DBPath, os.FileMode(0o777)))
+		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
 		walConfig := gowal.Config{
 			Dir:              "./tmp/cohort/" + strconv.Itoa(i),
 			Prefix:           "msgs_",
@@ -161,7 +161,7 @@ func startnodes(commitType pb.CommitType) func() error {
 		w, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		stateStore, recovery, err := store.New(w, node.DBPath)
+		stateStore, recovery, err := store.New(w, dbPath)
 		failfast(err)
 
 		ct := server.TWO_PHASE
@@ -183,8 +183,8 @@ func startnodes(commitType pb.CommitType) func() error {
 
 	// start coordinators (in two- and three-phase modes)
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
-		coordConfig.DBPath = filepath.Join(COORDINATOR_BADGER, strconv.Itoa(i))
-		failfast(os.MkdirAll(coordConfig.DBPath, os.FileMode(0o777)))
+		dbPath := filepath.Join(COORDINATOR_BADGER, strconv.Itoa(i))
+		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
 		walConfig := gowal.Config{
 			Dir:              "./tmp/coord/msgs" + strconv.Itoa(i),
 			Prefix:           "msgs",
@@ -196,7 +196,7 @@ func startnodes(commitType pb.CommitType) func() error {
 		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		stateStore, recovery, err := store.New(c, coordConfig.DBPath)
+		stateStore, recovery, err := store.New(c, dbPath)
 		failfast(err)
 
 		coord, err := coordinator.New(coordConfig, c, stateStore)

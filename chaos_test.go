@@ -515,8 +515,8 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 				node.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 			}
 		}
-		node.DBPath = filepath.Join(COHORT_BADGER, strconv.Itoa(i))
-		failfast(os.MkdirAll(node.DBPath, os.FileMode(0o777)))
+		dbPath := filepath.Join(COHORT_BADGER, strconv.Itoa(i))
+		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
 
 		walConfig := gowal.Config{
 			Dir:              "./tmp/cohort/" + strconv.Itoa(i),
@@ -528,7 +528,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		stateStore, recovery, err := store.New(c, node.DBPath)
+		stateStore, recovery, err := store.New(c, dbPath)
 		failfast(err)
 
 		ct := server.TWO_PHASE
@@ -549,8 +549,8 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 
 	// start coordinators
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
-		coordConfig.DBPath = filepath.Join(COORDINATOR_BADGER, strconv.Itoa(i))
-		failfast(os.MkdirAll(coordConfig.DBPath, os.FileMode(0o777)))
+		dbPath := filepath.Join(COORDINATOR_BADGER, strconv.Itoa(i))
+		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
 		// update cohorts addresses to use proxies
 		updatedCohorts := make([]string, len(coordConfig.Cohorts))
 		for j, cohortAddr := range coordConfig.Cohorts {
@@ -573,7 +573,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		stateStore, recovery, err := store.New(c, coordConfig.DBPath)
+		stateStore, recovery, err := store.New(c, dbPath)
 		failfast(err)
 
 		coord, err := coordinator.New(coordConfig, c, stateStore)
