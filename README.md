@@ -64,24 +64,23 @@ All configuration parameters can be set using command-line flags:
 
 | **Flag**       | **Description**                                          | **Default**         | **Example**                          |
 |-----------------|---------------------------------------------------------|---------------------|-------------------------------------|
-| `role`         | Node role: `coordinator` or `cohort`                    | `cohort`            | `-role=coordinator`                 |
 | `nodeaddr`     | Address of the current node                             | `localhost:3050`    | `-nodeaddr=localhost:3051`          |
 | `coordinator`  | Coordinator address (required for cohorts)              | `""`                | `-coordinator=localhost:3050`       |
 | `committype`   | Commit protocol: `two-phase` or `three-phase`           | `three-phase`       | `-committype=two-phase`             |
 | `timeout`      | Timeout (ms) for unacknowledged messages (3PC only)     | `1000`              | `-timeout=500`                      |
-| `cohorts`      | Comma-separated list of cohort addresses                | `""`                | `-cohorts=localhost:3052,3053`      |
+| `cohorts`      | Comma-separated list of cohort addresses (presence implies coordinator role) | `""` | `-cohorts=localhost:3052,localhost:3053` |
 
 
 ## **Usage**
 
 ### **Running as a Cohort**
 ```bash
-./committer -role=cohort -nodeaddr=localhost:3001 -coordinator=localhost:3000 -committype=three-phase -timeout=1000
+./committer -nodeaddr=localhost:3001 -coordinator=localhost:3000 -committype=three-phase -timeout=1000
 ```
 
 ### **Running as a Coordinator**
 ```bash
-./committer -role=coordinator -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000
+./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000
 ```
 
 ## **Hooks System**

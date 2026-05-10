@@ -6,7 +6,6 @@ package config
 
 import (
 	"flag"
-	"log"
 	"strings"
 )
 
@@ -38,7 +37,6 @@ type Config struct {
 // Get creates configuration from yaml configuration file (if '-config=' flag specified) or command-line arguments.
 func Get() *Config {
 	// command-line flags
-	role := flag.String("role", "cohort", "role (coordinator or cohort)")
 	nodeaddr := flag.String("nodeaddr", "localhost:3050", "node address")
 	coordinator := flag.String("coordinator", "", "coordinator address")
 	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
@@ -47,18 +45,14 @@ func Get() *Config {
 	flag.Parse()
 
 	cohortsArray := filterEmpty(strings.Split(*cohorts, ","))
-	if *role != "coordinator" {
-		if !includes(cohortsArray, *nodeaddr) {
-			cohortsArray = append(cohortsArray, *nodeaddr)
-		}
-	}
 
-	if *role == "coordinator" && len(cohortsArray) == 0 {
-		log.Fatalf("coordinator role requires at least one cohort address")
+	role := "cohort"
+	if len(cohortsArray) > 0 {
+		role = "coordinator"
 	}
 
 	return &Config{
-		Role:        *role,
+		Role:        role,
 		Nodeaddr:    *nodeaddr,
 		Coordinator: *coordinator,
 		CommitType:  *committype,
@@ -66,16 +60,6 @@ func Get() *Config {
 		Timeout:     *timeout,
 	}
 
-}
-
-// includes checks that the 'arr' includes 'value'
-func includes(arr []string, value string) bool {
-	for i := range arr {
-		if arr[i] == value {
-			return true
-		}
-	}
-	return false
 }
 
 // filterEmpty trims and removes empty entries from a slice of strings

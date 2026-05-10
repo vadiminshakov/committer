@@ -9,11 +9,11 @@
 //
 // Usage:
 //
-//	# Start coordinator
-//	./committer -role=coordinator -nodeaddr=localhost:3000 -cohorts=localhost:3001,3002
+//	# Start coordinator (presence of -cohorts implies coordinator role)
+//	./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001,localhost:3002
 //
-//	# Start cohort
-//	./committer -role=cohort -coordinator=localhost:3000 -nodeaddr=localhost:3001
+//	# Start cohort (no -cohorts implies cohort role)
+//	./committer -coordinator=localhost:3000 -nodeaddr=localhost:3001
 package main
 
 import (
