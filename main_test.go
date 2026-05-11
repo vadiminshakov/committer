@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
@@ -56,18 +57,16 @@ var testtable = map[string][]byte{
 }
 
 func TestHappyPath(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
-
 	var canceller func() error
 
 	var height uint64 = 0
 	coordConfig := nodes[COORDINATOR_TYPE][0]
 	if coordConfig.CommitType == "two-phase" {
 		canceller = startnodes(pb.CommitType_TWO_PHASE_COMMIT)
-		log.Println("***\nTEST IN TWO-PHASE MODE\n***")
+		slog.Info("TEST IN TWO-PHASE MODE")
 	} else {
 		canceller = startnodes(pb.CommitType_THREE_PHASE_COMMIT)
-		log.Println("***\nTEST IN THREE-PHASE MODE\n***")
+		slog.Info("TEST IN THREE-PHASE MODE")
 	}
 
 	defer canceller()

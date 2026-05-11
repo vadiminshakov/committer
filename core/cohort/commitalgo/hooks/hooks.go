@@ -5,7 +5,8 @@
 package hooks
 
 import (
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vadiminshakov/committer/core/dto"
 )
 
@@ -19,12 +20,12 @@ func NewDefaultHook() *DefaultHook {
 
 // OnPropose implements the Hook interface for propose operations
 func (h *DefaultHook) OnPropose(req *dto.ProposeRequest) bool {
-	log.Infof("propose hook on height %d is OK", req.Height)
+	slog.Info("propose hook is OK", "height", req.Height)
 	return true
 }
 
 // OnCommit implements the Hook interface for commit operations
 func (h *DefaultHook) OnCommit(req *dto.CommitRequest) bool {
-	log.Infof("commit hook on height %d is OK", req.Height)
+	slog.Info("commit hook is OK", "height", req.Height)
 	return true
 }

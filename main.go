@@ -18,7 +18,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -34,8 +34,12 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
 	if err := run(); err != nil {
-		log.Fatalf("committer failed: %v", err)
+		slog.Error("committer failed", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -95,7 +99,7 @@ func newStore(w *wal.Wal, conf *config.Config) (*store.Store, *wal.RecoveryState
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
 
-	log.Printf("Recovered state from WAL: next height %d, keys %d\n", recovery.Height, stateStore.Size())
+	slog.Info("Recovered state from WAL", "next_height", recovery.Height, "keys", stateStore.Size())
 	return stateStore, recovery, nil
 }
 

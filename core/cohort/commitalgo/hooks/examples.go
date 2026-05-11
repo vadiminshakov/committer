@@ -2,9 +2,9 @@ package hooks
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/dto"
 )
 
@@ -25,22 +25,20 @@ func NewMetricsHook() *MetricsHook {
 // OnPropose increments propose counter and logs metrics.
 func (m *MetricsHook) OnPropose(req *dto.ProposeRequest) bool {
 	m.proposeCount++
-	log.WithFields(log.Fields{
-		"height":        req.Height,
-		"propose_count": m.proposeCount,
-		"uptime":        time.Since(m.startTime),
-	}).Info("Metrics: propose operation")
+	slog.Info("Metrics: propose operation",
+		"height", req.Height,
+		"propose_count", m.proposeCount,
+		"uptime", time.Since(m.startTime))
 	return true
 }
 
 // OnCommit increments commit counter and logs metrics
 func (m *MetricsHook) OnCommit(req *dto.CommitRequest) bool {
 	m.commitCount++
-	log.WithFields(log.Fields{
-		"height":       req.Height,
-		"commit_count": m.commitCount,
-		"uptime":       time.Since(m.startTime),
-	}).Info("Metrics: commit operation")
+	slog.Info("Metrics: commit operation",
+		"height", req.Height,
+		"commit_count", m.commitCount,
+		"uptime", time.Since(m.startTime))
 	return true
 }
 
@@ -66,27 +64,27 @@ func NewValidationHook(maxKeyLength, maxValueLength int) *ValidationHook {
 // OnPropose validates the propose request
 func (v *ValidationHook) OnPropose(req *dto.ProposeRequest) bool {
 	if len(req.Key) > v.maxKeyLength {
-		log.Errorf("Key too long: %d > %d", len(req.Key), v.maxKeyLength)
+		slog.Error("Key too long", "length", len(req.Key), "max", v.maxKeyLength)
 		return false
 	}
 
 	if len(req.Value) > v.maxValueLength {
-		log.Errorf("Value too long: %d > %d", len(req.Value), v.maxValueLength)
+		slog.Error("Value too long", "length", len(req.Value), "max", v.maxValueLength)
 		return false
 	}
 
-	log.Debugf("Validation passed for key: %s", req.Key)
+	slog.Debug("Validation passed", "key", req.Key)
 	return true
 }
 
 // OnCommit validates the commit request
 func (v *ValidationHook) OnCommit(req *dto.CommitRequest) bool {
 	if req.Height == 0 {
-		log.Error("Invalid height: cannot be zero")
+		slog.Error("Invalid height: cannot be zero")
 		return false
 	}
 
-	log.Debugf("Commit validation passed for height: %d", req.Height)
+	slog.Debug("Commit validation passed", "height", req.Height)
 	return true
 }
 
@@ -107,7 +105,7 @@ func (a *AuditHook) OnPropose(req *dto.ProposeRequest) bool {
 	auditMsg := fmt.Sprintf("[AUDIT] PROPOSE - Height: %d, Key: %s, Value: %s, Time: %s",
 		req.Height, req.Key, string(req.Value), time.Now().Format(time.RFC3339))
 
-	log.WithField("audit", true).Info(auditMsg)
+	slog.Info(auditMsg, "audit", true)
 	// Here you could also write to a file if needed
 	return true
 }
@@ -117,7 +115,7 @@ func (a *AuditHook) OnCommit(req *dto.CommitRequest) bool {
 	auditMsg := fmt.Sprintf("[AUDIT] COMMIT - Height: %d, Time: %s",
 		req.Height, time.Now().Format(time.RFC3339))
 
-	log.WithField("audit", true).Info(auditMsg)
+	slog.Info(auditMsg, "audit", true)
 	// Here you could also write to a file if needed
 	return true
 }

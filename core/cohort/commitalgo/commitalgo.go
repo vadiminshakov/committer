@@ -6,11 +6,11 @@ package commitalgo
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
 	iowal "github.com/vadiminshakov/committer/io/wal"
@@ -120,9 +120,9 @@ func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*
 
 	if err := c.wal.Write(iowal.PreparedKey(req.Height), payload); err != nil {
 		if terr := c.state.Transition(proposeStage); terr != nil {
-			log.Errorf("failed to reset state to propose after WAL error: %v", terr)
+			slog.Error("failed to reset state to propose after WAL error", "err", terr)
 		}
-		
+
 		return nil, status.Errorf(codes.Internal, "failed to write wal on index %d: %v", req.Height, err)
 	}
 	c.pendingPayload = payload
@@ -147,18 +147,18 @@ func (c *CommitterImpl) handleProposeTimeout(height uint64) {
 	currentState := c.state.getCurrentState()
 	currentHeight := atomic.LoadUint64(&c.height)
 
-	log.Debugf("propose timeout handler: state=%s, height=%d, index=%d", currentState, currentHeight, height)
+	slog.Debug("propose timeout handler", "state", currentState, "height", currentHeight, "index", height)
 
 	if currentState != proposeStage || currentHeight != height {
-		log.Debugf("skipping propose timeout handling for height %d: state=%s, currentHeight=%d", height, currentState, currentHeight)
+		slog.Debug("skipping propose timeout handling", "height", height, "state", currentState, "current_height", currentHeight)
 		return
 	}
 
 	if err := c.wal.Write(iowal.AbortKey(height), nil); err != nil {
-		log.Errorf("failed to write skip record for height %d: %v", height, err)
+		slog.Error("failed to write skip record", "height", height, "err", err)
 	} else {
 		c.aborted = true
-		log.Warnf("skip proposed message after timeout for height %d", height)
+		slog.Warn("skip proposed message after timeout", "height", height)
 	}
 }
 
@@ -206,60 +206,60 @@ func (c *CommitterImpl) handlePrecommitTimeout(height uint64) {
 	currentState := c.state.getCurrentState()
 	currentHeight := atomic.LoadUint64(&c.height)
 
-	log.Debugf("precommit timeout handler: state=%s, height=%d, index=%d", currentState, currentHeight, height)
+	slog.Debug("precommit timeout handler", "state", currentState, "height", currentHeight, "index", height)
 
 	if currentState != precommitStage || currentHeight != height {
-		log.Debugf("skipping autocommit for height %d: state=%s, currentHeight=%d", height, currentState, currentHeight)
+		slog.Debug("skipping autocommit", "height", height, "state", currentState, "current_height", currentHeight)
 		return
 	}
 
 	if c.aborted {
-		log.Infof("found abort record for height %d during precommit timeout", height)
+		slog.Info("found abort record during precommit timeout", "height", height)
 		c.resetToPropose(height, "abort record found")
 
 		return
 	}
 
 	if c.pendingPayload == nil {
-		log.Errorf("no pending payload for height %d during precommit timeout", height)
+		slog.Error("no pending payload during precommit timeout", "height", height)
 		c.resetToPropose(height, "no pending payload")
 
 		return
 	}
 
-	log.Warnf("performing autocommit after precommit timeout for height %d", height)
+	slog.Warn("performing autocommit after precommit timeout", "height", height)
 
 	response, err := c.commit(height)
 	if err != nil {
-		log.Errorf("autocommit failed for height %d: %v", height, err)
+		slog.Error("autocommit failed", "height", height, "err", err)
 		c.resetToPropose(height, "autocommit failed")
 		return
 	}
 
 	if response != nil && response.ResponseType == dto.ResponseTypeNack {
-		log.Warnf("autocommit returned NACK for height %d", height)
+		slog.Warn("autocommit returned NACK", "height", height)
 		c.resetToPropose(height, "autocommit NACK")
 		return
 	}
 
-	log.Infof("successfully autocommitted height %d after precommit timeout", height)
+	slog.Info("successfully autocommitted after precommit timeout", "height", height)
 }
 
 func (c *CommitterImpl) resetToPropose(height uint64, reason string) {
-	log.Debugf("resetting state to propose for height %d: %s", height, reason)
+	slog.Debug("resetting state to propose", "height", height, "reason", reason)
 
 	currentState := c.state.getCurrentState()
 
 	if c.state.GetMode() == threephase && currentState == precommitStage {
 		// 3PC cannot transition directly from precommit -> propose; it must go via commit
 		if err := c.state.Transition(commitStage); err != nil {
-			log.Errorf("failed to transition to commit state during reset for height %d: %v", height, err)
+			slog.Error("failed to transition to commit state during reset", "height", height, "err", err)
 			return
 		}
 	}
 
 	if err := c.state.Transition(proposeStage); err != nil {
-		log.Errorf("failed to reset to propose state for height %d: %v (current: %s)", height, err, c.state.getCurrentState())
+		slog.Error("failed to reset to propose state", "height", height, "err", err, "current", c.state.getCurrentState())
 	}
 }
 
@@ -275,7 +275,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 
 	// idempotent commit: if already applied, return ACK without error
 	if height < currentHeight {
-		log.Debugf("commit for height %d already applied (current height: %d)", height, currentHeight)
+		slog.Debug("commit already applied", "height", height, "current_height", currentHeight)
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: height}, nil
 	}
 
@@ -285,7 +285,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 	}
 
 	if c.aborted {
-		log.Warnf("rejecting commit for aborted height %d", height)
+		slog.Warn("rejecting commit for aborted height", "height", height)
 		c.resetToPropose(height, "aborted")
 
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, nil
@@ -306,7 +306,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 
 	if !c.hookRegistry.ExecuteCommit(&dto.CommitRequest{Height: height}) {
 		if terr := c.state.Transition(proposeStage); terr != nil {
-			log.Errorf("failed to reset state after hook failure: %v", terr)
+			slog.Error("failed to reset state after hook failure", "err", terr)
 		}
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, nil
 	}
@@ -327,7 +327,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 	}
 
 	if err := c.store.Put(walTx.Key, walTx.Value); err != nil {
-		log.Errorf("CRITICAL: failed to apply committed tx to store: %v", err)
+		slog.Error("CRITICAL: failed to apply committed tx to store", "err", err)
 		return nil, err
 	}
 
@@ -335,7 +335,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 	c.resetPending()
 
 	if terr := c.state.Transition(proposeStage); terr != nil {
-		log.Errorf("failed to transition back to propose state after successful commit: %v", terr)
+		slog.Error("failed to transition back to propose state after successful commit", "err", terr)
 	}
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
@@ -350,7 +350,7 @@ func (c *CommitterImpl) getExpectedCommitState() string {
 
 // Abort handles abort requests from coordinator.
 func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error) {
-	log.Warnf("received abort request for height %d: %s", req.Height, req.Reason)
+	slog.Warn("received abort request", "height", req.Height, "reason", req.Reason)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -358,27 +358,27 @@ func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.
 	currentHeight := atomic.LoadUint64(&c.height)
 
 	if req.Height > currentHeight {
-		log.Debugf("ignoring abort for future height %d (current: %d)", req.Height, currentHeight)
+		slog.Debug("ignoring abort for future height", "height", req.Height, "current", currentHeight)
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
 	}
 
 	if req.Height < currentHeight {
-		log.Debugf("ignoring abort for past height %d (current: %d)", req.Height, currentHeight)
+		slog.Debug("ignoring abort for past height", "height", req.Height, "current", currentHeight)
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
 	}
 
-	log.Infof("processing abort for current height %d", req.Height)
+	slog.Info("processing abort for current height", "height", req.Height)
 
 	if err := c.wal.Write(iowal.AbortKey(req.Height), nil); err != nil {
-		log.Errorf("failed to write abort record for aborted transaction at height %d: %v", req.Height, err)
+		slog.Error("failed to write abort record", "height", req.Height, "err", err)
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, err
 	}
 	c.aborted = true
 
-	log.Infof("successfully wrote tombstone record for height %d", req.Height)
+	slog.Info("successfully wrote tombstone record", "height", req.Height)
 
 	c.resetToPropose(req.Height, "abort request")
 
-	log.Infof("successfully processed abort for height %d", req.Height)
+	slog.Info("successfully processed abort", "height", req.Height)
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
 }

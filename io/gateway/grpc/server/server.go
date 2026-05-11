@@ -7,10 +7,10 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
-	"time"
+	"os"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
@@ -138,12 +138,6 @@ func (s *Server) NodeInfo(ctx context.Context, req *emptypb.Empty) (*proto.Info,
 
 // New creates a new Server instance with the specified configuration.
 func New(conf *config.Config, cohort Cohort, coordinator Coordinator, stateStore *store.Store) (*Server, error) {
-	log.SetFormatter(&log.TextFormatter{
-		ForceColors:     true, // Seems like automatic color detection doesn't work on windows terminals
-		FullTimestamp:   true,
-		TimestampFormat: time.RFC822,
-	})
-
 	server := &Server{
 		Addr:        conf.Nodeaddr,
 		cohort:      cohort,
@@ -153,9 +147,9 @@ func New(conf *config.Config, cohort Cohort, coordinator Coordinator, stateStore
 	}
 
 	if server.Config.CommitType == TWO_PHASE {
-		log.Info("two-phase-commit mode enabled")
+		slog.Info("two-phase-commit mode enabled")
 	} else {
-		log.Info("three-phase-commit mode enabled")
+		slog.Info("three-phase-commit mode enabled")
 	}
 	err := checkServerFields(server)
 	return server, err
@@ -185,21 +179,22 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 
 	l, err := net.Listen("tcp", s.Addr)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		slog.Error("failed to listen", "err", err)
+		os.Exit(1)
 	}
-	log.Infof("listening on tcp://%s", s.Addr)
+	slog.Info("listening", "addr", "tcp://"+s.Addr)
 
 	go s.GRPCServer.Serve(l)
 }
 
 // Stop gracefully stops the gRPC server.
 func (s *Server) Stop() {
-	log.Info("stopping server")
+	slog.Info("stopping server")
 	s.GRPCServer.GracefulStop()
 	if s.store != nil {
 		if err := s.store.Close(); err != nil {
-			log.Infof("failed to close store: %s\n", err)
+			slog.Info("failed to close store", "err", err)
 		}
 	}
-	log.Info("server stopped")
+	slog.Info("server stopped")
 }

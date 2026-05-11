@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
@@ -35,7 +34,6 @@ import (
 const TOXIPROXY_URL = "http://localhost:8474"
 
 func TestChaosFollowerFailure(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
 
 	// immediate connection reset
 	t.Run("immediate_reset", func(t *testing.T) {
@@ -309,7 +307,6 @@ func TestChaosFollowerFailure(t *testing.T) {
 }
 
 func TestChaosCoordinatorFailure(t *testing.T) {
-	log.SetLevel(log.InfoLevel)
 
 	// immediate connection reset
 	t.Run("coordinator_immediate_reset", func(t *testing.T) {

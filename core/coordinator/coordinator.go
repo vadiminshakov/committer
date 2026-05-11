@@ -11,7 +11,8 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
+
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
 	iowal "github.com/vadiminshakov/committer/io/wal"
@@ -82,19 +83,19 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	log.Infof("Proposing key %s", req.Key)
+	slog.Info("Proposing key", "key", req.Key)
 	if err := c.propose(ctx, req); err != nil {
 		return nackResponse(err, "failed to send propose")
 	}
 
 	if c.threePhase {
-		log.Infof("Precommitting key %s", req.Key)
+		slog.Info("Precommitting key", "key", req.Key)
 		if err := c.preCommit(ctx); err != nil {
 			return nackResponse(err, "failed to send precommit")
 		}
 	}
 
-	log.Infof("Committing key %s", req.Key)
+	slog.Info("Committing key", "key", req.Key)
 	if err := c.commit(ctx); err != nil {
 		s, ok := status.FromError(err)
 		if !ok {
@@ -106,7 +107,7 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 		return nackResponse(err, "failed to send commit")
 	}
 
-	log.Infof("coordinator committed key %s", req.Key)
+	slog.Info("coordinator committed key", "key", req.Key)
 
 	newHeight := atomic.AddUint64(&c.height, 1)
 	return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Height: newHeight}, nil
@@ -218,7 +219,7 @@ func (c *coordinator) commit(ctx context.Context) error {
 		return status.Errorf(codes.Internal, "failed to decode tx: %v", err)
 	}
 	if err := c.store.Put(walTx.Key, walTx.Value); err != nil {
-		log.Errorf("failed to apply to store: %v", err)
+		slog.Error("failed to apply to store", "err", err)
 		return err // committed but not applied? critical error
 	}
 	c.pendingPayload = nil
@@ -239,7 +240,7 @@ func (c *coordinator) syncHeight(cohortHeight uint64) {
 		}
 
 		if atomic.CompareAndSwapUint64(&c.height, currentHeight, cohortHeight) {
-			log.Warnf("Updating coordinator height: %d -> %d", currentHeight, cohortHeight)
+			slog.Warn("Updating coordinator height", "from", currentHeight, "to", cohortHeight)
 			return
 		}
 	}
@@ -258,16 +259,16 @@ func (c *coordinator) SetHeight(height uint64) {
 // abort sends abort requests to all cohorts in a fire-and-forget manner
 func (c *coordinator) abort(ctx context.Context, reason string) {
 	currentHeight := atomic.LoadUint64(&c.height)
-	log.Warnf("Aborting transaction at height %d: %s", currentHeight, reason)
+	slog.Warn("Aborting transaction", "height", currentHeight, "reason", reason)
 
 	if err := c.wal.Write(iowal.AbortKey(currentHeight), nil); err != nil {
-		log.Errorf("Failed to write abort to WAL: %v", err)
+		slog.Error("Failed to write abort to WAL", "err", err)
 	}
 
 	for name, cohort := range c.cohorts {
 		go func(name string, cohort *client.InternalCommitClient) {
 			if _, err := cohort.Abort(ctx, &dto.AbortRequest{Height: currentHeight, Reason: reason}); err != nil {
-				log.Errorf("Failed to send abort to cohort %s: %v", name, err)
+				slog.Error("Failed to send abort to cohort", "cohort", name, "err", err)
 			}
 		}(name, cohort)
 	}

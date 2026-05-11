@@ -2,8 +2,8 @@ package client
 
 import (
 	"context"
+	"log/slog"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 )
@@ -45,6 +45,6 @@ func (client *InternalCommitClient) Abort(ctx context.Context, req *dto.AbortReq
 		Reason: req.Reason,
 	}
 
-	log.Infof("Sending abort request for height %d with reason: %s", req.Height, req.Reason)
+	slog.Info("Sending abort request", "height", req.Height, "reason", req.Reason)
 	return client.Connection.Abort(ctx, protoReq)
 }
