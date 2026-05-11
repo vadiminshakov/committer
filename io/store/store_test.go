@@ -44,7 +44,7 @@ func TestStore_Recovery_Commit(t *testing.T) {
 	defer w2.Close()
 
 	// 3. recover
-	s, state, err := New(w2, dbDir)
+	s, state, err := New(wal.New(w2), dbDir)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -82,7 +82,7 @@ func TestStore_Recovery_PreparedOnly(t *testing.T) {
 	require.NoError(t, err)
 	defer w2.Close()
 
-	s, state, err := New(w2, dbDir)
+	s, state, err := New(wal.New(w2), dbDir)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -119,7 +119,7 @@ func TestStore_Recovery_Abort(t *testing.T) {
 	require.NoError(t, err)
 	defer w2.Close()
 
-	s, state, err := New(w2, dbDir)
+	s, state, err := New(wal.New(w2), dbDir)
 	require.NoError(t, err)
 	defer s.Close()
 

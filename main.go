@@ -72,7 +72,7 @@ func run() error {
 	return nil
 }
 
-func newWAL() (*gowal.Wal, error) {
+func newWAL() (*wal.Wal, error) {
 	walConfig := gowal.Config{
 		Dir:              config.DefaultWalDir,
 		Prefix:           config.DefaultWalSegmentPrefix,
@@ -86,11 +86,11 @@ func newWAL() (*gowal.Wal, error) {
 		return nil, fmt.Errorf("failed to create WAL: %w", err)
 	}
 
-	return w, nil
+	return wal.New(w), nil
 }
 
-func newStore(wal *gowal.Wal) (*store.Store, *store.RecoveryState, error) {
-	stateStore, recovery, err := store.New(wal, config.DefaultDBPath)
+func newStore(w *wal.Wal) (*store.Store, *wal.RecoveryState, error) {
+	stateStore, recovery, err := store.New(w, config.DefaultDBPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
@@ -104,16 +104,16 @@ type roleComponents struct {
 	coordinator server.Coordinator
 }
 
-func buildRoles(conf *config.Config, stateStore *store.Store, w *gowal.Wal, recovery *store.RecoveryState) (*roleComponents, error) {
+func buildRoles(conf *config.Config, stateStore *store.Store, w *wal.Wal, recovery *wal.RecoveryState) (*roleComponents, error) {
 	rc := &roleComponents{}
 	switch conf.Role {
 	case "cohort":
-		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, wal.New(w), conf.Timeout)
+		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, w, conf.Timeout)
 		committer.SetHeight(recovery.Height)
 		committer.SetPendingPayload(recovery.PendingPayload)
 		rc.cohort = cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 	case "coordinator":
-		coord, err := coordinator.New(conf, wal.New(w), stateStore)
+		coord, err := coordinator.New(conf, w, stateStore)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create coordinator: %w", err)
 		}

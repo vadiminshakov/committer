@@ -28,6 +28,7 @@ import (
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/store"
+	"github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -528,7 +529,8 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		stateStore, recovery, err := store.New(c, dbPath)
+		walObj := wal.New(c)
+		stateStore, recovery, err := store.New(walObj, dbPath)
 		failfast(err)
 
 		ct := server.TWO_PHASE
@@ -536,7 +538,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 			ct = server.THREE_PHASE
 		}
 
-		committer := commitalgo.NewCommitter(stateStore, ct, c, node.Timeout)
+		committer := commitalgo.NewCommitter(stateStore, ct, walObj, node.Timeout)
 		committer.SetHeight(recovery.Height)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
@@ -573,10 +575,11 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		stateStore, recovery, err := store.New(c, dbPath)
+		walObj := wal.New(c)
+		stateStore, recovery, err := store.New(walObj, dbPath)
 		failfast(err)
 
-		coord, err := coordinator.New(coordConfig, c, stateStore)
+		coord, err := coordinator.New(coordConfig, walObj, stateStore)
 		failfast(err)
 		coord.SetHeight(recovery.Height)
 

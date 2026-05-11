@@ -59,22 +59,22 @@ func openTestWAL(t *testing.T, walPath string) *gowal.Wal {
 	return wal
 }
 
-func newStateStore(t *testing.T, wal *gowal.Wal) (*store.Store, *store.RecoveryState) {
+func newStateStore(t *testing.T, w *gowal.Wal) (*store.Store, *iowal.RecoveryState) {
 	dbPath := filepath.Join(t.TempDir(), "badger")
-	stateStore, recovery, err := store.New(wal, dbPath)
+	stateStore, recovery, err := store.New(iowal.New(w), dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { stateStore.Close() })
 	return stateStore, recovery
 }
 
-func prepareCommitter(t *testing.T, walPath, commitType string, timeout uint64, hooks ...hooks.Hook) (*CommitterImpl, *store.Store, *gowal.Wal, *store.RecoveryState) {
-	wal := openTestWAL(t, walPath)
-	stateStore, recovery := newStateStore(t, wal)
+func prepareCommitter(t *testing.T, walPath, commitType string, timeout uint64, hooks ...hooks.Hook) (*CommitterImpl, *store.Store, *gowal.Wal, *iowal.RecoveryState) {
+	w := openTestWAL(t, walPath)
+	stateStore, recovery := newStateStore(t, w)
 
-	committer := NewCommitter(stateStore, commitType, iowal.New(wal), timeout, hooks...)
+	committer := NewCommitter(stateStore, commitType, iowal.New(w), timeout, hooks...)
 	committer.SetHeight(recovery.Height)
 
-	return committer, stateStore, wal, recovery
+	return committer, stateStore, w, recovery
 }
 
 func TestNewCommitter_DefaultHook(t *testing.T) {

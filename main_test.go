@@ -162,7 +162,8 @@ func startnodes(commitType pb.CommitType) func() error {
 		w, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		stateStore, recovery, err := store.New(w, dbPath)
+		walObj := wal.New(w)
+		stateStore, recovery, err := store.New(walObj, dbPath)
 		failfast(err)
 
 		ct := server.TWO_PHASE
@@ -170,7 +171,7 @@ func startnodes(commitType pb.CommitType) func() error {
 			ct = server.THREE_PHASE
 		}
 
-		committer := commitalgo.NewCommitter(stateStore, ct, wal.New(w), node.Timeout)
+		committer := commitalgo.NewCommitter(stateStore, ct, walObj, node.Timeout)
 		committer.SetHeight(recovery.Height)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
@@ -197,10 +198,11 @@ func startnodes(commitType pb.CommitType) func() error {
 		c, err := gowal.NewWAL(walConfig)
 		failfast(err)
 
-		stateStore, recovery, err := store.New(c, dbPath)
+		walObj := wal.New(c)
+		stateStore, recovery, err := store.New(walObj, dbPath)
 		failfast(err)
 
-		coord, err := coordinator.New(coordConfig, wal.New(c), stateStore)
+		coord, err := coordinator.New(coordConfig, walObj, stateStore)
 		failfast(err)
 		coord.SetHeight(recovery.Height)
 
