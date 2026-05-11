@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	// DefaultWalDir is the default directory for write-ahead logs.
-	DefaultWalDir string = "./.data/wal"
 	// DefaultWalSegmentPrefix is the default prefix for WAL segment files.
 	DefaultWalSegmentPrefix string = "msgs_"
 	// DefaultWalSegmentThreshold is the default number of entries per WAL segment.
@@ -20,9 +18,17 @@ const (
 	DefaultWalMaxSegments int = 100
 	// DefaultWalIsInSyncDiskMode enables synchronous disk writes for WAL by default.
 	DefaultWalIsInSyncDiskMode bool = true
-	// DefaultDBPath is the fixed path for the BadgerDB database directory.
-	DefaultDBPath string = "./.data/db"
 )
+
+// DBPath returns the database directory path for the given role.
+func DBPath(role string) string {
+	return "./.data/db/" + role
+}
+
+// WalDir returns the WAL directory path for the given role.
+func WalDir(role string) string {
+	return "./.data/wal/" + role
+}
 
 // Config holds the configuration settings for the committer application.
 type Config struct {

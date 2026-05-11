@@ -44,13 +44,13 @@ func run() error {
 	signal.Notify(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	conf := config.Get()
 
-	wal, err := newWAL()
+	wal, err := newWAL(conf)
 	if err != nil {
 		return err
 	}
 	defer wal.Close()
 
-	stateStore, recovery, err := newStore(wal)
+	stateStore, recovery, err := newStore(wal, conf)
 	if err != nil {
 		return err
 	}
@@ -72,9 +72,9 @@ func run() error {
 	return nil
 }
 
-func newWAL() (*wal.Wal, error) {
+func newWAL(conf *config.Config) (*wal.Wal, error) {
 	walConfig := gowal.Config{
-		Dir:              config.DefaultWalDir,
+		Dir:              config.WalDir(conf.Role),
 		Prefix:           config.DefaultWalSegmentPrefix,
 		SegmentThreshold: config.DefaultWalSegmentThreshold,
 		MaxSegments:      config.DefaultWalMaxSegments,
@@ -89,8 +89,8 @@ func newWAL() (*wal.Wal, error) {
 	return wal.New(w), nil
 }
 
-func newStore(w *wal.Wal) (*store.Store, *wal.RecoveryState, error) {
-	stateStore, recovery, err := store.New(w, config.DefaultDBPath)
+func newStore(w *wal.Wal, conf *config.Config) (*store.Store, *wal.RecoveryState, error) {
+	stateStore, recovery, err := store.New(w, config.DBPath(conf.Role))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
