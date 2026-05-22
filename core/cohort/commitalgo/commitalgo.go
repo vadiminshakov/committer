@@ -13,6 +13,7 @@ import (
 
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
+	"github.com/vadiminshakov/committer/tui/events"
 	iowal "github.com/vadiminshakov/committer/io/wal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -41,8 +42,17 @@ type CommitterImpl struct {
 	height         uint64
 	timeout        uint64
 	mu             sync.Mutex
-	pendingPayload []byte // encoded payload of the current in-progress transaction
-	aborted        bool   // whether the current transaction was aborted
+	pendingPayload []byte         // encoded payload of the current in-progress transaction
+	aborted        bool           // whether the current transaction was aborted
+	emitter        events.Emitter
+}
+
+// SetEmitter injects an event emitter for TUI visualization. Safe to call after NewCommitter().
+func (c *CommitterImpl) SetEmitter(e events.Emitter) {
+	if e == nil {
+		e = events.NoopEmitter{}
+	}
+	c.emitter = e
 }
 
 // NewCommitter creates a new committer instance with the specified configuration.
@@ -63,6 +73,7 @@ func NewCommitter(store StateStore, commitType string, wal wal, timeout uint64, 
 		wal:          wal,
 		timeout:      timeout,
 		state:        newStateMachine(mode(commitType)),
+		emitter:      events.NoopEmitter{},
 	}
 }
 
@@ -112,6 +123,7 @@ func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*
 	if err := c.state.Transition(proposeStage); err != nil {
 		return nil, err
 	}
+	c.emitter.Emit(events.Event{Kind: events.EvCohortPropose, Height: req.Height, Key: req.Key})
 
 	payload, err := iowal.Encode(iowal.Tx{Key: req.Key, Value: req.Value})
 	if err != nil {
@@ -189,6 +201,7 @@ func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.Cohor
 	}
 
 	c.state.Transition(precommitStage)
+	c.emitter.Emit(events.Event{Kind: events.EvCohortPrecommit, Height: index})
 
 	go c.handlePrecommitTimeout(index)
 
@@ -303,6 +316,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 	if err := c.state.Transition(commitStage); err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "invalid state transition to commit: %v", err)
 	}
+	c.emitter.Emit(events.Event{Kind: events.EvCohortCommit, Height: height})
 
 	if !c.hookRegistry.ExecuteCommit(&dto.CommitRequest{Height: height}) {
 		if terr := c.state.Transition(proposeStage); terr != nil {
@@ -337,6 +351,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 	if terr := c.state.Transition(proposeStage); terr != nil {
 		slog.Error("failed to transition back to propose state after successful commit", "err", terr)
 	}
+	c.emitter.Emit(events.Event{Kind: events.EvCohortCommit, Height: currentHeight, Result: "ok"})
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
 }
@@ -376,6 +391,7 @@ func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.
 	c.aborted = true
 
 	slog.Info("successfully wrote tombstone record", "height", req.Height)
+	c.emitter.Emit(events.Event{Kind: events.EvCohortAbort, Height: req.Height, Message: req.Reason})
 
 	c.resetToPropose(req.Height, "abort request")
 

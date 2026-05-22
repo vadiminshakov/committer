@@ -14,6 +14,9 @@
 //
 //	# Start cohort (no -cohorts implies cohort role)
 //	./committer -coordinator=localhost:3000 -nodeaddr=localhost:3001
+//
+//	# Disable TUI (plain log output)
+//	./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -no-ui
 package main
 
 import (
@@ -23,6 +26,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
@@ -30,36 +34,66 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/store"
 	"github.com/vadiminshakov/committer/io/wal"
+	tuipkg "github.com/vadiminshakov/committer/tui"
+	"github.com/vadiminshakov/committer/tui/events"
+	"github.com/vadiminshakov/committer/tui/slogbridge"
 	"github.com/vadiminshakov/gowal"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})))
-	if err := run(); err != nil {
-		slog.Error("committer failed", "err", err)
+	conf := config.Get()
+
+	if conf.NoUI || !term.IsTerminal(os.Stdout.Fd()) {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})))
+		if err := run(conf, events.NoopEmitter{}); err != nil {
+			slog.Error("committer failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// TUI mode: redirect slog into the event log panel
+	src := events.NewChanEmitter()
+	slog.SetDefault(slog.New(slogbridge.NewHandler(src, slog.LevelDebug)))
+	p := tuipkg.NewProgram(conf, src)
+
+	var runErr error
+	go func() {
+		if err := run(conf, src); err != nil {
+			runErr = err
+			src.Emit(events.Event{Kind: events.EvLog, Level: "ERROR", Message: err.Error()})
+		}
+		p.Quit()
+	}()
+
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "TUI error:", err)
+		os.Exit(1)
+	}
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "error:", runErr)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(conf *config.Config, emitter events.Emitter) error {
 	ctx := make(chan os.Signal, 1)
 	signal.Notify(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	conf := config.Get()
 
-	wal, err := newWAL(conf)
+	w, err := newWAL(conf)
 	if err != nil {
 		return err
 	}
-	defer wal.Close()
+	defer w.Close()
 
-	stateStore, recovery, err := newStore(wal, conf)
+	stateStore, recovery, err := newStore(w, conf)
 	if err != nil {
 		return err
 	}
 
-	roles, err := buildRoles(conf, stateStore, wal, recovery)
+	roles, err := buildRoles(conf, stateStore, w, recovery, emitter)
 	if err != nil {
 		return err
 	}
@@ -108,11 +142,12 @@ type roleComponents struct {
 	coordinator server.Coordinator
 }
 
-func buildRoles(conf *config.Config, stateStore *store.Store, w *wal.Wal, recovery *wal.RecoveryState) (*roleComponents, error) {
+func buildRoles(conf *config.Config, stateStore *store.Store, w *wal.Wal, recovery *wal.RecoveryState, emitter events.Emitter) (*roleComponents, error) {
 	rc := &roleComponents{}
 	switch conf.Role {
 	case "cohort":
 		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, w, conf.Timeout)
+		committer.SetEmitter(emitter)
 		committer.SetHeight(recovery.Height)
 		committer.SetPendingPayload(recovery.PendingPayload)
 		rc.cohort = cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
@@ -121,6 +156,7 @@ func buildRoles(conf *config.Config, stateStore *store.Store, w *wal.Wal, recove
 		if err != nil {
 			return nil, fmt.Errorf("failed to create coordinator: %w", err)
 		}
+		coord.SetEmitter(emitter)
 		coord.SetHeight(recovery.Height)
 		rc.coordinator = coord
 	default:
