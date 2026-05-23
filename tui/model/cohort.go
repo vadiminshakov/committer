@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,9 +25,11 @@ type CohortModel struct {
 	lastHeight uint64
 	lastResult string // "COMMITTED" / "ABORTED"
 	// event log
-	logLines []string
-	viewport viewport.Model
-	vpReady  bool
+	logLines     []string
+	eventHistory []events.Event
+	viewport     viewport.Model
+	vpReady      bool
+	replay       replayState
 }
 
 func NewCohortModel(conf *config.Config, src *events.ChanEmitter) CohortModel {
@@ -34,6 +37,7 @@ func NewCohortModel(conf *config.Config, src *events.ChanEmitter) CohortModel {
 		conf:     conf,
 		emitter:  src,
 		fsmState: "propose",
+		replay:   newReplayState(),
 	}
 }
 
@@ -44,6 +48,10 @@ func (m CohortModel) Init() tea.Cmd {
 func (m CohortModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch ev := msg.(type) {
 	case events.Event:
+		m.eventHistory = append(m.eventHistory, ev)
+		if m.replay.active {
+			return m, nil
+		}
 		m = m.handleEvent(ev)
 		if m.vpReady {
 			m.viewport.SetContent(strings.Join(m.logLines, "\n"))
@@ -68,10 +76,68 @@ func (m CohortModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(strings.Join(m.logLines, "\n"))
 		m.viewport.GotoBottom()
 
+	case replayTickMsg:
+		if !m.replay.active || m.replay.done() {
+			return m, nil
+		}
+		m = m.handleEvent(m.replay.evs[m.replay.cursor])
+		m.replay.cursor++
+		if m.vpReady {
+			content := strings.Join(m.logLines, "\n")
+			if m.replay.done() {
+				content += "\n" + dimStyle.Render("  ── replay done ── press r to exit ──")
+			}
+			m.viewport.SetContent(content)
+			m.viewport.GotoBottom()
+		}
+		return m, m.replay.nextTick()
+
 	case tea.KeyMsg:
 		switch ev.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "r":
+			if m.replay.active {
+				m.replay.stop()
+				m = m.replayApplyHistory()
+				if m.vpReady {
+					m.viewport.SetContent(strings.Join(m.logLines, "\n"))
+					m.viewport.GotoBottom()
+				}
+				return m, m.emitter.WaitForEvent()
+			}
+			if len(m.eventHistory) == 0 {
+				return m, nil
+			}
+			cmd := m.replay.start(m.eventHistory)
+			m = m.replayResetState()
+			if m.vpReady {
+				m.viewport.SetContent("")
+			}
+			return m, cmd
+		case "esc":
+			if m.replay.active {
+				m.replay.stop()
+				m = m.replayApplyHistory()
+				if m.vpReady {
+					m.viewport.SetContent(strings.Join(m.logLines, "\n"))
+					m.viewport.GotoBottom()
+				}
+				return m, m.emitter.WaitForEvent()
+			}
+		case "+", "=":
+			if m.replay.active && m.replay.delay > 50*time.Millisecond {
+				m.replay.delay /= 2
+			}
+		case "-":
+			if m.replay.active {
+				m.replay.delay *= 2
+			}
+		case " ":
+			if m.replay.active {
+				m.replay.paused = !m.replay.paused
+				return m, m.replay.nextTick()
+			}
 		case "j":
 			m.viewport.ScrollDown(1)
 		case "k":
@@ -117,6 +183,23 @@ func (m CohortModel) handleEvent(ev events.Event) CohortModel {
 		if len(m.logLines) > maxLogLines {
 			m.logLines = m.logLines[len(m.logLines)-maxLogLines:]
 		}
+	}
+	return m
+}
+
+func (m CohortModel) replayResetState() CohortModel {
+	m.fsmState = "propose"
+	m.lastKey = ""
+	m.lastHeight = 0
+	m.lastResult = ""
+	m.logLines = nil
+	return m
+}
+
+func (m CohortModel) replayApplyHistory() CohortModel {
+	m = m.replayResetState()
+	for _, ev := range m.eventHistory {
+		m = m.handleEvent(ev)
 	}
 	return m
 }
@@ -194,7 +277,15 @@ func (m CohortModel) View() string {
 	)
 
 	// Event log
-	logTitle := logHeaderStyle.Render("Event Log") + dimStyle.Render("  (j/k scroll, q quit)")
+	hint := "  (j/k scroll, q quit, r replay)"
+	if m.replay.active {
+		status := fmt.Sprintf("REPLAY %d/%d", m.replay.cursor, len(m.replay.evs))
+		if m.replay.paused {
+			status += " PAUSED"
+		}
+		hint = fmt.Sprintf("  (%s  +/- speed  space pause  r/esc exit)", status)
+	}
+	logTitle := logHeaderStyle.Render("Event Log") + dimStyle.Render(hint)
 	logSection := sectionStyle.Width(m.width - 4).Render(
 		lipgloss.JoinVertical(lipgloss.Left, logTitle, m.viewport.View()),
 	)
