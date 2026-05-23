@@ -5,11 +5,11 @@ prepare:
 	@mkdir ./badger/cohort
 
 run-example-coordinator:
-	@rm -rf ./badger/coordinator
+	@rm -rf ./badger/coordinator ./.data/db/coordinator ./.data/wal/coordinator
 	@go run . -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000
 
 run-example-cohort:
-	@rm -rf ./badger/cohort
+	@rm -rf ./badger/cohort ./.data/db/cohort ./.data/wal/cohort
 	@go run . -coordinator=localhost:3000 -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000
 
 run-example-client:
