@@ -7,15 +7,29 @@
 <img src="https://github.com/vadiminshakov/committer/blob/master/committer.png" alt="Committer Logo">
 </p>
 
-# **Committer**
+# Committer
 
-**Committer** is a Go implementation of the **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)** protocols for distributed systems.
+Go implementation of **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)** protocols for distributed systems.
 
 ## **Architecture**
 
 The system consists of two types of nodes: **Coordinator** and **Cohorts**.
 The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Cohorts** participate in the protocol by responding to the coordinator's requests.
 The communication between nodes is handled using gRPC, and the state of each node is managed using a state machine.
+
+## Monitoring & Visualization
+
+Pass `-viz-port=<port>` to enable the web dashboard with live charts for throughput, commit/abort rates, latency, and node health:
+
+```bash
+./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -viz-port=8080
+```
+
+Then open `http://localhost:8080` in a browser.
+
+<p align="center">
+<img src="https://github.com/vadiminshakov/committer/blob/master/dashboard.png" alt="Committer Dashboard">
+</p>
 
 ## **Atomic Commit Protocols**
 
@@ -58,96 +72,61 @@ The Three-Phase Commit protocol extends 2PC with an additional phase to reduce b
 1. **Coordinator** sends `COMMIT` to all cohorts
 2. **Cohorts** perform the actual commit operation
 
-## **Configuration**
+## Configuration
 
-All configuration parameters can be set using command-line flags:
+| Flag          | Description                                                  | Default        |
+|---------------|--------------------------------------------------------------|----------------|
+| `nodeaddr`    | Address of the current node                                  | `localhost:3050` |
+| `coordinator` | Coordinator address (cohorts only)                           | `""`           |
+| `committype`  | `two-phase` or `three-phase`                                 | `three-phase`  |
+| `timeout`     | Timeout (ms) for unacknowledged messages (3PC only)          | `1000`         |
+| `cohorts`     | Comma-separated cohort addresses (presence implies coordinator role) | `""` |
+| `viz-port`    | Port for web dashboard (0 = disabled)                        | `0`            |
 
-| **Flag**       | **Description**                                          | **Default**         | **Example**                          |
-|-----------------|---------------------------------------------------------|---------------------|-------------------------------------|
-| `nodeaddr`     | Address of the current node                             | `localhost:3050`    | `-nodeaddr=localhost:3051`          |
-| `coordinator`  | Coordinator address (required for cohorts)              | `""`                | `-coordinator=localhost:3050`       |
-| `committype`   | Commit protocol: `two-phase` or `three-phase`           | `three-phase`       | `-committype=two-phase`             |
-| `timeout`      | Timeout (ms) for unacknowledged messages (3PC only)     | `1000`              | `-timeout=500`                      |
-| `cohorts`      | Comma-separated list of cohort addresses (presence implies coordinator role) | `""` | `-cohorts=localhost:3052,localhost:3053` |
+## Usage
 
-
-## **Usage**
-
-### **Running as a Cohort**
 ```bash
-./committer -nodeaddr=localhost:3001 -coordinator=localhost:3000 -committype=three-phase -timeout=1000
+# Coordinator
+./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase
+
+# Cohort
+./committer -nodeaddr=localhost:3001 -coordinator=localhost:3000 -committype=three-phase
 ```
 
-### **Running as a Coordinator**
-```bash
-./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000
-```
+## Hooks
 
-## **Hooks System**
-
-The hooks system allows you to add custom validation and business logic during the **Propose** and **Commit** stages without modifying the core code. Hooks are executed in the order they were registered, and if any hook returns `false`, the operation is rejected.
+Custom validation and business logic for the **Propose** and **Commit** stages. Hooks run in registration order; returning `false` rejects the operation.
 
 ```go
-// Default usage (with built-in default hook)
-committer := commitalgo.NewCommitter(database, "three-phase", wal, timeout)
-
-// With custom hooks
-metricsHook := hooks.NewMetricsHook()
-validationHook := hooks.NewValidationHook(100, 1024)
-auditHook := hooks.NewAuditHook("audit.log")
-
 committer := commitalgo.NewCommitter(database, "three-phase", wal, timeout,
-    metricsHook,
-    validationHook,
-    auditHook,
+    hooks.NewMetricsHook(),
+    hooks.NewValidationHook(100, 1024),
+    hooks.NewAuditHook("audit.log"),
 )
 
-// Dynamic registration
+// or register later
 committer.RegisterHook(myCustomHook)
 ```
 
-## **Testing**
+## Testing
 
-### **Run Functional Tests**
 ```bash
 make tests
 ```
 
-### **Testing with Example Client**
-1. Compile executables:
+To test with the example client:
 
 ```bash
 make prepare
+make run-example-coordinator   # terminal 1
+make run-example-cohort        # terminal 2
+make run-example-client        # terminal 3
 ```
 
-2. Run the coordinator:
+## Contributions
 
-```bash
-make run-example-coordinator
-```
+PRs and issues are welcome.
 
-3. Run a cohort in another terminal:
+## License
 
-```bash
-make run-example-cohort
-```
-
-4. Start the example client:
-
-```bash
-make run-example-client
-```
-
-Or directly:
-
-```bash
-go run ./examples/client/client.go
-```
-
-## **Contributions**
-
-Contributions are welcome! Feel free to submit a PR or open an issue if you find bugs or have suggestions for improvement.
-
-## **License**
-
-This project is licensed under the [Apache License](LICENSE).
+[Apache License](LICENSE)

@@ -37,6 +37,7 @@ import (
 	tuipkg "github.com/vadiminshakov/committer/tui"
 	"github.com/vadiminshakov/committer/tui/events"
 	"github.com/vadiminshakov/committer/tui/slogbridge"
+	"github.com/vadiminshakov/committer/viz"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -59,11 +60,18 @@ func main() {
 	slog.SetDefault(slog.New(slogbridge.NewHandler(src, slog.LevelDebug)))
 	p := tuipkg.NewProgram(conf, src)
 
+	var emitter events.Emitter = src
+	if conf.VizPort > 0 {
+		collector := viz.NewCollector(src)
+		viz.NewServer(collector, conf, conf.VizPort).Start()
+		emitter = collector
+	}
+
 	var runErr error
 	go func() {
-		if err := run(conf, src); err != nil {
+		if err := run(conf, emitter); err != nil {
 			runErr = err
-			src.Emit(events.Event{Kind: events.EvLog, Level: "ERROR", Message: err.Error()})
+			emitter.Emit(events.Event{Kind: events.EvLog, Level: "ERROR", Message: err.Error()})
 		}
 		p.Quit()
 	}()
@@ -112,7 +120,7 @@ func run(conf *config.Config, emitter events.Emitter) error {
 
 func newWAL(conf *config.Config) (*wal.Wal, error) {
 	walConfig := gowal.Config{
-		Dir:              config.WalDir(conf.Role),
+		Dir:              config.WalDir(conf.Role, conf.Nodeaddr),
 		Prefix:           config.DefaultWalSegmentPrefix,
 		SegmentThreshold: config.DefaultWalSegmentThreshold,
 		MaxSegments:      config.DefaultWalMaxSegments,
@@ -128,7 +136,7 @@ func newWAL(conf *config.Config) (*wal.Wal, error) {
 }
 
 func newStore(w *wal.Wal, conf *config.Config) (*store.Store, *wal.RecoveryState, error) {
-	stateStore, recovery, err := store.New(w, config.DBPath(conf.Role))
+	stateStore, recovery, err := store.New(w, config.DBPath(conf.Role, conf.Nodeaddr))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
