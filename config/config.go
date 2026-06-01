@@ -20,14 +20,26 @@ const (
 	DefaultWalIsInSyncDiskMode bool = true
 )
 
-// DBPath returns the database directory path for the given role.
-func DBPath(role string) string {
-	return "./.data/db/" + role
+// DBPath returns the database directory path for the given role and node address.
+// The node address is included so that multiple nodes of the same role running on
+// one host (e.g. several cohorts during local testing) do not share a data directory.
+func DBPath(role, nodeaddr string) string {
+	return "./.data/db/" + role + "/" + sanitizeAddr(nodeaddr)
 }
 
-// WalDir returns the WAL directory path for the given role.
-func WalDir(role string) string {
-	return "./.data/wal/" + role
+// WalDir returns the WAL directory path for the given role and node address.
+// As with DBPath, the node address keeps per-node data directories distinct.
+func WalDir(role, nodeaddr string) string {
+	return "./.data/wal/" + role + "/" + sanitizeAddr(nodeaddr)
+}
+
+// sanitizeAddr turns a node address into a filesystem-safe directory name.
+func sanitizeAddr(addr string) string {
+	if addr == "" {
+		return "default"
+	}
+	replacer := strings.NewReplacer(":", "_", "/", "_")
+	return replacer.Replace(addr)
 }
 
 // Config holds the configuration settings for the committer application.
@@ -39,6 +51,7 @@ type Config struct {
 	Cohorts     []string // List of cohort addresses (for coordinators)
 	Timeout     uint64   // Timeout in milliseconds for 3PC operations
 	NoUI        bool     // Disable TUI, use plain slog text logging to stderr
+	VizPort     int      // Port for web visualization server (0 = disabled)
 }
 
 // Get creates configuration from yaml configuration file (if '-config=' flag specified) or command-line arguments.
@@ -50,6 +63,7 @@ func Get() *Config {
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
 	cohorts := flag.String("cohorts", "", "cohort addresses")
 	noUI := flag.Bool("no-ui", false, "disable TUI, use plain slog text logging to stderr")
+	vizPort := flag.Int("viz-port", 0, "port for web visualization server (0 = disabled)")
 	flag.Parse()
 
 	cohortsArray := filterEmpty(strings.Split(*cohorts, ","))
@@ -67,6 +81,7 @@ func Get() *Config {
 		Cohorts:     cohortsArray,
 		Timeout:     *timeout,
 		NoUI:        *noUI,
+		VizPort:     *vizPort,
 	}
 
 }
