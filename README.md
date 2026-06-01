@@ -17,6 +17,20 @@ The system consists of two types of nodes: **Coordinator** and **Cohorts**.
 The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Cohorts** participate in the protocol by responding to the coordinator's requests.
 The communication between nodes is handled using gRPC, and the state of each node is managed using a state machine.
 
+## **Monitoring & Visualization**
+
+Pass `-viz-port=<port>` to enable the web dashboard with live charts for throughput, commit/abort rates, latency, and node health:
+
+```bash
+./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -viz-port=8080
+```
+
+Then open `http://localhost:8080` in a browser.
+
+<p align="center">
+<img src="https://github.com/vadiminshakov/committer/blob/master/dashboard.png" alt="Committer Dashboard">
+</p>
+
 ## **Atomic Commit Protocols**
 
 ### **Two-Phase Commit (2PC)**
@@ -69,6 +83,7 @@ All configuration parameters can be set using command-line flags:
 | `committype`   | Commit protocol: `two-phase` or `three-phase`           | `three-phase`       | `-committype=two-phase`             |
 | `timeout`      | Timeout (ms) for unacknowledged messages (3PC only)     | `1000`              | `-timeout=500`                      |
 | `cohorts`      | Comma-separated list of cohort addresses (presence implies coordinator role) | `""` | `-cohorts=localhost:3052,localhost:3053` |
+| `viz-port`     | Port for web dashboard (0 = disabled)                   | `0`                 | `-viz-port=8080`                    |
 
 
 ## **Usage**

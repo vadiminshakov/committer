@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Committer — 2PC/3PC Visualizer</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0e0e0e;
+  color: #e4e4e7;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { display: flex; height: 100vh; }
+#canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+canvas { display: block; width: 100%; height: 100%; }
+
+/* ── Sidebar ── */
+#sidebar {
+  width: 300px;
+  background: #111111;
+  border-left: 1px solid #1e1e1e;
+  display: flex;
+  flex-direction: column;
+}
+#sidebar-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid #1e1e1e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#sidebar-header h3 {
+  font-size: 11px;
+  font-weight: 500;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+#sidebar-header .count {
+  font-size: 11px;
+  color: #52525b;
+  font-variant-numeric: tabular-nums;
+}
+#log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  scroll-behavior: smooth;
+}
+#log::-webkit-scrollbar { width: 3px; }
+#log::-webkit-scrollbar-track { background: transparent; }
+#log::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+
+/* ── Log Entries ── */
+.log-entry {
+  padding: 3px 10px;
+  margin-bottom: 1px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a1a1aa;
+}
+.log-entry .ts {
+  font-size: 10px;
+  color: #3f3f46;
+  display: inline;
+  margin-right: 6px;
+}
+.log-entry.warn  { color: #a16207; }
+.log-entry.error { color: #9f1239; }
+.log-entry.debug { color: #1d4ed8; }
+
+/* ── Info Panel ── */
+#info {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(17, 17, 17, 0.92);
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid #1e1e1e;
+  min-width: 200px;
+}
+#info h2 {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e4e4e7;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#info h2 .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3f3f46;
+  transition: background 0.3s;
+}
+#info h2 .dot.active { background: #f59e0b; }
+#info h2 .dot.abort  { background: #ef4444; }
+
+/* ── Phase Pills ── */
+#phases {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #1e1e1e;
+  flex-wrap: wrap;
+}
+.phase-pill {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #52525b;
+  border: 1px solid #222;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+.phase-pill.active {
+  color: #f59e0b;
+  border-color: #f59e0b;
+}
+.phase-pill.done {
+  color: #22c55e;
+  border-color: #166534;
+}
+.phase-pill.abort {
+  color: #ef4444;
+  border-color: #7f1d1d;
+}
+.phase-arrow { color: #2a2a2e; font-size: 9px; user-select: none; }
+
+/* ── Stats ── */
+.stat {
+  font-size: 11px;
+  color: #52525b;
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.stat span:last-child {
+  color: #a1a1aa;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Controls ── */
+#controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(17, 17, 17, 0.92);
+  border-radius: 8px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #1e1e1e;
+  z-index: 5;
+}
+#controls button {
+  background: transparent;
+  border: 1px solid #2a2a2e;
+  color: #a1a1aa;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+#controls button:hover {
+  border-color: #52525b;
+  color: #e4e4e7;
+}
+#controls button:active { opacity: 0.7; }
+#progress {
+  width: 200px;
+  height: 3px;
+  background: #1a1a1a;
+  border-radius: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#progress-bar {
+  height: 100%;
+  background: #f59e0b;
+  border-radius: 2px;
+  transition: width 0.08s linear;
+}
+#progress-text {
+  font-size: 11px;
+  color: #52525b;
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: right;
+}
+#speed { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+#speed label { font-size: 11px; color: #52525b; white-space: nowrap; }
+#speed-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 70px;
+  height: 3px;
+  background: #1a1a1a;
+  border-radius: 2px;
+  outline: none;
+}
+#speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #f59e0b;
+  cursor: pointer;
+}
+#speed-slider::-moz-range-thumb {
+  width: 12px; height: 12px;
+  border-radius: 50%; background: #f59e0b;
+  border: none; cursor: pointer;
+}
+#speed-val {
+  font-size: 11px;
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div id="info">
+      <h2><span class="dot" id="status-dot"></span> Committer</h2>
+      <div id="phases">
+        <span class="phase-pill" id="phase-propose">PROPOSE</span>
+        <span class="phase-arrow">→</span>
+        <span class="phase-pill" id="phase-precommit">PRECOMMIT</span>
+        <span class="phase-arrow">→</span>
+        <span class="phase-pill" id="phase-commit">COMMIT</span>
+      </div>
+      <div class="stat"><span>Height</span><span id="info-height">—</span></div>
+      <div class="stat"><span>Key</span><span id="info-key">—</span></div>
+      <div class="stat"><span>Cohorts</span><span id="info-cohorts">0</span></div>
+      <div class="stat"><span>Events</span><span id="info-events">0</span></div>
+    </div>
+    <div id="controls">
+      <button id="btn-play">▶ Play</button>
+      <button id="btn-reset">↺ Reset</button>
+      <div id="progress"><div id="progress-bar"></div></div>
+      <span id="progress-text">0 / 0</span>
+      <div id="speed">
+        <label>Speed</label>
+        <input type="range" id="speed-slider" min="1" max="20" value="5">
+        <span id="speed-val">0.5x</span>
+      </div>
+    </div>
+  </div>
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h3>Event Log</h3>
+      <span class="count" id="log-count">0</span>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const logEl = document.getElementById('log');
+const phasePropose = document.getElementById('phase-propose');
+const phasePrecommit = document.getElementById('phase-precommit');
+const phaseCommit = document.getElementById('phase-commit');
+const statusDot = document.getElementById('status-dot');
+const progressText = document.getElementById('progress-text');
+const progressBar = document.getElementById('progress-bar');
+const speedVal = document.getElementById('speed-val');
+const logCountEl = document.getElementById('log-count');
+const infoHeight = document.getElementById('info-height');
+const infoKey = document.getElementById('info-key');
+const infoCohorts = document.getElementById('info-cohorts');
+const infoEvents = document.getElementById('info-events');
+
+let events = [];
+let configuredCohorts = [];
+let roleConfig = {};
+let currentIndex = 0;
+let playing = false;
+let stepScheduled = false;
+let speed = 0.5;
+let animations = [];
+let nodes = {};
+let logCount = 0;
+
+const COLORS = {
+  propose:   '#f59e0b',
+  precommit: '#fbbf24',
+  commit:    '#22c55e',
+  abort:     '#ef4444',
+  ack:       '#4ade80',
+  nack:      '#f87171',
+};
+
+function resize() {
+  canvas.width  = canvas.offsetWidth  * window.devicePixelRatio;
+  canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  layoutNodes();
+}
+
+function layoutNodes() {
+  const w = canvas.offsetWidth;
+  const h = canvas.offsetHeight;
+  nodes = {};
+
+  const eventCohorts   = [...new Set(events.filter(e => e.cohort).map(e => e.cohort))];
+  const safeConfigured = Array.isArray(configuredCohorts) ? configuredCohorts : [];
+  const cohortAddrs    = [...new Set([...safeConfigured, ...eventCohorts])];
+
+  nodes['Coordinator'] = {
+    x: w / 2, y: h * 0.18, label: 'Coordinator', isCoord: true,
+  };
+
+  const count = cohortAddrs.length;
+  if (count === 0) return;
+
+  const totalWidth = Math.min(w * 0.62, 500);
+  const spacing    = count > 1 ? totalWidth / (count - 1) : 0;
+  const startX     = (w - (count - 1) * spacing) / 2;
+
+  cohortAddrs.forEach((addr, i) => {
+    nodes[addr] = {
+      x: startX + spacing * i,
+      y: h * 0.60,
+      label: shortAddr(addr),
+      fullLabel: addr,
+      isCoord: false,
+    };
+  });
+
+  infoCohorts.textContent = count;
+}
+
+function shortAddr(addr) {
+  if (addr.length <= 24) return addr;
+  return addr.slice(0, 10) + '…' + addr.slice(-10);
+}
+
+/* ── Drawing ── */
+
+function draw() {
+  const w = canvas.offsetWidth;
+  const h = canvas.offsetHeight;
+  ctx.clearRect(0, 0, w, h);
+  drawConnections();
+  Object.values(nodes).forEach(drawNode);
+  animations.forEach(drawAnimation);
+}
+
+function drawConnections() {
+  const coord = nodes['Coordinator'];
+  if (!coord) return;
+  Object.values(nodes).forEach(node => {
+    if (node.isCoord) return;
+    ctx.beginPath();
+    ctx.setLineDash([3, 8]);
+    ctx.moveTo(coord.x, coord.y + 38);
+    ctx.lineTo(node.x, node.y - 30);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+}
+
+function drawNode(node) {
+  const r = node.isCoord ? 38 : 30;
+
+  ctx.beginPath();
+  ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#161618';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = '#2a2a2e';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  if (node.isCoord) {
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#52525b';
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#a1a1aa';
+  ctx.font = `${node.isCoord ? '600 12px' : '11px'} system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(node.label, node.x, node.y + r + 8);
+}
+
+function drawAnimation(anim) {
+  const from = nodes[anim.from];
+  const to   = nodes[anim.to];
+  if (!from || !to) return;
+
+  const t     = anim.progress;
+  const eased = 1 - Math.pow(1 - t, 3);
+  const x     = from.x + (to.x - from.x) * eased;
+  const y     = from.y + (to.y - from.y) * eased;
+
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.fillStyle = anim.color;
+  ctx.fill();
+
+  ctx.font = '10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = anim.color;
+  ctx.fillText(anim.label, x, y - 8);
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+/* ── Events ── */
+
+function processEvent(ev) {
+  switch (ev.kindName) {
+    case 'CoordPropose':
+      if (!ev.cohort) {
+        updatePhase('propose');
+        updateStatus('active');
+        Object.values(nodes).forEach(n => {
+          if (!n.isCoord) addAnimation('Coordinator', n.fullLabel, 'PROPOSE', COLORS.propose);
+        });
+        addLog('info', `Coordinator → PROPOSE  (key=${ev.key}, h=${ev.height})`);
+      } else {
+        const color = ev.result === 'ok' ? COLORS.ack : COLORS.nack;
+        const label = ev.result === 'ok' ? 'ACK ✓' : 'NACK ✗';
+        addAnimation(ev.cohort, 'Coordinator', label, color);
+        addLog(ev.result === 'ok' ? 'info' : 'error', `Cohort ${ev.cohort} → ${label}`);
+      }
+      break;
+
+    case 'CoordPrecommit':
+      if (!ev.cohort) {
+        updatePhase('precommit');
+        Object.values(nodes).forEach(n => {
+          if (!n.isCoord) addAnimation('Coordinator', n.fullLabel, 'PRECOMMIT', COLORS.precommit);
+        });
+        addLog('info', `Coordinator → PRECOMMIT  (h=${ev.height})`);
+      } else {
+        const color = ev.result === 'ok' ? COLORS.ack : COLORS.nack;
+        const label = ev.result === 'ok' ? 'ACK ✓' : 'NACK ✗';
+        addAnimation(ev.cohort, 'Coordinator', label, color);
+        addLog(ev.result === 'ok' ? 'info' : 'error', `Cohort ${ev.cohort} → ${label}`);
+      }
+      break;
+
+    case 'CoordCommit':
+      if (!ev.cohort) {
+        updatePhase('commit');
+        updateStatus('active');
+        Object.values(nodes).forEach(n => {
+          if (!n.isCoord) addAnimation('Coordinator', n.fullLabel, 'COMMIT', COLORS.commit);
+        });
+        addLog('info', `Coordinator → COMMIT  (h=${ev.height})`);
+      } else {
+        const color = ev.result === 'ok' ? COLORS.ack : COLORS.nack;
+        const label = ev.result === 'ok' ? 'ACK ✓' : 'NACK ✗';
+        addAnimation(ev.cohort, 'Coordinator', label, color);
+        addLog(ev.result === 'ok' ? 'info' : 'error', `Cohort ${ev.cohort} → ${label}`);
+      }
+      break;
+
+    case 'CoordAbort':
+      updatePhase('abort');
+      updateStatus('abort');
+      Object.values(nodes).forEach(n => {
+        if (!n.isCoord) addAnimation('Coordinator', n.fullLabel, 'ABORT', COLORS.abort);
+      });
+      addLog('error', `Coordinator → ABORT  ${ev.message || ''}`);
+      break;
+
+    case 'CoordHeightSync':
+      addLog('debug', `Coordinator → HEIGHT SYNC  (h=${ev.height})`);
+      break;
+
+    case 'CohortPropose': {
+      const selfNode = roleConfig.nodeaddr;
+      if (selfNode && nodes[selfNode]) {
+        updatePhase('propose');
+        updateStatus('active');
+        addAnimation('Coordinator', selfNode, 'PROPOSE', COLORS.propose);
+        addAnimation(selfNode, 'Coordinator', 'ACK ✓', COLORS.ack);
+      }
+      addLog('debug', `Cohort → PROPOSE  (key=${ev.key}, h=${ev.height})`);
+      break;
+    }
+
+    case 'CohortPrecommit': {
+      const selfNode = roleConfig.nodeaddr;
+      if (selfNode && nodes[selfNode]) {
+        updatePhase('precommit');
+        addAnimation('Coordinator', selfNode, 'PRECOMMIT', COLORS.precommit);
+        addAnimation(selfNode, 'Coordinator', 'ACK ✓', COLORS.ack);
+      }
+      addLog('debug', `Cohort → PRECOMMIT  (h=${ev.height})`);
+      break;
+    }
+
+    case 'CohortCommit': {
+      const selfNode = roleConfig.nodeaddr;
+      if (selfNode && nodes[selfNode]) {
+        updatePhase('commit');
+        if (!ev.result) {
+          addAnimation('Coordinator', selfNode, 'COMMIT', COLORS.commit);
+        } else if (ev.result === 'ok') {
+          addAnimation(selfNode, 'Coordinator', 'ACK ✓', COLORS.ack);
+          updateStatus('');
+        }
+      }
+      if (ev.result === 'ok') addLog('info', `Cohort → COMMITTED ✓  (h=${ev.height})`);
+      else addLog('debug', `Cohort → COMMIT  (h=${ev.height})`);
+      break;
+    }
+
+    case 'CohortAbort': {
+      const selfNode = roleConfig.nodeaddr;
+      if (selfNode && nodes[selfNode]) {
+        updatePhase('abort');
+        updateStatus('abort');
+        addAnimation('Coordinator', selfNode, 'ABORT', COLORS.abort);
+      }
+      addLog('warn', `Cohort → ABORT  (h=${ev.height})  ${ev.message || ''}`);
+      break;
+    }
+
+    case 'Log':
+      addLog((ev.level || 'info').toLowerCase(), ev.message);
+      break;
+  }
+
+  if (ev.key)    { infoKey.textContent    = ev.key; }
+  if (ev.height) { infoHeight.textContent = String(ev.height); }
+  infoEvents.textContent = events.length;
+}
+
+function addAnimation(from, to, label, color) {
+  animations.push({ from, to, label, color, progress: 0, startTime: Date.now() });
+}
+
+function updatePhase(phase) {
+  [phasePropose, phasePrecommit, phaseCommit].forEach(el => el.className = 'phase-pill');
+  phaseCommit.textContent = 'COMMIT';
+
+  if (phase === 'propose') {
+    phasePropose.classList.add('active');
+  } else if (phase === 'precommit') {
+    phasePropose.classList.add('done');
+    phasePrecommit.classList.add('active');
+  } else if (phase === 'commit') {
+    phasePropose.classList.add('done');
+    phasePrecommit.classList.add('done');
+    phaseCommit.classList.add('active');
+  } else if (phase === 'abort') {
+    phasePropose.classList.add('done');
+    phasePrecommit.classList.add('done');
+    phaseCommit.classList.add('abort');
+    phaseCommit.textContent = 'ABORT';
+  }
+}
+
+function updateStatus(state) {
+  statusDot.className = 'dot ' + state;
+}
+
+/* ── Log ── */
+
+function addLog(level, msg) {
+  const div = document.createElement('div');
+  div.className = `log-entry ${level}`;
+  const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+  div.innerHTML = `<span class="ts">${ts}</span>${escapeHtml(msg)}`;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  logCount++;
+  logCountEl.textContent = String(logCount);
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+/* ── Progress ── */
+
+function updateProgress() {
+  progressText.textContent = `${currentIndex} / ${events.length}`;
+  progressBar.style.width = events.length ? `${(currentIndex / events.length) * 100}%` : '0%';
+}
+
+/* ── Playback ── */
+
+function reset() {
+  currentIndex = 0;
+  animations = [];
+  logEl.innerHTML = '';
+  logCount = 0;
+  logCountEl.textContent = '0';
+  updatePhase('');
+  updateStatus('');
+  infoHeight.textContent = '—';
+  infoKey.textContent    = '—';
+  infoEvents.textContent = events.length;
+  updateProgress();
+  draw();
+}
+
+function play() {
+  if (currentIndex >= events.length) reset();
+  playing = true;
+  document.getElementById('btn-play').textContent = '⏸ Pause';
+  playStep();
+}
+
+function pause() {
+  playing = false;
+  stepScheduled = false;
+  document.getElementById('btn-play').textContent = '▶ Play';
+}
+
+function playStep() {
+  if (!playing) { stepScheduled = false; return; }
+  if (currentIndex >= events.length) {
+    updateStatus('');
+    stepScheduled = false;
+    return;
+  }
+  stepScheduled = true;
+  processEvent(events[currentIndex]);
+  currentIndex++;
+  updateProgress();
+  setTimeout(playStep, 400 / speed);
+}
+
+/* ── API ── */
+
+async function loadEvents() {
+  try {
+    const res  = await fetch('/api/events');
+    events     = await res.json();
+    layoutNodes();
+    infoEvents.textContent = events.length;
+    updateProgress();
+    draw();
+  } catch (e) {
+    addLog('error', 'Failed to load events: ' + e.message);
+  }
+}
+
+async function pollEvents() {
+  try {
+    const res  = await fetch('/api/events');
+    events     = await res.json();
+    layoutNodes();
+    infoEvents.textContent = events.length;
+    updateProgress();
+    draw();
+    if (playing && !stepScheduled && currentIndex < events.length) {
+      playStep();
+    }
+  } catch (e) {
+    addLog('error', 'Failed to poll events: ' + e.message);
+  }
+}
+
+async function loadConfig() {
+  try {
+    const res  = await fetch('/api/config');
+    roleConfig = await res.json();
+  } catch (e) {
+    console.error('loadConfig failed:', e);
+  }
+}
+
+async function loadCohorts() {
+  try {
+    const res         = await fetch('/api/cohorts');
+    const data        = await res.json();
+    configuredCohorts = Array.isArray(data) ? data : [];
+    layoutNodes();
+    draw();
+  } catch (e) {
+    console.error('loadCohorts failed:', e);
+  }
+}
+
+/* ── Controls ── */
+
+document.getElementById('btn-play').onclick  = () => playing ? pause() : play();
+document.getElementById('btn-reset').onclick = () => { pause(); reset(); };
+
+document.getElementById('speed-slider').oninput = function () {
+  speed = this.value / 10;
+  speedVal.textContent = speed.toFixed(1) + 'x';
+};
+
+document.getElementById('progress').onclick = function (e) {
+  const rect       = this.getBoundingClientRect();
+  const pct        = (e.clientX - rect.left) / rect.width;
+  const targetIdx  = Math.floor(pct * events.length);
+  reset();
+  for (let i = 0; i < targetIdx; i++) {
+    processEvent(events[i]);
+    currentIndex++;
+  }
+  updateProgress();
+};
+
+window.onresize = () => { resize(); draw(); };
+
+/* ── Animation Loop ── */
+
+function tick() {
+  const now      = Date.now();
+  const duration = 800 / speed;
+  animations = animations.filter(anim => {
+    anim.progress = Math.min(1, (now - anim.startTime) / duration);
+    return anim.progress < 1;
+  });
+  draw();
+  requestAnimationFrame(tick);
+}
+
+/* ── Bootstrap ── */
+
+(async function () {
+  await loadConfig();
+  await loadCohorts();
+  resize();
+  await loadEvents();
+  tick();
+  setInterval(pollEvents, 3000);
+  play();
+})();
+</script>
+</body>
+</html>
