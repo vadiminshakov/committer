@@ -14,9 +14,6 @@
 //
 //	# Start cohort (no -cohorts implies cohort role)
 //	./committer -coordinator=localhost:3000 -nodeaddr=localhost:3001
-//
-//	# Disable TUI (plain log output)
-//	./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -no-ui
 package main
 
 import (
@@ -26,17 +23,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/charmbracelet/x/term"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
 	"github.com/vadiminshakov/committer/core/coordinator"
+	"github.com/vadiminshakov/committer/events"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/store"
 	"github.com/vadiminshakov/committer/io/wal"
-	tuipkg "github.com/vadiminshakov/committer/tui"
-	"github.com/vadiminshakov/committer/tui/events"
-	"github.com/vadiminshakov/committer/tui/slogbridge"
 	"github.com/vadiminshakov/committer/viz"
 	"github.com/vadiminshakov/gowal"
 )
@@ -44,44 +38,19 @@ import (
 func main() {
 	conf := config.Get()
 
-	if conf.NoUI || !term.IsTerminal(os.Stdout.Fd()) {
-		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		})))
-		if err := run(conf, events.NoopEmitter{}); err != nil {
-			slog.Error("committer failed", "err", err)
-			os.Exit(1)
-		}
-		return
-	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
 
-	// TUI mode: redirect slog into the event log panel
-	src := events.NewChanEmitter()
-	slog.SetDefault(slog.New(slogbridge.NewHandler(src, slog.LevelDebug)))
-	p := tuipkg.NewProgram(conf, src)
-
-	var emitter events.Emitter = src
+	var emitter events.Emitter = events.NoopEmitter{}
 	if conf.VizPort > 0 {
-		collector := viz.NewCollector(src)
+		collector := viz.NewCollector(emitter)
 		viz.NewServer(collector, conf, conf.VizPort).Start()
 		emitter = collector
 	}
 
-	var runErr error
-	go func() {
-		if err := run(conf, emitter); err != nil {
-			runErr = err
-			emitter.Emit(events.Event{Kind: events.EvLog, Level: "ERROR", Message: err.Error()})
-		}
-		p.Quit()
-	}()
-
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "TUI error:", err)
-		os.Exit(1)
-	}
-	if runErr != nil {
-		fmt.Fprintln(os.Stderr, "error:", runErr)
+	if err := run(conf, emitter); err != nil {
+		slog.Error("committer failed", "err", err)
 		os.Exit(1)
 	}
 }

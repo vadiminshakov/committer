@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vadiminshakov/committer/tui/events"
+	"github.com/vadiminshakov/committer/events"
 )
 
 type Collector struct {

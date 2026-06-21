@@ -15,7 +15,7 @@ import (
 
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/tui/events"
+	"github.com/vadiminshakov/committer/events"
 	iowal "github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
@@ -51,7 +51,7 @@ type coordinator struct {
 	emitter        events.Emitter
 }
 
-// SetEmitter injects an event emitter for TUI visualization. Safe to call after New().
+// SetEmitter injects an event emitter for dashboard visualization. Safe to call after New().
 func (c *coordinator) SetEmitter(e events.Emitter) {
 	if e == nil {
 		e = events.NoopEmitter{}

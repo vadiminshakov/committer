@@ -13,7 +13,7 @@ import (
 
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
 	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/tui/events"
+	"github.com/vadiminshakov/committer/events"
 	iowal "github.com/vadiminshakov/committer/io/wal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -47,7 +47,7 @@ type CommitterImpl struct {
 	emitter        events.Emitter
 }
 
-// SetEmitter injects an event emitter for TUI visualization. Safe to call after NewCommitter().
+// SetEmitter injects an event emitter for dashboard visualization. Safe to call after NewCommitter().
 func (c *CommitterImpl) SetEmitter(e events.Emitter) {
 	if e == nil {
 		e = events.NoopEmitter{}

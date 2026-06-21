@@ -50,7 +50,6 @@ type Config struct {
 	CommitType  string   // Commit protocol: "two-phase" or "three-phase"
 	Cohorts     []string // List of cohort addresses (for coordinators)
 	Timeout     uint64   // Timeout in milliseconds for 3PC operations
-	NoUI        bool     // Disable TUI, use plain slog text logging to stderr
 	VizPort     int      // Port for web visualization server (0 = disabled)
 }
 
@@ -62,7 +61,6 @@ func Get() *Config {
 	committype := flag.String("committype", "two-phase", "two-phase or three-phase commit mode")
 	timeout := flag.Uint64("timeout", 1000, "ms, timeout after which the message is considered unacknowledged (only for three-phase mode, because two-phase is blocking by design)")
 	cohorts := flag.String("cohorts", "", "cohort addresses")
-	noUI := flag.Bool("no-ui", false, "disable TUI, use plain slog text logging to stderr")
 	vizPort := flag.Int("viz-port", 0, "port for web visualization server (0 = disabled)")
 	flag.Parse()
 
@@ -80,7 +78,6 @@ func Get() *Config {
 		CommitType:  *committype,
 		Cohorts:     cohortsArray,
 		Timeout:     *timeout,
-		NoUI:        *noUI,
 		VizPort:     *vizPort,
 	}
 

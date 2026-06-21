@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/tui/events"
+	"github.com/vadiminshakov/committer/events"
 )
 
 func TestServerAPICohorts(t *testing.T) {
