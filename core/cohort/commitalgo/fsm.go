@@ -13,6 +13,7 @@ const (
 )
 const (
 	proposeStage   = "propose"
+	preparedStage  = "prepared"
 	precommitStage = "precommit"
 	commitStage    = "commit"
 )
@@ -24,10 +25,16 @@ type stateMachine struct {
 	transitions  map[string]map[string]struct{}
 }
 
+// In 2PC a cohort that voted YES enters the prepared state (uncertainty
+// period) and leaves it only on a commit or abort decision.
 var twoPhaseTransitions = map[string]map[string]struct{}{
 	proposeStage: {
-		proposeStage: struct{}{},
+		proposeStage:  struct{}{},
+		preparedStage: struct{}{},
+	},
+	preparedStage: {
 		commitStage:  struct{}{},
+		proposeStage: struct{}{}, // abort
 	},
 	commitStage: {
 		proposeStage: struct{}{},
