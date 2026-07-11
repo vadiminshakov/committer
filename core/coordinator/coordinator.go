@@ -1,14 +1,14 @@
-// Package coordinator implements the coordinator role in distributed atomic commit protocols.
-// The coordinator is responsible for managing the atomic commit process by
-// sending prepare requests to cohorts and collecting their responses.
+// Package coordinator implements the coordinator side of 2PC/3PC: it drives
+// cohorts through propose/precommit/commit and collects their responses.
 package coordinator
 
 import (
 	"context"
 	"fmt"
-	"strings"
+	"maps"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"log/slog"
@@ -16,12 +16,22 @@ import (
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/events"
-	iowal "github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
+	iowal "github.com/vadiminshakov/committer/io/wal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	// commitDeliveryAttempts caps synchronous commit retries; an unreachable
+	// cohort learns the outcome later via termination protocol or catch-up.
+	commitDeliveryAttempts = 3
+	commitDeliveryBackoff  = 100 * time.Millisecond
+	// maxCatchUpRounds bounds retries against a cohort that keeps NACKing
+	// even after catch-up.
+	maxCatchUpRounds = 3
 )
 
 //go:generate mockgen -destination=../../mocks/mock_wal.go -package=mocks . wal
@@ -48,6 +58,8 @@ type coordinator struct {
 	height         uint64
 	pendingPayload []byte     // encoded payload of the current in-progress broadcast
 	mu             sync.Mutex // serialize broadcast to keep height/WAL alignment
+	decisions      map[uint64]string
+	decisionsMu    sync.RWMutex // decisions are read by concurrent Decision requests
 	emitter        events.Emitter
 }
 
@@ -84,12 +96,78 @@ func New(conf *config.Config, wal wal, store StateStore) (*coordinator, error) {
 		config:     conf,
 		commitType: commitType,
 		threePhase: threePhase,
+		decisions:  make(map[uint64]string),
 		emitter:    events.NoopEmitter{},
 	}, nil
 }
 
-// Broadcast executes the complete distributed consensus algorithm (2PC or 3PC) for a transaction.
-// It runs through all phases: propose, precommit (if 3PC), commit, and persistence.
+// Recover applies WAL recovery state. A transaction stuck at prepared
+// resolves as abort: no cohort was ever told to precommit. A 3PC
+// transaction that reached precommit everywhere resolves as commit instead,
+// since a precommitted cohort autocommits on its own timeout regardless.
+func (c *coordinator) Recover(rec *iowal.RecoveryState) {
+	c.decisionsMu.Lock()
+	maps.Copy(c.decisions, rec.Decisions)
+	c.decisionsMu.Unlock()
+
+	if rec.Unresolved == nil {
+		atomic.StoreUint64(&c.height, rec.NextHeight)
+		return
+	}
+
+	tx := rec.Unresolved
+	if c.threePhase && tx.Phase == iowal.PhaseKeyPrecommit {
+		c.resolveRecoveredAsCommit(tx)
+		return
+	}
+
+	c.resolveRecoveredAsAbort(tx)
+}
+
+func (c *coordinator) resolveRecoveredAsAbort(tx *iowal.UnresolvedTransaction) {
+	slog.Warn("resolving transaction using presumed-abort recovery",
+		"height", tx.Height,
+		"phase", tx.Phase,
+	)
+	if err := c.wal.Write(iowal.AbortKey(tx.Height), nil); err != nil {
+		slog.Error("failed to write abort record during recovery", "height", tx.Height, "err", err)
+	}
+	c.recordDecision(tx.Height, iowal.PhaseKeyAbort)
+	atomic.StoreUint64(&c.height, tx.Height+1)
+}
+
+// resolveRecoveredAsCommit closes out a 3PC transaction that had
+// precommitted everywhere before the crash, matching the outcome cohorts
+// may have already autocommitted on their own.
+func (c *coordinator) resolveRecoveredAsCommit(tx *iowal.UnresolvedTransaction) {
+	slog.Warn("resolving transaction using presumed-commit recovery",
+		"height", tx.Height,
+		"phase", tx.Phase,
+	)
+
+	if err := c.wal.Write(iowal.CommitKey(tx.Height), tx.Payload); err != nil {
+		slog.Error("failed to write commit record during recovery", "height", tx.Height, "err", err)
+	}
+	c.recordDecision(tx.Height, iowal.PhaseKeyCommit)
+
+	c.pendingPayload = tx.Payload
+	if err := c.persistMessage(); err != nil {
+		slog.Error("CRITICAL: committed but not applied to local store, will be replayed from WAL on restart", "height", tx.Height, "err", err)
+	}
+	c.pendingPayload = nil
+
+	atomic.StoreUint64(&c.height, tx.Height+1)
+
+	// deliver commit to any cohort still waiting, without blocking startup
+	// on unreachable ones
+	ctx := context.Background()
+	for name, cohort := range c.cohorts {
+		go c.deliverCommit(ctx, name, cohort, tx.Height)
+	}
+}
+
+// Broadcast runs the 2PC/3PC protocol for a transaction: propose, precommit
+// (3PC only), commit, then persist.
 func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -113,14 +191,7 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 	slog.Info("Committing key", "key", req.Key)
 	c.emitter.Emit(events.Event{Kind: events.EvCoordCommit, Key: req.Key, Height: currentHeight})
 	if err := c.commit(ctx); err != nil {
-		s, ok := status.FromError(err)
-		if !ok {
-			return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, fmt.Errorf("failed to extract grpc status code from err: %s", err)
-		}
-		if s.Code() == codes.AlreadyExists {
-			return &dto.BroadcastResponse{Type: dto.ResponseTypeNack}, nil
-		}
-		return nackResponse(err, "failed to send commit")
+		return nackResponse(err, "failed to commit")
 	}
 
 	slog.Info("coordinator committed key", "key", req.Key)
@@ -139,7 +210,7 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 
 	currentHeight := atomic.LoadUint64(&c.height)
 
-	// write Prepared to WAL to persist payload
+	// record Prepared so the payload survives a crash
 	ptx := iowal.Tx{Key: req.Key, Value: req.Value}
 	pbBytes, err := iowal.Encode(ptx)
 	if err != nil {
@@ -154,8 +225,9 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 
 func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalCommitClient, name string, req dto.BroadcastRequest, commitType pb.CommitType) error {
 	var (
-		resp *pb.Response
-		err  error
+		resp          *pb.Response
+		err           error
+		catchUpRounds int
 	)
 
 	for {
@@ -172,11 +244,16 @@ func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalC
 			break // success
 		}
 
-		// if cohort has bigger height, update coordinator's height and retry
-		if resp != nil && resp.Index > currentHeight {
-			c.syncHeight(resp.Index)
-			continue
+		// cohort lags behind: replay the decisions it missed, then retry
+		if err == nil && resp != nil && resp.Index < currentHeight && catchUpRounds < maxCatchUpRounds {
+			catchUpRounds++
+			if cerr := c.catchUpCohort(ctx, name, cohort, resp.Index, currentHeight); cerr == nil {
+				continue
+			} else {
+				slog.Error("failed to catch up cohort", "cohort", name, "err", cerr)
+			}
 		}
+
 		if err != nil {
 			c.emitter.Emit(events.Event{Kind: events.EvCoordPropose, Cohort: name, Height: currentHeight, Result: "nack"})
 			// send abort to all cohorts on error
@@ -189,6 +266,33 @@ func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalC
 		c.abort(ctx, fmt.Sprintf("cohort %s sent NACK for propose", name))
 		return fmt.Errorf("cohort %s not acknowledged msg %v", name, req)
 	}
+	return nil
+}
+
+// catchUpCohort replays recorded decisions to a lagging cohort so it can
+// resolve old heights and accept new proposals.
+func (c *coordinator) catchUpCohort(ctx context.Context, name string, cohort *client.InternalCommitClient, from, to uint64) error {
+	slog.Warn("catching up lagging cohort", "cohort", name, "from", from, "to", to)
+
+	for h := from; h < to; h++ {
+		switch c.decisionFor(h) {
+		case iowal.PhaseKeyCommit:
+			resp, err := cohort.Commit(ctx, &pb.CommitRequest{Index: h})
+			if err != nil {
+				return fmt.Errorf("catch-up commit at height %d: %w", h, err)
+			}
+			if !isAck(resp) {
+				return fmt.Errorf("catch-up commit at height %d: NACK", h)
+			}
+		case iowal.PhaseKeyAbort:
+			if _, err := cohort.Abort(ctx, &dto.AbortRequest{Height: h, Reason: "catch-up: height was aborted"}); err != nil {
+				return fmt.Errorf("catch-up abort at height %d: %w", h, err)
+			}
+		default:
+			return fmt.Errorf("no recorded decision for height %d", h)
+		}
+	}
+
 	return nil
 }
 
@@ -209,69 +313,60 @@ func (c *coordinator) preCommit(ctx context.Context) error {
 		c.emitter.Emit(events.Event{Kind: events.EvCoordPrecommit, Cohort: name, Height: currentHeight, Result: "ok"})
 	}
 
+	// record precommit once every cohort has acked: past this point a cohort
+	// autocommits on its own timeout, so recovery must not presume abort
+	if err := c.wal.Write(iowal.PrecommitKey(currentHeight), c.pendingPayload); err != nil {
+		return status.Errorf(codes.Internal, "failed to write precommit record: %v", err)
+	}
+
 	return nil
 }
 
 func (c *coordinator) commit(ctx context.Context) error {
 	currentHeight := atomic.LoadUint64(&c.height)
-	var errs []string
-	for name, cohort := range c.cohorts {
-		resp, err := cohort.Commit(ctx, &pb.CommitRequest{Index: currentHeight})
-		if err != nil {
-			c.emitter.Emit(events.Event{Kind: events.EvCoordCommit, Cohort: name, Height: currentHeight, Result: "nack"})
-			errs = append(errs, fmt.Sprintf("%s: %v", name, err))
-			continue
-		}
-		if !isAck(resp) {
-			c.emitter.Emit(events.Event{Kind: events.EvCoordCommit, Cohort: name, Height: currentHeight, Result: "nack"})
-			errs = append(errs, fmt.Sprintf("%s: NACK", name))
-			continue
-		}
-		c.emitter.Emit(events.Event{Kind: events.EvCoordCommit, Cohort: name, Height: currentHeight, Result: "ok"})
-	}
 
-	if len(errs) > 0 {
-		return status.Error(codes.FailedPrecondition, "cohort not acknowledged msg: "+strings.Join(errs, "; "))
-	}
-
-	// Persist Decision (Commit) and Apply
-	// 1. write commit
 	if err := c.wal.Write(iowal.CommitKey(currentHeight), c.pendingPayload); err != nil {
-		return status.Errorf(codes.Internal, "failed to write commit val: %v", err)
+		// no commit record on disk: the transaction resolves as abort
+		c.abort(ctx, fmt.Sprintf("failed to write commit record: %v", err))
+		return status.Errorf(codes.Internal, "failed to write commit record: %v", err)
 	}
+	c.recordDecision(currentHeight, iowal.PhaseKeyCommit)
 
-	// 2. apply
-	walTx, err := iowal.Decode(c.pendingPayload)
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to decode tx: %v", err)
-	}
-	if err := c.store.Put(walTx.Key, walTx.Value); err != nil {
-		slog.Error("failed to apply to store", "err", err)
-		return err // committed but not applied? critical error
+	if err := c.persistMessage(); err != nil {
+		slog.Error("CRITICAL: committed but not applied to local store, will be replayed from WAL on restart", "err", err)
 	}
 	c.pendingPayload = nil
+
+	for name, cohort := range c.cohorts {
+		c.deliverCommit(ctx, name, cohort, currentHeight)
+	}
 
 	return nil
 }
 
-func isAck(resp *pb.Response) bool {
-	return resp != nil && resp.Type == pb.Type_ACK
-}
-
-// syncHeight atomically updates coordinator height to match cohort height if needed
-func (c *coordinator) syncHeight(cohortHeight uint64) {
-	for {
-		currentHeight := atomic.LoadUint64(&c.height)
-		if cohortHeight <= currentHeight {
-			return // height is already up to date
+// deliverCommit pushes the commit decision to a cohort, retrying transient
+// failures. Giving up is safe: the cohort resolves via decision requests.
+func (c *coordinator) deliverCommit(ctx context.Context, name string, cohort *client.InternalCommitClient, height uint64) {
+	for attempt := range commitDeliveryAttempts {
+		if attempt > 0 {
+			time.Sleep(commitDeliveryBackoff)
 		}
 
-		if atomic.CompareAndSwapUint64(&c.height, currentHeight, cohortHeight) {
-			slog.Warn("Updating coordinator height", "from", currentHeight, "to", cohortHeight)
-			c.emitter.Emit(events.Event{Kind: events.EvCoordHeightSync, Height: cohortHeight})
+		resp, err := cohort.Commit(ctx, &pb.CommitRequest{Index: height})
+		if err == nil && isAck(resp) {
+			c.emitter.Emit(events.Event{Kind: events.EvCoordCommit, Cohort: name, Height: height, Result: "ok"})
 			return
 		}
+		slog.Warn("commit delivery failed", "cohort", name, "height", height, "attempt", attempt+1, "err", err)
 	}
+
+	c.emitter.Emit(events.Event{Kind: events.EvCoordCommit, Cohort: name, Height: height, Result: "nack"})
+	slog.Error("cohort did not acknowledge commit; it will learn the decision via the termination protocol",
+		"cohort", name, "height", height)
+}
+
+func isAck(resp *pb.Response) bool {
+	return resp != nil && resp.Type == pb.Type_ACK
 }
 
 // Height returns the current transaction height.
@@ -284,19 +379,52 @@ func (c *coordinator) SetHeight(height uint64) {
 	atomic.StoreUint64(&c.height, height)
 }
 
-// abort sends abort requests to all cohorts in a fire-and-forget manner
+// Decision returns the recorded outcome for the given height. Unknown means
+// the height is not yet decided (or predates WAL retention).
+func (c *coordinator) Decision(height uint64) dto.Outcome {
+	switch c.decisionFor(height) {
+	case iowal.PhaseKeyCommit:
+		return dto.OutcomeCommit
+	case iowal.PhaseKeyAbort:
+		return dto.OutcomeAbort
+	default:
+		return dto.OutcomeUnknown
+	}
+}
+
+func (c *coordinator) decisionFor(height uint64) string {
+	c.decisionsMu.RLock()
+	defer c.decisionsMu.RUnlock()
+	return c.decisions[height]
+}
+
+func (c *coordinator) recordDecision(height uint64, phase string) {
+	c.decisionsMu.Lock()
+	c.decisions[height] = phase
+	c.decisionsMu.Unlock()
+}
+
+// abort resolves the current height as aborted and notifies all cohorts.
 func (c *coordinator) abort(ctx context.Context, reason string) {
 	currentHeight := atomic.LoadUint64(&c.height)
 	slog.Warn("Aborting transaction", "height", currentHeight, "reason", reason)
 	c.emitter.Emit(events.Event{Kind: events.EvCoordAbort, Height: currentHeight, Message: reason})
 
 	if err := c.wal.Write(iowal.AbortKey(currentHeight), nil); err != nil {
+		// absence of a commit record already means abort, so keep going
 		slog.Error("Failed to write abort to WAL", "err", err)
 	}
+	c.recordDecision(currentHeight, iowal.PhaseKeyAbort)
+	c.pendingPayload = nil
+	atomic.AddUint64(&c.height, 1)
 
+	// fire-and-forget: a cohort that misses this learns the outcome via the
+	// termination protocol; detach from the request context so the delivery
+	// survives the client RPC ending
+	abortCtx := context.WithoutCancel(ctx)
 	for name, cohort := range c.cohorts {
 		go func(name string, cohort *client.InternalCommitClient) {
-			if _, err := cohort.Abort(ctx, &dto.AbortRequest{Height: currentHeight, Reason: reason}); err != nil {
+			if _, err := cohort.Abort(abortCtx, &dto.AbortRequest{Height: currentHeight, Reason: reason}); err != nil {
 				slog.Error("Failed to send abort to cohort", "cohort", name, "err", err)
 			}
 		}(name, cohort)

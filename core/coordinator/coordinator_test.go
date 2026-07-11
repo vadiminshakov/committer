@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/dto"
-	iowal "github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
+	iowal "github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/committer/mocks"
 	"go.uber.org/mock/gomock"
 )
@@ -60,36 +60,6 @@ func TestCoordinator_Height(t *testing.T) {
 	// test height increment
 	atomic.AddUint64(&coord.height, 1)
 	require.Equal(t, uint64(1), coord.Height())
-}
-
-func TestCoordinator_SyncHeight(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockWAL := mocks.NewMockwal(ctrl)
-	mockStore := mocks.NewMockStateStore(ctrl)
-
-	conf := &config.Config{
-		Nodeaddr:   "localhost:8080",
-		Role:       "coordinator",
-		Cohorts:    []string{},
-		CommitType: server.TWO_PHASE,
-	}
-
-	coord, err := New(conf, mockWAL, mockStore)
-	require.NoError(t, err)
-
-	// test sync to higher height
-	coord.syncHeight(5)
-	require.Equal(t, uint64(5), coord.Height())
-
-	// test sync to lower height (should not change)
-	coord.syncHeight(3)
-	require.Equal(t, uint64(5), coord.Height())
-
-	// test sync to same height (should not change)
-	coord.syncHeight(5)
-	require.Equal(t, uint64(5), coord.Height())
 }
 
 func TestCoordinator_PersistMessage(t *testing.T) {
@@ -183,9 +153,13 @@ func TestCoordinator_Abort(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("abort took too long to complete")
 	}
+
+	// an aborted height is consumed and its decision is recorded
+	require.Equal(t, uint64(1), coord.Height())
+	require.Equal(t, dto.OutcomeAbort, coord.Decision(0))
 }
 
-func TestCoordinator_SyncHeight_Concurrent(t *testing.T) {
+func TestCoordinator_CommitRecordsDecisionBeforeDelivery(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -202,23 +176,162 @@ func TestCoordinator_SyncHeight_Concurrent(t *testing.T) {
 	coord, err := New(conf, mockWAL, mockStore)
 	require.NoError(t, err)
 
-	// test concurrent height sync
-	done := make(chan bool, 10)
+	payload, err := iowal.Encode(iowal.Tx{Key: "k", Value: []byte("v")})
+	require.NoError(t, err)
+	coord.pendingPayload = payload
 
-	for i := 0; i < 10; i++ {
-		go func(height uint64) {
-			coord.syncHeight(height)
-			done <- true
-		}(uint64(i + 1))
+	// the commit record is force-written and the tx applied locally
+	mockWAL.EXPECT().Write(iowal.CommitKey(0), payload).Return(nil)
+	mockStore.EXPECT().Put("k", []byte("v")).Return(nil)
+
+	require.NoError(t, coord.commit(context.Background()))
+
+	// the decision is queryable by in-doubt cohorts
+	require.Equal(t, dto.OutcomeCommit, coord.Decision(0))
+	require.Nil(t, coord.pendingPayload)
+}
+
+func TestCoordinator_CommitWALFailureResolvesAsAbort(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockWAL := mocks.NewMockwal(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
+
+	conf := &config.Config{
+		Nodeaddr:   "localhost:8080",
+		Role:       "coordinator",
+		Cohorts:    []string{},
+		CommitType: server.TWO_PHASE,
 	}
 
-	// wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
-		<-done
+	coord, err := New(conf, mockWAL, mockStore)
+	require.NoError(t, err)
+
+	payload, err := iowal.Encode(iowal.Tx{Key: "k", Value: []byte("v")})
+	require.NoError(t, err)
+	coord.pendingPayload = payload
+
+	// commit record cannot be written: no decision record on disk means abort
+	mockWAL.EXPECT().Write(iowal.CommitKey(0), payload).Return(fmt.Errorf("disk full"))
+	mockWAL.EXPECT().Write(iowal.AbortKey(0), []byte(nil)).Return(fmt.Errorf("disk full"))
+
+	require.Error(t, coord.commit(context.Background()))
+
+	require.Equal(t, dto.OutcomeAbort, coord.Decision(0))
+	require.Equal(t, uint64(1), coord.Height())
+}
+
+func TestCoordinator_Recover_PresumedAbort(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockWAL := mocks.NewMockwal(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
+
+	conf := &config.Config{
+		Nodeaddr:   "localhost:8080",
+		Role:       "coordinator",
+		Cohorts:    []string{},
+		CommitType: server.TWO_PHASE,
 	}
 
-	// height should be the maximum value
-	require.Equal(t, uint64(10), coord.Height())
+	coord, err := New(conf, mockWAL, mockStore)
+	require.NoError(t, err)
+
+	// the node crashed at height 5 after writing prepared but before the decision:
+	// recovery must resolve it as abort (presumed abort)
+	mockWAL.EXPECT().Write(iowal.AbortKey(5), []byte(nil)).Return(nil)
+
+	coord.Recover(&iowal.RecoveryState{
+		NextHeight: 6,
+		Unresolved: &iowal.UnresolvedTransaction{
+			Height:  5,
+			Phase:   iowal.PhaseKeyPrepared,
+			Payload: []byte("pending"),
+		},
+		Decisions: map[uint64]string{
+			3: iowal.PhaseKeyCommit,
+			4: iowal.PhaseKeyAbort,
+		},
+	})
+
+	require.Equal(t, uint64(6), coord.Height())
+	require.Equal(t, dto.OutcomeAbort, coord.Decision(5))
+
+	// recovered decisions answer termination protocol requests
+	require.Equal(t, dto.OutcomeCommit, coord.Decision(3))
+	require.Equal(t, dto.OutcomeAbort, coord.Decision(4))
+	require.Equal(t, dto.OutcomeUnknown, coord.Decision(6))
+}
+
+func TestCoordinator_Recover_PresumedCommit_3PC(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockWAL := mocks.NewMockwal(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
+
+	conf := &config.Config{
+		Nodeaddr:   "localhost:8080",
+		Role:       "coordinator",
+		Cohorts:    []string{},
+		CommitType: server.THREE_PHASE,
+	}
+
+	coord, err := New(conf, mockWAL, mockStore)
+	require.NoError(t, err)
+
+	payload, err := iowal.Encode(iowal.Tx{Key: "k", Value: []byte("v")})
+	require.NoError(t, err)
+
+	// the node crashed at height 5 after every cohort acked precommit: a
+	// cohort past that point autocommits on its own timeout even without the
+	// coordinator, so recovery must resolve it as commit (presumed commit),
+	// not abort
+	mockWAL.EXPECT().Write(iowal.CommitKey(5), payload).Return(nil)
+	mockStore.EXPECT().Put("k", []byte("v")).Return(nil)
+
+	coord.Recover(&iowal.RecoveryState{
+		NextHeight: 6,
+		Unresolved: &iowal.UnresolvedTransaction{
+			Height:  5,
+			Phase:   iowal.PhaseKeyPrecommit,
+			Payload: payload,
+		},
+		Decisions: map[uint64]string{},
+	})
+
+	require.Equal(t, uint64(6), coord.Height())
+	require.Equal(t, dto.OutcomeCommit, coord.Decision(5))
+}
+
+func TestCoordinator_Recover_CleanState(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockWAL := mocks.NewMockwal(ctrl)
+	mockStore := mocks.NewMockStateStore(ctrl)
+
+	conf := &config.Config{
+		Nodeaddr:   "localhost:8080",
+		Role:       "coordinator",
+		Cohorts:    []string{},
+		CommitType: server.TWO_PHASE,
+	}
+
+	coord, err := New(conf, mockWAL, mockStore)
+	require.NoError(t, err)
+
+	// no pending transaction: nothing to resolve, no WAL writes expected
+	coord.Recover(&iowal.RecoveryState{
+		NextHeight: 2,
+		Decisions:  map[uint64]string{0: iowal.PhaseKeyCommit, 1: iowal.PhaseKeyCommit},
+	})
+
+	require.Equal(t, uint64(2), coord.Height())
+	require.Equal(t, dto.OutcomeCommit, coord.Decision(0))
+	require.Equal(t, dto.OutcomeUnknown, coord.Decision(2))
 }
 
 func TestNackResponse(t *testing.T) {
