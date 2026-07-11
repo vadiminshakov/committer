@@ -44,7 +44,7 @@ type CommitterImpl struct {
 	wal            wal
 	hookRegistry   *hooks.Registry
 	state          *stateMachine
-	height         uint64
+	height         atomic.Uint64
 	timeout        uint64
 	mu             sync.Mutex
 	pendingPayload []byte            // encoded payload of the current in-progress transaction
@@ -97,12 +97,12 @@ func (c *CommitterImpl) RegisterHook(hook hooks.Hook) {
 
 // Height returns the current transaction height.
 func (c *CommitterImpl) Height() uint64 {
-	return atomic.LoadUint64(&c.height)
+	return c.height.Load()
 }
 
 // SetHeight initializes committer height from recovered WAL state.
 func (c *CommitterImpl) SetHeight(height uint64) {
-	atomic.StoreUint64(&c.height, height)
+	c.height.Store(height)
 }
 
 // Propose handles the propose phase of the commit protocol.
@@ -110,7 +110,7 @@ func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 	if req.Height != currentHeight {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, nil
 	}
@@ -164,7 +164,7 @@ func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.Cohor
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 	if index != currentHeight {
 		return nil, status.Errorf(codes.FailedPrecondition, "invalid precommit height: expected %d, got %d", currentHeight, index)
 	}
@@ -197,7 +197,7 @@ func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dt
 }
 
 func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 
 	// re-delivered decision for a resolved height: repeat the recorded answer
 	if height < currentHeight {
@@ -257,7 +257,7 @@ func (c *CommitterImpl) commit(height uint64) (*dto.CohortResponse, error) {
 	}
 
 	c.decisions[height] = iowal.PhaseKeyCommit
-	atomic.StoreUint64(&c.height, currentHeight+1)
+	c.height.Store(currentHeight + 1)
 	c.resetPending()
 
 	if terr := c.state.Transition(proposeStage); terr != nil {
@@ -275,7 +275,7 @@ func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 
 	if req.Height != currentHeight {
 		slog.Debug("ignoring abort for non-current height", "height", req.Height, "current", currentHeight)
@@ -289,7 +289,7 @@ func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.
 	}
 
 	slog.Info("successfully processed abort", "height", req.Height)
-	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: atomic.LoadUint64(&c.height)}, nil
+	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: c.height.Load()}, nil
 }
 
 // abortCurrent journals the abort, records the decision, advances the height
@@ -301,7 +301,7 @@ func (c *CommitterImpl) abortCurrent(height uint64, reason string) error {
 	}
 
 	c.decisions[height] = iowal.PhaseKeyAbort
-	atomic.StoreUint64(&c.height, height+1)
+	c.height.Store(height + 1)
 	c.resetPending()
 
 	c.emitter.Emit(events.Event{Kind: events.EvCohortAbort, Height: height, Message: reason})
@@ -346,7 +346,7 @@ func (c *CommitterImpl) handleProposeTimeout(height uint64) {
 	defer c.mu.Unlock()
 
 	currentState := c.state.getCurrentState()
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 
 	slog.Debug("propose timeout handler", "state", currentState, "height", currentHeight, "index", height)
 
@@ -370,7 +370,7 @@ func (c *CommitterImpl) handlePrecommitTimeout(height uint64) {
 	defer c.mu.Unlock()
 
 	currentState := c.state.getCurrentState()
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 
 	slog.Debug("precommit timeout handler", "state", currentState, "height", currentHeight, "index", height)
 
@@ -440,7 +440,7 @@ func (c *CommitterImpl) awaitDecision(height uint64) {
 func (c *CommitterImpl) stillPrepared(height uint64) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.state.getCurrentState() == preparedStage && atomic.LoadUint64(&c.height) == height
+	return c.state.getCurrentState() == preparedStage && c.height.Load() == height
 }
 
 // applyDecision resolves the prepared transaction with the coordinator's
@@ -449,7 +449,7 @@ func (c *CommitterImpl) applyDecision(height uint64, outcome dto.Outcome) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.state.getCurrentState() != preparedStage || atomic.LoadUint64(&c.height) != height {
+	if c.state.getCurrentState() != preparedStage || c.height.Load() != height {
 		return true
 	}
 
@@ -491,12 +491,12 @@ func (c *CommitterImpl) Resume(rec *iowal.RecoveryState) {
 	}
 
 	if rec.Unresolved == nil {
-		atomic.StoreUint64(&c.height, rec.NextHeight)
+		c.height.Store(rec.NextHeight)
 		return
 	}
 
 	tx := rec.Unresolved
-	atomic.StoreUint64(&c.height, tx.Height)
+	c.height.Store(tx.Height)
 	c.pendingPayload = tx.Payload
 
 	if c.state.mode == twophase {

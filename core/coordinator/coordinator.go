@@ -55,7 +55,7 @@ type coordinator struct {
 	config         *config.Config
 	commitType     pb.CommitType
 	threePhase     bool
-	height         uint64
+	height         atomic.Uint64
 	pendingPayload []byte     // encoded payload of the current in-progress broadcast
 	mu             sync.Mutex // serialize broadcast to keep height/WAL alignment
 	decisions      map[uint64]string
@@ -111,7 +111,7 @@ func (c *coordinator) Recover(rec *iowal.RecoveryState) {
 	c.decisionsMu.Unlock()
 
 	if rec.Unresolved == nil {
-		atomic.StoreUint64(&c.height, rec.NextHeight)
+		c.height.Store(rec.NextHeight)
 		return
 	}
 
@@ -133,7 +133,7 @@ func (c *coordinator) resolveRecoveredAsAbort(tx *iowal.UnresolvedTransaction) {
 		slog.Error("failed to write abort record during recovery", "height", tx.Height, "err", err)
 	}
 	c.recordDecision(tx.Height, iowal.PhaseKeyAbort)
-	atomic.StoreUint64(&c.height, tx.Height+1)
+	c.height.Store(tx.Height + 1)
 }
 
 // resolveRecoveredAsCommit closes out a 3PC transaction that had
@@ -156,7 +156,7 @@ func (c *coordinator) resolveRecoveredAsCommit(tx *iowal.UnresolvedTransaction) 
 	}
 	c.pendingPayload = nil
 
-	atomic.StoreUint64(&c.height, tx.Height+1)
+	c.height.Store(tx.Height + 1)
 
 	// deliver commit to any cohort still waiting, without blocking startup
 	// on unreachable ones
@@ -172,7 +172,7 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 
 	slog.Info("Proposing key", "key", req.Key)
 	c.emitter.Emit(events.Event{Kind: events.EvCoordPropose, Key: req.Key, Height: currentHeight})
@@ -196,7 +196,7 @@ func (c *coordinator) Broadcast(ctx context.Context, req dto.BroadcastRequest) (
 
 	slog.Info("coordinator committed key", "key", req.Key)
 
-	newHeight := atomic.AddUint64(&c.height, 1)
+	newHeight := c.height.Add(1)
 	c.emitter.Emit(events.Event{Kind: events.EvCoordCommit, Key: req.Key, Height: newHeight, Result: "ok"})
 	return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Height: newHeight}, nil
 }
@@ -208,7 +208,7 @@ func (c *coordinator) propose(ctx context.Context, req dto.BroadcastRequest) err
 		}
 	}
 
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 
 	// record Prepared so the payload survives a crash
 	ptx := iowal.Tx{Key: req.Key, Value: req.Value}
@@ -231,7 +231,7 @@ func (c *coordinator) sendProposal(ctx context.Context, cohort *client.InternalC
 	)
 
 	for {
-		currentHeight := atomic.LoadUint64(&c.height)
+		currentHeight := c.height.Load()
 		resp, err = cohort.Propose(ctx, &pb.ProposeRequest{
 			Key:        req.Key,
 			Value:      req.Value,
@@ -297,7 +297,7 @@ func (c *coordinator) catchUpCohort(ctx context.Context, name string, cohort *cl
 }
 
 func (c *coordinator) preCommit(ctx context.Context) error {
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 	for name, cohort := range c.cohorts {
 		resp, err := cohort.Precommit(ctx, &pb.PrecommitRequest{Index: currentHeight})
 		if err != nil {
@@ -323,7 +323,7 @@ func (c *coordinator) preCommit(ctx context.Context) error {
 }
 
 func (c *coordinator) commit(ctx context.Context) error {
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 
 	if err := c.wal.Write(iowal.CommitKey(currentHeight), c.pendingPayload); err != nil {
 		// no commit record on disk: the transaction resolves as abort
@@ -371,12 +371,12 @@ func isAck(resp *pb.Response) bool {
 
 // Height returns the current transaction height.
 func (c *coordinator) Height() uint64 {
-	return atomic.LoadUint64(&c.height)
+	return c.height.Load()
 }
 
 // SetHeight initializes coordinator height during recovery.
 func (c *coordinator) SetHeight(height uint64) {
-	atomic.StoreUint64(&c.height, height)
+	c.height.Store(height)
 }
 
 // Decision returns the recorded outcome for the given height. Unknown means
@@ -406,7 +406,7 @@ func (c *coordinator) recordDecision(height uint64, phase string) {
 
 // abort resolves the current height as aborted and notifies all cohorts.
 func (c *coordinator) abort(ctx context.Context, reason string) {
-	currentHeight := atomic.LoadUint64(&c.height)
+	currentHeight := c.height.Load()
 	slog.Warn("Aborting transaction", "height", currentHeight, "reason", reason)
 	c.emitter.Emit(events.Event{Kind: events.EvCoordAbort, Height: currentHeight, Message: reason})
 
@@ -416,7 +416,7 @@ func (c *coordinator) abort(ctx context.Context, reason string) {
 	}
 	c.recordDecision(currentHeight, iowal.PhaseKeyAbort)
 	c.pendingPayload = nil
-	atomic.AddUint64(&c.height, 1)
+	c.height.Add(1)
 
 	// fire-and-forget: a cohort that misses this learns the outcome via the
 	// termination protocol; detach from the request context so the delivery

@@ -3,7 +3,6 @@ package coordinator
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -58,7 +57,7 @@ func TestCoordinator_Height(t *testing.T) {
 	require.Equal(t, uint64(0), coord.Height())
 
 	// test height increment
-	atomic.AddUint64(&coord.height, 1)
+	coord.height.Add(1)
 	require.Equal(t, uint64(1), coord.Height())
 }
 
