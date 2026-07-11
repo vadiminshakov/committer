@@ -49,7 +49,7 @@ func TestStore_Recovery_Commit(t *testing.T) {
 	defer s.Close()
 
 	// 4. verify
-	assert.Equal(t, height+1, state.Height)
+	assert.Equal(t, height+1, state.NextHeight)
 
 	val, err := s.Get("key1")
 	assert.NoError(t, err)
@@ -90,8 +90,10 @@ func TestStore_Recovery_PreparedOnly(t *testing.T) {
 	_, err = s.Get("key2")
 	assert.Equal(t, ErrNotFound, err)
 
-	// height should resume at 15 (incomplete)
-	assert.Equal(t, height, state.Height)
+	assert.Equal(t, height+1, state.NextHeight)
+	assert.Equal(t, height, state.Unresolved.Height)
+	assert.Equal(t, wal.PhaseKeyPrepared, state.Unresolved.Phase)
+	assert.Equal(t, encoded, state.Unresolved.Payload)
 }
 
 func TestStore_Recovery_Abort(t *testing.T) {
@@ -124,5 +126,5 @@ func TestStore_Recovery_Abort(t *testing.T) {
 	defer s.Close()
 
 	// height should be 20+1 because it was resolved (Aborted)
-	assert.Equal(t, height+1, state.Height)
+	assert.Equal(t, height+1, state.NextHeight)
 }

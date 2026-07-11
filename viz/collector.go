@@ -73,8 +73,6 @@ func kindName(k events.EventKind) string {
 		return "CoordCommit"
 	case events.EvCoordAbort:
 		return "CoordAbort"
-	case events.EvCoordHeightSync:
-		return "CoordHeightSync"
 	case events.EvCohortPropose:
 		return "CohortPropose"
 	case events.EvCohortPrecommit:

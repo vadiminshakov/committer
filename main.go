@@ -28,6 +28,7 @@ import (
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
 	"github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/events"
+	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
 	"github.com/vadiminshakov/committer/io/store"
 	"github.com/vadiminshakov/committer/io/wal"
@@ -110,7 +111,7 @@ func newStore(w *wal.Wal, conf *config.Config) (*store.Store, *wal.RecoveryState
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
 
-	slog.Info("Recovered state from WAL", "next_height", recovery.Height, "keys", stateStore.Size())
+	slog.Info("Recovered state from WAL", "next_height", recovery.NextHeight, "keys", stateStore.Size())
 	return stateStore, recovery, nil
 }
 
@@ -125,8 +126,15 @@ func buildRoles(conf *config.Config, stateStore *store.Store, w *wal.Wal, recove
 	case "cohort":
 		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, w, conf.Timeout)
 		committer.SetEmitter(emitter)
-		committer.SetHeight(recovery.Height)
-		committer.SetPendingPayload(recovery.PendingPayload)
+		if conf.Coordinator != "" {
+			coordClient, err := client.NewInternalClient(conf.Coordinator)
+			if err != nil {
+				slog.Warn("failed to create coordinator client, decision requests disabled", "err", err)
+			} else {
+				committer.SetDecisionRequester(coordClient)
+			}
+		}
+		committer.Resume(recovery)
 		rc.cohort = cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
 	case "coordinator":
 		coord, err := coordinator.New(conf, w, stateStore)
@@ -134,7 +142,7 @@ func buildRoles(conf *config.Config, stateStore *store.Store, w *wal.Wal, recove
 			return nil, fmt.Errorf("failed to create coordinator: %w", err)
 		}
 		coord.SetEmitter(emitter)
-		coord.SetHeight(recovery.Height)
+		coord.Recover(recovery)
 		rc.coordinator = coord
 	default:
 		return nil, fmt.Errorf("unsupported role %q, expected coordinator or cohort", conf.Role)

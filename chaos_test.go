@@ -536,7 +536,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		}
 
 		committer := commitalgo.NewCommitter(stateStore, ct, walObj, node.Timeout)
-		committer.SetHeight(recovery.Height)
+		committer.Resume(recovery)
 		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
 
 		cohortServer, err := server.New(node, cohortImpl, nil, stateStore)
@@ -578,7 +578,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 
 		coord, err := coordinator.New(coordConfig, walObj, stateStore)
 		failfast(err)
-		coord.SetHeight(recovery.Height)
+		coord.Recover(recovery)
 
 		coordServer, err := server.New(coordConfig, nil, coord, stateStore)
 		failfast(err)
