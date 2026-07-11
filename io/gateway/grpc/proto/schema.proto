@@ -8,6 +8,9 @@ service InternalCommitAPI {
   rpc Precommit(PrecommitRequest) returns (Response);
   rpc Commit(CommitRequest) returns (Response);
   rpc Abort(AbortRequest) returns (Response);
+  // Decision lets an in-doubt cohort ask the coordinator for the recorded
+  // outcome of a given height (2PC termination protocol).
+  rpc Decision(DecisionRequest) returns (DecisionResponse);
 }
 
 service ClientAPI {
@@ -67,4 +70,18 @@ message Info {
 message AbortRequest {
   uint64 height = 1;
   string reason = 2;
+}
+
+message DecisionRequest {
+  uint64 height = 1;
+}
+
+enum Outcome {
+  OUTCOME_UNKNOWN = 0;
+  OUTCOME_COMMIT = 1;
+  OUTCOME_ABORT = 2;
+}
+
+message DecisionResponse {
+  Outcome outcome = 1;
 }

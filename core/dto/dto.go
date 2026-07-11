@@ -50,3 +50,15 @@ type AbortRequest struct {
 	Height uint64 // Transaction height to abort
 	Reason string // Reason for the abort
 }
+
+// Outcome represents the coordinator's recorded decision for a height.
+type Outcome int32
+
+const (
+	// OutcomeUnknown means no decision has been recorded (yet).
+	OutcomeUnknown Outcome = iota
+	// OutcomeCommit means the transaction was committed.
+	OutcomeCommit
+	// OutcomeAbort means the transaction was aborted.
+	OutcomeAbort
+)

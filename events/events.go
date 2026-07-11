@@ -11,7 +11,6 @@ const (
 	EvCoordPrecommit                   // координатор начал precommit (3PC)
 	EvCoordCommit                      // координатор завершил commit
 	EvCoordAbort                       // координатор инициировал abort
-	EvCoordHeightSync                  // синхронизация height от когорты
 	EvCohortPropose                    // когорта перешла в состояние propose
 	EvCohortPrecommit                  // когорта перешла в precommit
 	EvCohortCommit                     // когорта выполнила commit

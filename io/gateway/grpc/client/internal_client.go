@@ -48,3 +48,21 @@ func (client *InternalCommitClient) Abort(ctx context.Context, req *dto.AbortReq
 	slog.Info("Sending abort request", "height", req.Height, "reason", req.Reason)
 	return client.Connection.Abort(ctx, protoReq)
 }
+
+// Decision asks the coordinator for the recorded outcome of a height
+// (2PC termination protocol).
+func (client *InternalCommitClient) Decision(ctx context.Context, height uint64) (dto.Outcome, error) {
+	resp, err := client.Connection.Decision(ctx, &proto.DecisionRequest{Height: height})
+	if err != nil {
+		return dto.OutcomeUnknown, err
+	}
+
+	switch resp.Outcome {
+	case proto.Outcome_OUTCOME_COMMIT:
+		return dto.OutcomeCommit, nil
+	case proto.Outcome_OUTCOME_ABORT:
+		return dto.OutcomeAbort, nil
+	default:
+		return dto.OutcomeUnknown, nil
+	}
+}

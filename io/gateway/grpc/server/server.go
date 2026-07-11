@@ -33,6 +33,7 @@ type Coordinator interface {
 	Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error)
 	Height() uint64
 	SetHeight(height uint64)
+	Decision(height uint64) dto.Outcome
 }
 
 // Cohort defines the interface for cohort operations.
@@ -95,6 +96,24 @@ func (s *Server) Abort(ctx context.Context, req *proto.AbortRequest) (*proto.Res
 	}
 	resp, err := s.cohort.Abort(ctx, abortReq)
 	return cohortResponseToProto(resp), err
+}
+
+// Decision serves the 2PC termination protocol: it returns the coordinator's
+// recorded outcome for the given height to an in-doubt cohort.
+func (s *Server) Decision(ctx context.Context, req *proto.DecisionRequest) (*proto.DecisionResponse, error) {
+	if s.coordinator == nil {
+		return nil, status.Error(codes.FailedPrecondition, "coordinator role not enabled on this node")
+	}
+
+	outcome := proto.Outcome_OUTCOME_UNKNOWN
+	switch s.coordinator.Decision(req.Height) {
+	case dto.OutcomeCommit:
+		outcome = proto.Outcome_OUTCOME_COMMIT
+	case dto.OutcomeAbort:
+		outcome = proto.Outcome_OUTCOME_ABORT
+	}
+
+	return &proto.DecisionResponse{Outcome: outcome}, nil
 }
 
 func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) {
@@ -172,9 +191,7 @@ func checkServerFields(server *Server) error {
 func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	var err error
 	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
-	if s.cohort != nil {
-		proto.RegisterInternalCommitAPIServer(s.GRPCServer, s)
-	}
+	proto.RegisterInternalCommitAPIServer(s.GRPCServer, s)
 	proto.RegisterClientAPIServer(s.GRPCServer, s)
 
 	l, err := net.Listen("tcp", s.Addr)
