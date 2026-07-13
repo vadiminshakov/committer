@@ -22,7 +22,7 @@ var (
 	ErrPrecommitVote = errors.New("failed to send precommit")
 )
 
-//go:generate mockgen -destination=../../mocks/mock_coordinator.go -package=mocks -mock_names=wal=MockCoordinatorWAL,stateStore=MockCoordinatorStateStore,Participant=MockCoordinatorParticipant . wal,stateStore,Participant
+//go:generate mockgen -destination=../../mocks/mock_coordinator.go -package=mocks -mock_names=wal=MockCoordinatorWAL,stateStore=MockCoordinatorStateStore,Cohort=MockCoordinatorCohort . wal,stateStore,Cohort
 type wal interface {
 	Write(key string, value []byte) error
 	Recover(applyFn func(key string, value []byte) error) (*iowal.RecoveryState, error)
@@ -45,15 +45,15 @@ func New(
 	protocol dto.Protocol,
 	wal wal,
 	store stateStore,
-	participants map[string]Participant,
+	cohorts []Cohort,
 	emitter events.Emitter,
 ) (*Coordinator, error) {
 	if emitter == nil {
 		emitter = events.NoopEmitter{}
 	}
 
-	if err := validateParticipants(participants); err != nil {
-		return nil, errors.Join(err, closeParticipants(participants))
+	if err := validateCohorts(cohorts); err != nil {
+		return nil, errors.Join(err, closeCohorts(cohorts))
 	}
 
 	lifecycle, recovered, err := newTransactionLifecycle(
@@ -64,7 +64,7 @@ func New(
 	if err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("construct transaction lifecycle: %w", err),
-			closeParticipants(participants),
+			closeCohorts(cohorts),
 		)
 	}
 
@@ -74,7 +74,7 @@ func New(
 		emitter:   emitter,
 	}
 	coordinator.delivery = newCohortDelivery(
-		participants,
+		cohorts,
 		lifecycle.Decision,
 		emitter,
 	)
@@ -205,7 +205,7 @@ func (c *Coordinator) Decision(height uint64) dto.Outcome {
 	return c.lifecycle.Decision(height)
 }
 
-// Close stops cohort delivery and releases all participant clients.
+// Close stops cohort delivery and releases all cohort clients.
 func (c *Coordinator) Close() error {
 	c.delivery.cancel()
 
@@ -222,33 +222,44 @@ func nackResponse(height uint64, err error) (*dto.BroadcastResponse, error) {
 	}, err
 }
 
-func validateParticipants(participants map[string]Participant) error {
-	for name, participant := range participants {
-		if name == "" {
-			return errors.New("participant name is empty")
+func validateCohorts(cohorts []Cohort) error {
+	addresses := make(map[string]struct{}, len(cohorts))
+	for _, cohort := range cohorts {
+		if cohort == nil {
+			return errors.New("cohort is nil")
 		}
-		if participant == nil {
-			return fmt.Errorf("participant %q is nil", name)
+		address := cohort.Addr()
+		if address == "" {
+			return errors.New("cohort address is empty")
 		}
+		if _, exists := addresses[address]; exists {
+			return fmt.Errorf("duplicate cohort address %q", address)
+		}
+		addresses[address] = struct{}{}
 	}
 	return nil
 }
 
-func closeParticipants(participants map[string]Participant) error {
-	names := make([]string, 0, len(participants))
-	for name := range participants {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+func closeCohorts(cohorts []Cohort) error {
+	cohorts = append([]Cohort(nil), cohorts...)
+	sort.Slice(cohorts, func(i, j int) bool {
+		if cohorts[i] == nil {
+			return cohorts[j] != nil
+		}
+		if cohorts[j] == nil {
+			return false
+		}
+		return cohorts[i].Addr() < cohorts[j].Addr()
+	})
 
 	var result error
-	for _, name := range names {
-		if participants[name] == nil {
+	for _, cohort := range cohorts {
+		if cohort == nil {
 			continue
 		}
 
-		if err := participants[name].Close(); err != nil {
-			result = errors.Join(result, fmt.Errorf("close participant %s: %w", name, err))
+		if err := cohort.Close(); err != nil {
+			result = errors.Join(result, fmt.Errorf("close cohort %s: %w", cohort.Addr(), err))
 		}
 	}
 
