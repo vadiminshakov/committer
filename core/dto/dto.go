@@ -4,6 +4,29 @@
 // and three-phase commit protocols.
 package dto
 
+type Protocol uint8
+
+const (
+	ProtocolTwoPhase Protocol = iota + 1
+	ProtocolThreePhase
+)
+
+type Transaction struct {
+	Key   string
+	Value []byte
+}
+
+type Proposal struct {
+	Height      uint64
+	Protocol    Protocol
+	Transaction Transaction
+}
+
+type ParticipantReply struct {
+	Accepted bool
+	Height   uint64
+}
+
 // ProposeRequest represents a proposal for a new transaction.
 type ProposeRequest struct {
 	Key    string // Key to be stored
@@ -62,3 +85,11 @@ const (
 	// OutcomeAbort means the transaction was aborted.
 	OutcomeAbort
 )
+
+type FinalDecision struct {
+	Height  uint64
+	Outcome Outcome
+	// RequirePrecommit preserves the ordinary 3PC PREPARED -> PRECOMMIT ->
+	// COMMIT sequence when replaying a recovered or historical commit.
+	RequirePrecommit bool
+}
