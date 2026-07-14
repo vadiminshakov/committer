@@ -12,10 +12,19 @@ const (
 	threephase = "three-phase"
 )
 const (
-	proposeStage   = "propose"
-	preparedStage  = "prepared"
+	// proposeStage means that the cohort is ready to accept a transaction at
+	// the current height.
+	proposeStage = "propose"
+	// preparedStage is the PREPARED/WAITING state. The cohort has voted YES,
+	// durably stored the payload, and must wait for the coordinator's next
+	// decision. In 3PC this is deliberately distinct from proposeStage.
+	preparedStage = "prepared"
+	// precommitStage is committable: the cohort must not choose ABORT locally.
 	precommitStage = "precommit"
-	commitStage    = "commit"
+	// commitStage is the short-lived state while the final commit is being
+	// applied. The protocol returns to proposeStage only after the final WAL
+	// and store operations succeed.
+	commitStage = "commit"
 )
 
 type stateMachine struct {
@@ -33,23 +42,32 @@ var twoPhaseTransitions = map[string]map[string]struct{}{
 		preparedStage: struct{}{},
 	},
 	preparedStage: {
-		commitStage:  struct{}{},
-		proposeStage: struct{}{}, // abort
+		preparedStage: struct{}{},
+		commitStage:   struct{}{},
+		proposeStage:  struct{}{}, // abort
 	},
 	commitStage: {
+		commitStage:  struct{}{},
 		proposeStage: struct{}{},
 	},
 }
 
 var threePhaseTransitions = map[string]map[string]struct{}{
 	proposeStage: {
-		proposeStage:   struct{}{},
+		proposeStage:  struct{}{},
+		preparedStage: struct{}{},
+	},
+	preparedStage: {
+		preparedStage:  struct{}{},
 		precommitStage: struct{}{},
+		proposeStage:   struct{}{}, // coordinator ABORT before PRECOMMIT
 	},
 	precommitStage: {
-		commitStage: struct{}{},
+		precommitStage: struct{}{},
+		commitStage:    struct{}{},
 	},
 	commitStage: {
+		commitStage:  struct{}{},
 		proposeStage: struct{}{},
 	},
 }

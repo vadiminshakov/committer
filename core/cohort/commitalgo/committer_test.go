@@ -2,6 +2,7 @@ package commitalgo
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ import (
 	iowal "github.com/vadiminshakov/committer/io/wal"
 	"github.com/vadiminshakov/committer/mocks"
 	"github.com/vadiminshakov/gowal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // findWalRecord scans the WAL and returns the first record with the given key.
@@ -132,6 +135,31 @@ func TestNewCommitter_BuiltinHooks(t *testing.T) {
 	require.Equal(t, uint64(0), proposeCount, "Expected initial propose count to be 0")
 	require.Equal(t, uint64(0), commitCount, "Expected initial commit count to be 0")
 }
+
+func TestCommit_ValidatesExternalRequest(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, _, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 5000)
+
+	t.Run("nil request", func(t *testing.T) {
+		resp, err := committer.Commit(context.Background(), nil)
+
+		require.Nil(t, resp)
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+		require.Equal(t, uint64(0), committer.Height())
+	})
+
+	t.Run("cancelled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		resp, err := committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+
+		require.Nil(t, resp)
+		require.Equal(t, codes.Canceled, status.Code(err))
+		require.Equal(t, uint64(0), committer.Height())
+	})
+}
+
 func TestCommit_StateValidation_2PC(t *testing.T) {
 	tempDir := t.TempDir()
 	walPath := filepath.Join(tempDir, "wal")
@@ -191,17 +219,16 @@ func TestCommit_StateValidation_3PC(t *testing.T) {
 	_, err := committer.Propose(context.Background(), proposeReq)
 	require.NoError(t, err)
 
-	// should still be in propose state
-	require.Equal(t, "propose", committer.getCurrentState())
+	require.Equal(t, "prepared", committer.getCurrentState())
 
-	// commit should fail from propose state in 3PC mode
+	// normal commit must fail before PRECOMMIT in 3PC mode
 	commitReq := &dto.CommitRequest{Height: 0}
 	_, err = committer.Commit(context.Background(), commitReq)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid state for commit: expected precommit for three-phase mode, but current state is propose")
+	require.Contains(t, err.Error(), "invalid state for commit: expected precommit for three-phase mode, but current state is prepared")
 
-	// state should remain in propose after failed commit
-	require.Equal(t, "propose", committer.getCurrentState())
+	// state should remain waiting after failed commit
+	require.Equal(t, "prepared", committer.getCurrentState())
 
 	// now go through proper 3PC flow: propose -> precommit -> commit
 	_, err = committer.Precommit(context.Background(), 0)
@@ -250,8 +277,8 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
 
-		// state should be restored to propose after failed commit
-		require.Equal(t, "propose", committer.getCurrentState())
+		// a failed commit must keep the height fenced in PRECOMMIT
+		require.Equal(t, "precommit", committer.getCurrentState())
 		// height should not be incremented on hook failure
 		require.Equal(t, uint64(0), committer.Height())
 	})
@@ -277,11 +304,10 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 		_, err := committer.Propose(context.Background(), proposeReq)
 		require.NoError(t, err)
 
-		_, err = committer.Precommit(context.Background(), 0)
-		require.NoError(t, err)
-		require.Equal(t, "precommit", committer.getCurrentState())
+		require.Equal(t, "prepared", committer.getCurrentState())
 
-		// abort resolves the height: the abort is journaled and the height is consumed
+		// abort before PRECOMMIT resolves the height: the abort is journaled and
+		// the height is consumed
 		abortResp, aerr := committer.Abort(context.Background(), &dto.AbortRequest{Height: 0, Reason: "test"})
 		require.NoError(t, aerr)
 		require.Equal(t, dto.ResponseTypeAck, abortResp.ResponseType)
@@ -331,7 +357,8 @@ func TestPrecommitTimeout_StateValidation(t *testing.T) {
 	committer.SetHeight(recovery.NextHeight)
 
 	// test case 1: should skip autocommit when in commit state
-	// first go to precommit, then to commit
+	// first go to prepared, then precommit, then commit
+	committer.state.Transition(preparedStage)
 	committer.state.Transition(precommitStage)
 	committer.state.Transition(commitStage)
 	committer.handlePrecommitTimeout(0)
@@ -344,6 +371,7 @@ func TestPrecommitTimeout_StateValidation(t *testing.T) {
 	require.Equal(t, "propose", committer.getCurrentState()) // state unchanged
 
 	// test case 3: should skip autocommit when height doesn't match
+	committer.state.Transition(preparedStage)
 	committer.state.Transition(precommitStage)
 	committer.handlePrecommitTimeout(999)                      // wrong height
 	require.Equal(t, "precommit", committer.getCurrentState()) // state unchanged
@@ -402,6 +430,7 @@ func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
 	require.Equal(t, uint64(1), committer.Height())
 
 	// a late precommit timeout for the aborted height is a no-op
+	committer.state.Transition(preparedStage)
 	committer.state.Transition(precommitStage)
 	committer.handlePrecommitTimeout(0)
 
@@ -438,11 +467,10 @@ func TestPrecommitTimeout_AutocommitFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "precommit", committer.getCurrentState())
 
-	// test autocommit failure - should recover to propose
+	// test autocommit failure
 	committer.handlePrecommitTimeout(0)
 
-	// should be back in propose state after recovery from failed autocommit
-	require.Equal(t, "propose", committer.getCurrentState())
+	require.Equal(t, "precommit", committer.getCurrentState())
 	require.Equal(t, uint64(0), committer.Height()) // height should not be incremented on failure
 }
 
@@ -460,14 +488,15 @@ func TestPrecommitTimeout_NoDataInWAL(t *testing.T) {
 	// set up state without data in WAL
 
 	// move to precommit state without proposing first
+	committer.state.Transition(preparedStage)
 	committer.state.Transition(precommitStage)
 	require.Equal(t, "precommit", committer.getCurrentState())
 
-	// test autocommit with no data in WAL - should recover to propose
+	// test autocommit with no data in WAL - it remains fenced
 	committer.handlePrecommitTimeout(0)
 
-	// should be back in propose state after recovery
-	require.Equal(t, "propose", committer.getCurrentState())
+	// no abort or state rollback is allowed
+	require.Equal(t, "precommit", committer.getCurrentState())
 	require.Equal(t, uint64(0), committer.Height()) // height should not be incremented
 }
 
@@ -483,6 +512,7 @@ func TestRecoverToPropose(t *testing.T) {
 	committer.SetHeight(recovery.NextHeight)
 
 	// test recovery from precommit state
+	committer.state.Transition(preparedStage)
 	committer.state.Transition(precommitStage)
 	require.Equal(t, "precommit", committer.getCurrentState())
 
@@ -491,6 +521,7 @@ func TestRecoverToPropose(t *testing.T) {
 
 	// test recovery from commit state (should transition to propose)
 	// first to precommit, then to commit
+	committer.state.Transition(preparedStage)
 	committer.state.Transition(precommitStage)
 	committer.state.Transition(commitStage)
 	require.Equal(t, "commit", committer.getCurrentState())
@@ -527,18 +558,17 @@ func TestAbort_CurrentHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "precommit", committer.getCurrentState())
 
-	// test abort for current height
+	// ABORT is rejected after PRECOMMIT
 	abortReq := &dto.AbortRequest{
 		Height: 0,
 		Reason: "Test abort",
 	}
 
 	resp, err := committer.Abort(ctx, abortReq)
-	require.NoError(t, err)
-	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Error(t, err)
+	require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
 
-	// should be back in propose state after abort
-	require.Equal(t, "propose", committer.getCurrentState())
+	require.Equal(t, "precommit", committer.getCurrentState())
 
 	// should have the original data in WAL (Prepared)
 	prepRec, ok := findWalRecord(wal, iowal.PreparedKey(0))
@@ -549,9 +579,9 @@ func TestAbort_CurrentHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "test-key", walTx.Key)
 
-	// verify Abort
+	// verify no Abort was written after PRECOMMIT
 	_, ok = findWalRecord(wal, iowal.AbortKey(0))
-	require.True(t, ok, "ABORT record should be in WAL")
+	require.False(t, ok, "ABORT record must not be in WAL")
 
 	value, err := stateStore.Get("test-key")
 	require.Error(t, err, "Original value should not exist in database after abort")
@@ -675,15 +705,14 @@ func TestAbort_StateRecovery_3PC(t *testing.T) {
 	}
 
 	resp, err := committer.Abort(ctx, abortReq)
-	require.NoError(t, err)
-	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Error(t, err)
+	require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
 
-	// should be back in propose state
-	require.Equal(t, "propose", committer.getCurrentState())
+	require.Equal(t, "precommit", committer.getCurrentState())
 
-	// check wal
+	// check wal: no abort may follow precommit
 	_, ok := findWalRecord(wal, iowal.AbortKey(0))
-	require.True(t, ok, "ABORT record should be in WAL")
+	require.False(t, ok, "ABORT record must not be in WAL")
 }
 
 func TestAbort_StateRecovery_2PC(t *testing.T) {
@@ -962,4 +991,81 @@ func TestTerminationProtocol_AbortDecision(t *testing.T) {
 
 	_, ok := findWalRecord(wal, iowal.AbortKey(0))
 	require.True(t, ok, "ABORT record should be in WAL")
+}
+
+func TestPreparedThreePhaseRecoveryUsesNormalPrecommitAndCommit(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, stateStore, wal, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "three-phase", 5_000)
+	payload, err := iowal.Encode(iowal.Tx{Key: "test-key", Value: []byte("test-value")})
+	require.NoError(t, err)
+	committer.Resume(&iowal.RecoveryState{
+		NextHeight: 1,
+		Unresolved: &iowal.UnresolvedTransaction{
+			Height:  0,
+			Phase:   iowal.PhaseKeyPrepared,
+			Payload: payload,
+		},
+	})
+
+	ctx := context.Background()
+	require.Equal(t, preparedStage, committer.getCurrentState())
+	_, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.Error(t, err, "recovered 3PC PREPARED must not commit directly")
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	resp, err := committer.Precommit(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	resp, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, uint64(1), committer.Height())
+
+	value, err := stateStore.Get("test-key")
+	require.NoError(t, err)
+	require.Equal(t, "test-value", string(value))
+
+	// The final decision is idempotent after the normal legal phase sequence.
+	resp, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+
+	_, ok := findWalRecord(wal, iowal.CommitKey(0))
+	require.True(t, ok, "commit must be journaled")
+}
+
+func TestCommitRetriesFromCommitStageAfterStoreFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	w := openTestWAL(t, filepath.Join(tempDir, "wal"))
+
+	ctrl := gomock.NewController(t)
+	stateStore := mocks.NewMockCommitalgoStateStore(ctrl)
+	applyErr := errors.New("store unavailable")
+	stateStore.EXPECT().Put("test-key", []byte("test-value")).Return(applyErr)
+	stateStore.EXPECT().Put("test-key", []byte("test-value")).Return(nil)
+
+	committer := NewCommitter(stateStore, "three-phase", iowal.New(w), 5_000)
+	ctx := context.Background()
+	_, err := committer.Propose(ctx, &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	})
+	require.NoError(t, err)
+	_, err = committer.Precommit(ctx, 0)
+	require.NoError(t, err)
+
+	_, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.ErrorIs(t, err, applyErr)
+	require.Equal(t, commitStage, committer.getCurrentState())
+	require.Equal(t, uint64(0), committer.Height())
+	require.NotNil(t, committer.pendingPayload)
+
+	resp, err := committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, proposeStage, committer.getCurrentState())
+	require.Equal(t, uint64(1), committer.Height())
 }
