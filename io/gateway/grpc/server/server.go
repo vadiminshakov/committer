@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"github.com/vadiminshakov/committer/config"
+	corecoordinator "github.com/vadiminshakov/committer/core/coordinator"
 	"github.com/vadiminshakov/committer/core/dto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/store"
@@ -32,7 +33,6 @@ const (
 type Coordinator interface {
 	Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error)
 	Height() uint64
-	SetHeight(height uint64)
 	Decision(height uint64) dto.Outcome
 }
 
@@ -134,13 +134,34 @@ func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, er
 		Value: req.Value,
 	})
 	if err != nil {
-		return nil, err
+		return nil, coordinatorErrorToStatus(err)
 	}
 
 	return &proto.Response{
 		Type:  proto.Type(resp.Type),
 		Index: resp.Height,
 	}, nil
+}
+
+func coordinatorErrorToStatus(err error) error {
+	var committedNotApplied *corecoordinator.CommittedNotAppliedError
+	switch {
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, err.Error())
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, err.Error())
+	case errors.As(err, &committedNotApplied):
+		return status.Error(codes.Internal, err.Error())
+	case errors.Is(err, corecoordinator.ErrInvalidTransaction):
+		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, corecoordinator.ErrCoordinatorNotReady):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, corecoordinator.ErrProposeVote),
+		errors.Is(err, corecoordinator.ErrPrecommitVote):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	default:
+		return status.Error(codes.Internal, err.Error())
+	}
 }
 
 // NodeInfo returns information about the current node.
