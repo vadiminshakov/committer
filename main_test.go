@@ -15,7 +15,7 @@ import (
 	"github.com/vadiminshakov/committer/config"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
-	"github.com/vadiminshakov/committer/core/coordinator"
+	"github.com/vadiminshakov/committer/events"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
@@ -89,24 +89,20 @@ func TestHappyPath(t *testing.T) {
 		height++
 	}
 
-	// wait for rollback on cohorts
-	time.Sleep(1 * time.Second)
-
 	// connect to cohorts and check that them added key-value
 	for _, node := range nodes[COHORT_TYPE] {
 		cli, err := client.NewClientAPI(node.Nodeaddr)
 		require.NoError(t, err, "err not nil")
 
 		for key, val := range testtable {
-			// check values added by nodes
-			resp, err := cli.Get(context.Background(), key)
-			require.NoError(t, err, "err not nil")
-			require.Equal(t, resp.Value, val)
-
-			// check height of node
-			nodeInfo, err := cli.NodeInfo(context.Background())
-			require.NoError(t, err, "err not nil")
-			require.Equal(t, height, nodeInfo.Height, "node %s ahead, %d commits behind (current height is %d)", node.Nodeaddr, nodeInfo.Height-height, nodeInfo.Height)
+			require.Eventually(t, func() bool {
+				resp, err := cli.Get(context.Background(), key)
+				if err != nil || string(resp.Value) != string(val) {
+					return false
+				}
+				nodeInfo, err := cli.NodeInfo(context.Background())
+				return err == nil && nodeInfo.Height == height
+			}, 3*time.Second, 20*time.Millisecond, "cohort %s did not converge at height %d", node.Nodeaddr, height)
 		}
 	}
 
@@ -198,19 +194,21 @@ func startnodes(commitType pb.CommitType) func() error {
 		failfast(err)
 
 		walObj := wal.New(c)
-		stateStore, recovery, err := store.New(walObj, dbPath)
+		stateStore, err := store.Open(dbPath)
 		failfast(err)
 
-		coord, err := coordinator.New(coordConfig, walObj, stateStore)
+		coord, err := newReadyCoordinator(coordConfig, walObj, stateStore, events.NoopEmitter{})
 		failfast(err)
-		coord.Recover(recovery)
 
 		coordServer, err := server.New(coordConfig, nil, coord, stateStore)
 		failfast(err)
 
 		go coordServer.Run(server.CoordinatorCheck)
 		time.Sleep(100 * time.Millisecond)
-		stopfuncs = append(stopfuncs, coordServer.Stop)
+		stopfuncs = append(stopfuncs, func() {
+			coordServer.Stop()
+			_ = coord.Close()
+		})
 	}
 
 	return func() error {

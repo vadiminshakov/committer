@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vadiminshakov/committer/core/cohort"
 	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
-	"github.com/vadiminshakov/committer/core/coordinator"
+	"github.com/vadiminshakov/committer/events"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
 	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
@@ -256,17 +256,20 @@ func TestChaosFollowerFailure(t *testing.T) {
 
 		_, err = c.Put(context.Background(), "commit_fail_test", []byte("test_value_250"))
 		if err != nil {
-			require.Contains(t, err.Error(), "failed to send commit")
-			// if operation failed, check that value was committed on healthy nodes
+			// A failure before the durable final decision is still returned to
+			// the client. If the coordinator nevertheless has a durable COMMIT,
+			// healthy cohorts must converge to it.
 			if checkValueOnCoordinator(t, "commit_fail_test", []byte("test_value_250")) {
 				checkValueOnCohorts(t, "commit_fail_test", []byte("test_value_250"), 0) // skip failed cohort (index 0)
 				checkValueNotOnNode(t, nodes[COHORT_TYPE][0].Nodeaddr, "commit_fail_test")
 			}
 		} else {
-			// if operation succeeded despite limits, all nodes should have the value
-			t.Log("operation succeeded despite network limits (250 bytes was sufficient)")
+			// Final-decision ACKs are asynchronous: client success proves the
+			// coordinator's durable/apply outcome, not immediate delivery to the
+			// cohort behind the permanent fault.
+			t.Log("operation committed; waiting only for reachable cohorts")
 			checkValueOnCoordinator(t, "commit_fail_test", []byte("test_value_250"))
-			checkValueOnAllCohorts(t, "commit_fail_test", []byte("test_value_250"))
+			checkValueOnCohorts(t, "commit_fail_test", []byte("test_value_250"), 0)
 		}
 	})
 
@@ -505,12 +508,13 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 
 	// start cohorts
 	for i, node := range nodes[COHORT_TYPE] {
+		nodeConfig := *node
 		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
 			// use proxy address of coordinator
 			if proxyAddr := helper.getProxyAddress(nodes[COORDINATOR_TYPE][1].Nodeaddr); proxyAddr != "" {
-				node.Coordinator = proxyAddr
+				nodeConfig.Coordinator = proxyAddr
 			} else {
-				node.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
+				nodeConfig.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 			}
 		}
 		dbPath := filepath.Join(COHORT_BADGER, strconv.Itoa(i))
@@ -535,19 +539,20 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 			ct = server.THREE_PHASE
 		}
 
-		committer := commitalgo.NewCommitter(stateStore, ct, walObj, node.Timeout)
+		committer := commitalgo.NewCommitter(stateStore, ct, walObj, nodeConfig.Timeout)
 		committer.Resume(recovery)
-		cohortImpl := cohort.NewCohort(committer, cohort.Mode(node.CommitType))
+		cohortImpl := cohort.NewCohort(committer, cohort.Mode(nodeConfig.CommitType))
 
-		cohortServer, err := server.New(node, cohortImpl, nil, stateStore)
+		cohortServer, err := server.New(&nodeConfig, cohortImpl, nil, stateStore)
 		failfast(err)
 
-		go cohortServer.Run(server.CoordinatorOnly)
+		go cohortServer.Run(server.CoordinatorCheck)
 		stopfuncs = append(stopfuncs, cohortServer.Stop)
 	}
 
 	// start coordinators
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
+		coordinatorConfig := *coordConfig
 		dbPath := filepath.Join(COORDINATOR_BADGER, strconv.Itoa(i))
 		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
 		// update cohorts addresses to use proxies
@@ -559,7 +564,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 				updatedCohorts[j] = cohortAddr
 			}
 		}
-		coordConfig.Cohorts = updatedCohorts
+		coordinatorConfig.Cohorts = updatedCohorts
 
 		walConfig := gowal.Config{
 			Dir:              "./tmp/coord/msgs" + strconv.Itoa(i),
@@ -573,19 +578,21 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		failfast(err)
 
 		walObj := wal.New(c)
-		stateStore, recovery, err := store.New(walObj, dbPath)
+		stateStore, err := store.Open(dbPath)
 		failfast(err)
 
-		coord, err := coordinator.New(coordConfig, walObj, stateStore)
-		failfast(err)
-		coord.Recover(recovery)
-
-		coordServer, err := server.New(coordConfig, nil, coord, stateStore)
+		coord, err := newReadyCoordinator(&coordinatorConfig, walObj, stateStore, events.NoopEmitter{})
 		failfast(err)
 
-		go coordServer.Run(server.CoordinatorOnly)
+		coordServer, err := server.New(&coordinatorConfig, nil, coord, stateStore)
+		failfast(err)
+
+		go coordServer.Run(server.CoordinatorCheck)
 		time.Sleep(100 * time.Millisecond)
-		stopfuncs = append(stopfuncs, coordServer.Stop)
+		stopfuncs = append(stopfuncs, func() {
+			coordServer.Stop()
+			_ = coord.Close()
+		})
 	}
 
 	return func() error {
@@ -628,9 +635,10 @@ func checkValueOnCohorts(t *testing.T, key string, expectedValue []byte, skipFai
 		cohortClient, err := client.NewClientAPI(cohortAddr.Nodeaddr)
 		require.NoError(t, err)
 
-		cohortValue, err := cohortClient.Get(context.Background(), key)
-		require.NoError(t, err)
-		require.Equal(t, expectedValue, cohortValue.Value)
+		require.Eventually(t, func() bool {
+			cohortValue, err := cohortClient.Get(context.Background(), key)
+			return err == nil && string(cohortValue.Value) == string(expectedValue)
+		}, 2*time.Second, 20*time.Millisecond)
 		successCount++
 	}
 	return successCount
@@ -644,9 +652,10 @@ func checkValueOnAllCohorts(t *testing.T, key string, expectedValue []byte) {
 		cohortClient, err := client.NewClientAPI(cohortAddr.Nodeaddr)
 		require.NoError(t, err)
 
-		cohortValue, err := cohortClient.Get(context.Background(), key)
-		require.NoError(t, err)
-		require.Equal(t, expectedValue, cohortValue.Value)
+		require.Eventually(t, func() bool {
+			cohortValue, err := cohortClient.Get(context.Background(), key)
+			return err == nil && string(cohortValue.Value) == string(expectedValue)
+		}, 2*time.Second, 20*time.Millisecond)
 	}
 }
 
