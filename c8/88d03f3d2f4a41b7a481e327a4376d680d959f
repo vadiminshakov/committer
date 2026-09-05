@@ -1,0 +1,16 @@
+io/gateway/grpc/server/coordinator_test.go
+  h_786988a78af769 1-72
+io/gateway/grpc/server/server.go
+  h_786988a78af769 15,137,146-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c888d03f3d2f4a41b7a481e327a4376d680d959f",
+  "prompts": {},
+  "humans": {
+    "h_786988a78af769": {
+      "author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
