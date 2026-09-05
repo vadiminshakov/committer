@@ -57,30 +57,41 @@ func (s *Store) Size() int {
 	return count
 }
 
-// New creates a new WAL-backed store and reconstructs state from WAL entries using BadgerDB.
-func New(w *wal.Wal, dbPath string) (*Store, *wal.RecoveryState, error) {
-	if w == nil {
-		return nil, nil, errors.New("wal is nil")
-	}
+// Open opens a state store without replaying a journal. The owner of a deep
+// transaction lifecycle can use this form and invoke journal recovery itself.
+func Open(dbPath string) (*Store, error) {
 	if dbPath == "" {
-		return nil, nil, errors.New("db path is empty")
+		return nil, errors.New("db path is empty")
 	}
 
 	if err := os.MkdirAll(dbPath, 0o755); err != nil {
-		return nil, nil, errors.Wrap(err, "create badger directory")
+		return nil, errors.Wrap(err, "create badger directory")
 	}
 
 	opts := badger.DefaultOptions(dbPath)
 	db, err := badger.Open(opts)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "open badger db")
+		return nil, errors.Wrap(err, "open badger db")
+	}
+	return &Store{db: db}, nil
+}
+
+// New creates a WAL-backed store and reconstructs state from WAL entries.
+// Cohort construction and existing callers retain this convenience behavior;
+// coordinator construction uses Open so its transaction lifecycle owns replay.
+func New(w *wal.Wal, dbPath string) (*Store, *wal.RecoveryState, error) {
+	if w == nil {
+		return nil, nil, errors.New("wal is nil")
 	}
 
-	s := &Store{db: db}
+	s, err := Open(dbPath)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	recovery, err := w.Recover(s.Put)
 	if err != nil {
-		_ = db.Close()
+		_ = s.Close()
 		return nil, nil, err
 	}
 

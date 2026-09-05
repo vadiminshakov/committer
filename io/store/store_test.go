@@ -11,6 +11,17 @@ import (
 	"github.com/vadiminshakov/gowal"
 )
 
+func TestOpenCreatesStoreWithoutRequiringJournalRecovery(t *testing.T) {
+	s, err := Open(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.Put("key", []byte("value")))
+	value, err := s.Get("key")
+	require.NoError(t, err)
+	require.Equal(t, []byte("value"), value)
+}
+
 func TestStore_Recovery_Commit(t *testing.T) {
 	walDir := filepath.Join(os.TempDir(), "wal_commit")
 	dbDir := filepath.Join(os.TempDir(), "db_commit")

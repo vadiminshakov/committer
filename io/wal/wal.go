@@ -45,6 +45,7 @@ func (a *Wal) Close() error         { return a.w.Close() }
 type heightState struct {
 	maxPhase       string
 	pendingPayload []byte
+	decided        bool
 }
 
 // Recover replays WAL entries, applies committed transactions, and reports the
@@ -66,10 +67,18 @@ func (a *Wal) Recover(applyFn func(key string, value []byte) error) (*RecoverySt
 
 		switch phase {
 		case PhaseKeyPrepared, PhaseKeyPrecommit:
-			st.pendingPayload = rec.Value
-			st.maxPhase = phase
+			// A final decision fences the height. This also makes recovery
+			// idempotent if a retry appended a duplicate phase record.
+			if !st.decided {
+				st.pendingPayload = rec.Value
+				st.maxPhase = phase
+			}
 		case PhaseKeyCommit:
+			if st.decided {
+				continue
+			}
 			st.maxPhase = phase
+			st.decided = true
 			walTx, err := Decode(rec.Value)
 			if err != nil {
 				return nil, errors.Wrapf(err, "decode wal tx at idx %d", rec.Index)
@@ -78,7 +87,11 @@ func (a *Wal) Recover(applyFn func(key string, value []byte) error) (*RecoverySt
 				return nil, errors.Wrapf(err, "apply committed tx at idx %d", rec.Index)
 			}
 		case PhaseKeyAbort:
+			if st.decided {
+				continue
+			}
 			st.maxPhase = phase
+			st.decided = true
 			st.pendingPayload = nil
 		}
 	}

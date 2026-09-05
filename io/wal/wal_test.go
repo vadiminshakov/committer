@@ -43,6 +43,9 @@ func TestRecover_DecisionsAndPending(t *testing.T) {
 	// height 0: committed, height 1: aborted, height 2: prepared (in doubt)
 	require.NoError(t, w.Write(PreparedKey(0), mustEncode(t, "k0", "v0")))
 	require.NoError(t, w.Write(CommitKey(0), mustEncode(t, "k0", "v0")))
+	// A retry may append the same final record again; recovery must apply the
+	// business operation once for the height.
+	require.NoError(t, w.Write(CommitKey(0), mustEncode(t, "k0", "v0")))
 	require.NoError(t, w.Write(PreparedKey(1), mustEncode(t, "k1", "v1")))
 	require.NoError(t, w.Write(AbortKey(1), nil))
 	pending := mustEncode(t, "k2", "v2")
