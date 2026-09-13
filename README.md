@@ -11,25 +11,78 @@
 
 Go implementation of **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)** protocols for distributed systems.
 
-## **Architecture**
+## Architecture
 
-The system consists of two types of nodes: **Coordinator** and **Cohorts**.
-The **Coordinator** is responsible for initiating and managing the commit protocols (2PC or 3PC), while the **Cohorts** participate in the protocol by responding to the coordinator's requests.
-The communication between nodes is handled using gRPC, and the state of each node is managed using a state machine.
+The coordinator initiates transactions and manages the commit protocol.
+Participants (called **cohorts** in the code and CLI) vote on each transaction and apply its outcome. Nodes communicate over gRPC and persist state using a database and write-ahead log (WAL).
 
-## Monitoring & Visualization
+## Quick start
 
-Pass `-viz-port=<port>` to enable the web dashboard with live charts for throughput, commit/abort rates, latency, and node health:
+Requires **Go 1.25 or newer** and `make`. Run commands from the repository root.
 
 ```bash
-./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -viz-port=8080
+git clone https://github.com/vadiminshakov/committer.git
+cd committer
+make demo
 ```
 
-Then open `http://localhost:8080` in a browser.
+This builds `bin/committer`, starts a coordinator and one participant (cohort)
+using 2PC, writes `greeting=hello`, and reads it back:
 
-<p align="center">
-<img src="https://github.com/vadiminshakov/committer/blob/master/dashboard.png" alt="Committer Dashboard">
-</p>
+```text
+Committed transaction 0
+hello
+Node: localhost:3000
+Reachable: yes
+Height: 1
+```
+
+The transaction number and height increase on subsequent runs. Open
+[the protocol visualization](http://localhost:8080) and press **Play** to see the
+message exchange. Press **Ctrl+C** in the terminal to stop both demo nodes.
+Ports 3000, 3001 and 8080 must be available. Logs are in `.data/demo/logs/`.
+
+Demo data survives restarts in `.data/demo/`. To start from scratch, stop all
+demo nodes, then run `make demo-reset`. This deletes **only demo data**.
+
+### Run nodes yourself
+
+```bash
+make build
+
+# Terminal 1: participant
+./bin/committer cohort -nodeaddr localhost:3001 -coordinator localhost:3000
+
+# Terminal 2: coordinator
+./bin/committer coordinator -nodeaddr localhost:3000 -cohorts localhost:3001 -viz-port 8080
+
+# Terminal 3: client
+./bin/committer put --addr localhost:3000 greeting hello
+./bin/committer get --addr localhost:3000 greeting
+./bin/committer status --addr localhost:3000
+```
+
+`get` prints `hello`. `status` reports reachability and the node's current height;
+it is not a cluster health check. Put client flags **before** key/value arguments.
+Quote values containing spaces: `./bin/committer put greeting "hello world"`.
+Requests have a 5-second deadline, configurable with `--timeout 10s`.
+
+`put` requires a coordinator. `get` reads the target node's local committed data.
+If a request fails, check its error message and node logs. A timeout or lost
+connection during `put` does not by itself establish whether the transaction committed.
+
+For 3PC, pass `-committype three-phase -timeout 1s` to **both** nodes.
+Run `./bin/committer --help` or `./bin/committer coordinator -h` for help.
+
+## Protocol visualization
+
+The optional web UI animates protocol messages and shows an event log, transaction
+height, key and participants. Use Play/Pause, speed and replay controls to inspect
+the exchange. It is a protocol demonstration, not a metrics or health dashboard.
+
+Enable it on a node with `-viz-port 8080`, then open `http://localhost:8080`.
+Use a different port for each node's visualization. The HTTP server listens on
+all interfaces; the displayed localhost URL is for local access.
 
 ## **Atomic Commit Protocols**
 
@@ -74,24 +127,43 @@ The Three-Phase Commit protocol extends 2PC with an additional phase to reduce b
 
 ## Configuration
 
-| Flag          | Description                                                  | Default        |
-|---------------|--------------------------------------------------------------|----------------|
-| `nodeaddr`    | Address of the current node                                  | `localhost:3050` |
-| `coordinator` | Coordinator address (cohorts only)                           | `""`           |
-| `committype`  | `two-phase` or `three-phase`                                 | `three-phase`  |
-| `timeout`     | Timeout (ms) for unacknowledged messages (3PC only)          | `1000`         |
-| `cohorts`     | Comma-separated cohort addresses (presence implies coordinator role) | `""` |
-| `viz-port`    | Port for web dashboard (0 = disabled)                        | `0`            |
+Node commands accept these flags:
 
-## Usage
+| Flag | Description | Default |
+|------|-------------|---------|
+| `nodeaddr` | Node listen address, `host:port` | `localhost:3050` |
+| `coordinator` | Coordinator address; required by the `cohort` command | empty |
+| `cohorts` | Comma-separated participant addresses; required by `coordinator` | empty |
+| `committype` | `two-phase` or `three-phase` | `two-phase` |
+| `timeout` | 3PC timeout, e.g. `1s` or `500ms`; bare numbers remain milliseconds | `1s` |
+| `data-dir` | Root for persistent databases and WAL | `.data` |
+| `viz-port` | Protocol visualization HTTP port; 0 disables it | `0` |
+
+Timeouts must be positive whole milliseconds. Client commands use their own
+`--timeout` flag for the request deadline; it requires a duration such as `5s`.
+
+Node startup logs show the selected role, protocol, addresses and storage paths.
+Normal starts never clear data. Databases and WAL live beneath
+`<data-dir>/db/<role>/<address>/` and `<data-dir>/wal/<role>/<address>/`.
+Restart with the same working directory, data directory and address to reuse them.
+Use an absolute `-data-dir` when launching from different working directories.
+
+The original flag-only syntax remains supported: `-cohorts` selects the
+coordinator role; otherwise the node is a cohort. Prefer explicit commands for
+new scripts because their required and incompatible flags are validated.
+
+## Go client example
+
+With both nodes running:
 
 ```bash
-# Coordinator
-./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase
-
-# Cohort
-./committer -nodeaddr=localhost:3001 -coordinator=localhost:3000 -committype=three-phase
+go run ./examples/client -addr localhost:3000 -timeout 5s
 ```
+
+The example writes and reads five keys (`somekey0` through `somekey4`), printing
+`got value for key 'somekey0': somevalue0`, and so on. Customize prefixes with
+`-key` and `-value`. See [the example source](examples/client/client.go) for bounded
+requests, error handling and closing the client connection.
 
 ## Hooks
 
@@ -114,14 +186,17 @@ committer.RegisterHook(myCustomHook)
 make tests
 ```
 
-To test with the example client:
+To run the demo in separate terminals:
 
 ```bash
-make prepare
-make run-example-coordinator   # terminal 1
-make run-example-cohort        # terminal 2
+make run-example-cohort        # terminal 1
+make run-example-coordinator   # terminal 2
 make run-example-client        # terminal 3
 ```
+
+These targets share `.data/demo/` with `make demo` and preserve existing data.
+Stop an existing demo before starting them. `make prepare` only creates the demo
+folder and remains available for compatibility.
 
 ## Contributions
 

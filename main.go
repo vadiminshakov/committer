@@ -38,11 +38,24 @@ import (
 )
 
 func main() {
-	conf := config.Get()
+	if err := execute(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+}
+
+func startNode(conf *config.Config) error {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: slog.LevelInfo,
 	})))
+
+	slog.Info("Starting node", "role", conf.Role, "protocol", conf.CommitType,
+		"addr", conf.Nodeaddr, "coordinator", conf.Coordinator, "cohorts", conf.Cohorts,
+		"db", conf.DBPath(), "wal", conf.WalDir())
+	if conf.VizPort > 0 {
+		slog.Info("Protocol visualization", "url", fmt.Sprintf("http://localhost:%d", conf.VizPort))
+	}
 
 	var emitter events.Emitter = events.NoopEmitter{}
 	if conf.VizPort > 0 {
@@ -51,15 +64,13 @@ func main() {
 		emitter = collector
 	}
 
-	if err := run(conf, emitter); err != nil {
-		slog.Error("committer failed", "err", err)
-		os.Exit(1)
-	}
+	return run(conf, emitter)
 }
 
 func run(conf *config.Config, emitter events.Emitter) error {
 	ctx := make(chan os.Signal, 1)
 	signal.Notify(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(ctx)
 
 	w, err := newWAL(conf)
 	if err != nil {
@@ -105,7 +116,7 @@ func run(conf *config.Config, emitter events.Emitter) error {
 
 func newWAL(conf *config.Config) (*wal.Wal, error) {
 	walConfig := gowal.Config{
-		Dir:              config.WalDir(conf.Role, conf.Nodeaddr),
+		Dir:              conf.WalDir(),
 		Prefix:           config.DefaultWalSegmentPrefix,
 		SegmentThreshold: config.DefaultWalSegmentThreshold,
 		MaxSegments:      config.DefaultWalMaxSegments,
@@ -122,7 +133,7 @@ func newWAL(conf *config.Config) (*wal.Wal, error) {
 
 func newStore(w *wal.Wal, conf *config.Config) (*store.Store, *wal.RecoveryState, error) {
 	if conf.Role == "coordinator" {
-		stateStore, err := store.Open(config.DBPath(conf.Role, conf.Nodeaddr))
+		stateStore, err := store.Open(conf.DBPath())
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to initialize coordinator state store: %w", err)
 		}
@@ -130,7 +141,7 @@ func newStore(w *wal.Wal, conf *config.Config) (*store.Store, *wal.RecoveryState
 		return stateStore, nil, nil
 	}
 
-	stateStore, recovery, err := store.New(w, config.DBPath(conf.Role, conf.Nodeaddr))
+	stateStore, recovery, err := store.New(w, conf.DBPath())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}

@@ -1,16 +1,24 @@
+.PHONY: build prepare demo demo-reset run-example-coordinator run-example-cohort run-example-client tests start-toxiproxy stop-toxiproxy test-chaos proto-gen generate
+
+build:
+	@go build -o bin/committer .
+
+# Compatibility target: setup never removes persisted data.
 prepare:
-	@rm -rf ./badger
-	@mkdir ./badger
-	@mkdir ./badger/coordinator
-	@mkdir ./badger/cohort
+	@mkdir -p .data/demo
+
+demo: build
+	@sh scripts/demo.sh
+
+demo-reset:
+	@rm -rf ./.data/demo
+	@echo "Demo data removed."
 
 run-example-coordinator:
-	@rm -rf ./badger/coordinator ./.data/db/coordinator ./.data/wal/coordinator
-	@go run . -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=three-phase -timeout=1000 -viz-port=8080
+	@go run . coordinator -nodeaddr=localhost:3000 -cohorts=localhost:3001 -committype=two-phase -data-dir=.data/demo -viz-port=8080
 
 run-example-cohort:
-	@rm -rf ./badger/cohort ./.data/db/cohort ./.data/wal/cohort
-	@go run . -coordinator=localhost:3000 -nodeaddr=localhost:3001 -committype=three-phase -timeout=1000 -viz-port=8081
+	@go run . cohort -coordinator=localhost:3000 -nodeaddr=localhost:3001 -committype=two-phase -data-dir=.data/demo -viz-port=8081
 
 run-example-client:
 	@go run ./examples/client
