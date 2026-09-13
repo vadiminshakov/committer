@@ -1,0 +1,32 @@
+.github/workflows/tests.yml
+  h_786988a78af769 34-49
+.golangci.yml
+  h_786988a78af769 1-42
+Makefile
+  h_786988a78af769 1,29-34
+cli.go
+  h_786988a78af769 92-94
+core/coordinator/coordinator.go
+  h_786988a78af769 100
+examples/client/client.go
+  h_786988a78af769 37-39
+io/gateway/grpc/server/server.go
+  h_786988a78af769 225-229
+io/wal/record.go
+  h_786988a78af769 19-26
+main.go
+  h_786988a78af769 79-83
+viz/server.go
+  h_786988a78af769 33-35,41-43,49,55-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "866b3c6e935546bc5997c790a937a53fc48ac4e4",
+  "prompts": {},
+  "humans": {
+    "h_786988a78af769": {
+      "author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
