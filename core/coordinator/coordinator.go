@@ -17,11 +17,6 @@ import (
 	iowal "github.com/vadiminshakov/committer/io/wal"
 )
 
-var (
-	ErrProposeVote   = errors.New("failed to send propose")
-	ErrPrecommitVote = errors.New("failed to send precommit")
-)
-
 //go:generate mockgen -destination=../../mocks/mock_coordinator.go -package=mocks -mock_names=wal=MockCoordinatorWAL,stateStore=MockCoordinatorStateStore,Cohort=MockCoordinatorCohort . wal,stateStore,Cohort
 type wal interface {
 	Write(key string, value []byte) error
@@ -40,6 +35,11 @@ type Coordinator struct {
 
 	mu sync.Mutex
 }
+
+var (
+	ErrProposeVote   = errors.New("failed to send propose")
+	ErrPrecommitVote = errors.New("failed to send precommit")
+)
 
 func New(
 	protocol dto.Protocol,
@@ -98,6 +98,7 @@ func (c *Coordinator) Broadcast(ctx context.Context, request dto.BroadcastReques
 	defer c.mu.Unlock()
 
 	transaction := dto.Transaction(request)
+
 	height, err := c.lifecycle.Prepare(transaction)
 	if err != nil {
 		return nackResponse(c.lifecycle.Height(), fmt.Errorf("prepare transaction: %w", err))
@@ -108,6 +109,7 @@ func (c *Coordinator) Broadcast(ctx context.Context, request dto.BroadcastReques
 		Key:    request.Key,
 		Height: height,
 	})
+
 	if err := c.delivery.VoteProposal(ctx, dto.Proposal{
 		Height:      height,
 		Protocol:    c.protocol,
@@ -120,11 +122,13 @@ func (c *Coordinator) Broadcast(ctx context.Context, request dto.BroadcastReques
 		if err := c.lifecycle.Precommit(); err != nil {
 			return nackResponse(height, fmt.Errorf("persist precommit: %w", err))
 		}
+
 		c.emitter.Emit(events.Event{
 			Kind:   events.EvCoordPrecommit,
 			Key:    request.Key,
 			Height: height,
 		})
+
 		if err := c.delivery.VotePrecommit(ctx, height); err != nil {
 			return nackResponse(height, fmt.Errorf("%w: %w", ErrPrecommitVote, err))
 		}
@@ -150,6 +154,7 @@ func (c *Coordinator) commitTransaction(height uint64, key string) (*dto.Broadca
 		Height: decision.Height,
 		Result: "ok",
 	})
+
 	if err := c.delivery.DeliverFinal(decision); err != nil {
 		slog.Warn("failed to start final decision delivery",
 			"height", decision.Height,
@@ -170,7 +175,7 @@ func (c *Coordinator) abortTransaction(height uint64, key string, voteErr error)
 	decision, abortErr := c.lifecycle.Abort()
 	if abortErr != nil {
 		return nackResponse(height, fmt.Errorf(
-			"failed to record abort after failed to send propose (%v): %w",
+			"failed to record abort after failed to send propose (%w): %w",
 			voteErr,
 			abortErr,
 		))
@@ -183,6 +188,7 @@ func (c *Coordinator) abortTransaction(height uint64, key string, voteErr error)
 		Result:  "abort",
 		Message: voteErr.Error(),
 	})
+
 	if err := c.delivery.DeliverFinal(decision); err != nil {
 		// Delivery cannot revise a durable outcome or coordinator readiness.
 		slog.Warn("failed to start final decision delivery",
@@ -228,31 +234,38 @@ func validateCohorts(cohorts []Cohort) error {
 		if cohort == nil {
 			return errors.New("cohort is nil")
 		}
+
 		address := cohort.Addr()
 		if address == "" {
 			return errors.New("cohort address is empty")
 		}
+
 		if _, exists := addresses[address]; exists {
 			return fmt.Errorf("duplicate cohort address %q", address)
 		}
+
 		addresses[address] = struct{}{}
 	}
+
 	return nil
 }
 
 func closeCohorts(cohorts []Cohort) error {
 	cohorts = append([]Cohort(nil), cohorts...)
-	sort.Slice(cohorts, func(i, j int) bool {
-		if cohorts[i] == nil {
-			return cohorts[j] != nil
+	sort.Slice(cohorts, func(idx1, idx2 int) bool {
+		if cohorts[idx1] == nil {
+			return cohorts[idx2] != nil
 		}
-		if cohorts[j] == nil {
+
+		if cohorts[idx2] == nil {
 			return false
 		}
-		return cohorts[i].Addr() < cohorts[j].Addr()
+
+		return cohorts[idx1].Addr() < cohorts[idx2].Addr()
 	})
 
 	var result error
+
 	for _, cohort := range cohorts {
 		if cohort == nil {
 			continue

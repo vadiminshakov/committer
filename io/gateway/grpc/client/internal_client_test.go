@@ -2,7 +2,7 @@ package client
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,36 +23,41 @@ type fakeInternalCommitAPIClient struct {
 
 func (f *fakeInternalCommitAPIClient) Propose(ctx context.Context, req *proto.ProposeRequest, _ ...grpc.CallOption) (*proto.Response, error) {
 	if f.proposeFn == nil {
-		return nil, fmt.Errorf("unexpected Propose RPC")
+		return nil, errors.New("unexpected Propose RPC")
 	}
+
 	return f.proposeFn(ctx, req)
 }
 
 func (f *fakeInternalCommitAPIClient) Precommit(ctx context.Context, req *proto.PrecommitRequest, _ ...grpc.CallOption) (*proto.Response, error) {
 	if f.precommitFn == nil {
-		return nil, fmt.Errorf("unexpected Precommit RPC")
+		return nil, errors.New("unexpected Precommit RPC")
 	}
+
 	return f.precommitFn(ctx, req)
 }
 
 func (f *fakeInternalCommitAPIClient) Commit(ctx context.Context, req *proto.CommitRequest, _ ...grpc.CallOption) (*proto.Response, error) {
 	if f.commitFn == nil {
-		return nil, fmt.Errorf("unexpected Commit RPC")
+		return nil, errors.New("unexpected Commit RPC")
 	}
+
 	return f.commitFn(ctx, req)
 }
 
 func (f *fakeInternalCommitAPIClient) Abort(ctx context.Context, req *proto.AbortRequest, _ ...grpc.CallOption) (*proto.Response, error) {
 	if f.abortFn == nil {
-		return nil, fmt.Errorf("unexpected Abort RPC")
+		return nil, errors.New("unexpected Abort RPC")
 	}
+
 	return f.abortFn(ctx, req)
 }
 
 func (f *fakeInternalCommitAPIClient) Decision(ctx context.Context, req *proto.DecisionRequest, _ ...grpc.CallOption) (*proto.DecisionResponse, error) {
 	if f.decisionFn == nil {
-		return nil, fmt.Errorf("unexpected Decision RPC")
+		return nil, errors.New("unexpected Decision RPC")
 	}
+
 	return f.decisionFn(ctx, req)
 }
 
@@ -85,6 +90,7 @@ func TestCohortClientMapsProposalAndReply(t *testing.T) {
 					require.Equal(t, []byte("open"), req.Value)
 					require.Equal(t, uint64(11), req.Index)
 					require.Equal(t, tt.want, req.CommitType)
+
 					return &proto.Response{Type: proto.Type_ACK, Index: 12}, nil
 				},
 			}}
@@ -109,6 +115,7 @@ func TestCohortClientNormalizesNACK(t *testing.T) {
 	adapter := &CohortClient{rpc: &fakeInternalCommitAPIClient{
 		precommitFn: func(_ context.Context, req *proto.PrecommitRequest) (*proto.Response, error) {
 			require.Equal(t, uint64(7), req.Index)
+
 			return &proto.Response{Type: proto.Type_NACK, Index: 6}, nil
 		},
 	}}
@@ -184,13 +191,17 @@ func TestCohortClientRoutesFinalDecisions(t *testing.T) {
 	adapter := &CohortClient{rpc: &fakeInternalCommitAPIClient{
 		commitFn: func(_ context.Context, req *proto.CommitRequest) (*proto.Response, error) {
 			operations = append(operations, "commit")
+
 			require.Contains(t, []uint64{3, 4}, req.Index)
+
 			return &proto.Response{Type: proto.Type_ACK}, nil
 		},
 		abortFn: func(_ context.Context, req *proto.AbortRequest) (*proto.Response, error) {
 			operations = append(operations, "abort")
+
 			require.Equal(t, uint64(5), req.Height)
 			require.NotEmpty(t, req.Reason)
+
 			return &proto.Response{Type: proto.Type_ACK}, nil
 		},
 	}}
@@ -252,17 +263,20 @@ func TestCoordinatorClientMapsOutcomesAndErrors(t *testing.T) {
 			client := &CoordinatorClient{rpc: &fakeInternalCommitAPIClient{
 				decisionFn: func(_ context.Context, req *proto.DecisionRequest) (*proto.DecisionResponse, error) {
 					require.Equal(t, uint64(17), req.Height)
+
 					return tt.resp, tt.err
 				},
 			}}
 
 			outcome, err := client.Decision(context.Background(), 17)
 			require.Equal(t, tt.want, outcome)
+
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 			} else {
 				require.ErrorContains(t, err, tt.wantErr)
 			}
+
 			require.NoError(t, client.Close())
 			require.NoError(t, client.Close())
 		})

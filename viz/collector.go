@@ -25,26 +25,40 @@ type EventDTO struct {
 	Level     string    `json:"level,omitempty"`
 }
 
+// eventKindNames maps protocol event kinds to dashboard labels.
+var eventKindNames = map[events.EventKind]string{
+	events.EvCoordPropose:    "CoordPropose",
+	events.EvCoordPrecommit:  "CoordPrecommit",
+	events.EvCoordCommit:     "CoordCommit",
+	events.EvCoordAbort:      "CoordAbort",
+	events.EvCohortPropose:   "CohortPropose",
+	events.EvCohortPrecommit: "CohortPrecommit",
+	events.EvCohortCommit:    "CohortCommit",
+	events.EvCohortAbort:     "CohortAbort",
+	events.EvLog:             "Log",
+}
+
 func NewCollector(inner events.Emitter) *Collector {
 	if inner == nil {
 		inner = events.NoopEmitter{}
 	}
+
 	return &Collector{inner: inner}
 }
 
-func (c *Collector) Emit(ev events.Event) {
-	c.inner.Emit(ev)
+func (c *Collector) Emit(event events.Event) {
+	c.inner.Emit(event)
 
 	dto := EventDTO{
-		Kind:      uint8(ev.Kind),
-		KindName:  kindName(ev.Kind),
-		Timestamp: ev.Timestamp,
-		Key:       ev.Key,
-		Height:    ev.Height,
-		Cohort:    ev.Cohort,
-		Result:    ev.Result,
-		Message:   ev.Message,
-		Level:     ev.Level,
+		Kind:      uint8(event.Kind),
+		KindName:  kindName(event.Kind),
+		Timestamp: event.Timestamp,
+		Key:       event.Key,
+		Height:    event.Height,
+		Cohort:    event.Cohort,
+		Result:    event.Result,
+		Message:   event.Message,
+		Level:     event.Level,
 	}
 	if dto.Timestamp.IsZero() {
 		dto.Timestamp = time.Now()
@@ -58,32 +72,17 @@ func (c *Collector) Emit(ev events.Event) {
 func (c *Collector) Events() []EventDTO {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	out := make([]EventDTO, len(c.events))
 	copy(out, c.events)
+
 	return out
 }
 
 func kindName(k events.EventKind) string {
-	switch k {
-	case events.EvCoordPropose:
-		return "CoordPropose"
-	case events.EvCoordPrecommit:
-		return "CoordPrecommit"
-	case events.EvCoordCommit:
-		return "CoordCommit"
-	case events.EvCoordAbort:
-		return "CoordAbort"
-	case events.EvCohortPropose:
-		return "CohortPropose"
-	case events.EvCohortPrecommit:
-		return "CohortPrecommit"
-	case events.EvCohortCommit:
-		return "CohortCommit"
-	case events.EvCohortAbort:
-		return "CohortAbort"
-	case events.EvLog:
-		return "Log"
-	default:
-		return "Unknown"
+	if name, ok := eventKindNames[k]; ok {
+		return name
 	}
+
+	return "Unknown"
 }

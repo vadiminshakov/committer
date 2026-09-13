@@ -7,7 +7,7 @@ import (
 	"github.com/vadiminshakov/committer/core/dto"
 )
 
-// TestHook is a simple test hook implementation
+// TestHook is a simple test hook implementation.
 type TestHook struct {
 	proposeResult bool
 	commitResult  bool
@@ -17,11 +17,13 @@ type TestHook struct {
 
 func (t *TestHook) OnPropose(req *dto.ProposeRequest) bool {
 	t.proposeCalled = true
+
 	return t.proposeResult
 }
 
 func (t *TestHook) OnCommit(req *dto.CommitRequest) bool {
 	t.commitCalled = true
+
 	return t.commitResult
 }
 

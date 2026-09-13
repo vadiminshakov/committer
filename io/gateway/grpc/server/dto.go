@@ -28,12 +28,13 @@ func commitRequestPbToEntity(request *proto.CommitRequest) *dto.CommitRequest {
 	}
 }
 
-func cohortResponseToProto(e *dto.CohortResponse) *proto.Response {
-	if e == nil {
+func cohortResponseToProto(response *dto.CohortResponse) *proto.Response {
+	if response == nil {
 		return nil
 	}
+
 	return &proto.Response{
-		Type:  proto.Type(e.ResponseType),
-		Index: e.Height,
+		Type:  proto.Type(response.ResponseType),
+		Index: response.Height,
 	}
 }

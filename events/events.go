@@ -6,18 +6,6 @@ import "time"
 
 type EventKind uint8
 
-const (
-	EvCoordPropose    EventKind = iota // координатор начал фазу propose
-	EvCoordPrecommit                   // координатор начал precommit (3PC)
-	EvCoordCommit                      // координатор завершил commit
-	EvCoordAbort                       // координатор инициировал abort
-	EvCohortPropose                    // когорта перешла в состояние propose
-	EvCohortPrecommit                  // когорта перешла в precommit
-	EvCohortCommit                     // когорта выполнила commit
-	EvCohortAbort                      // когорта обработала abort
-	EvLog                              // захваченная запись slog
-)
-
 // Event carries protocol or log information from domain objects to the dashboard.
 type Event struct {
 	Kind      EventKind
@@ -37,5 +25,17 @@ type Emitter interface {
 
 // NoopEmitter discards all events. Used in tests and when the dashboard is disabled.
 type NoopEmitter struct{}
+
+const (
+	EvCoordPropose    EventKind = iota // координатор начал фазу propose
+	EvCoordPrecommit                   // координатор начал precommit (3PC)
+	EvCoordCommit                      // координатор завершил commit
+	EvCoordAbort                       // координатор инициировал abort
+	EvCohortPropose                    // когорта перешла в состояние propose
+	EvCohortPrecommit                  // когорта перешла в precommit
+	EvCohortCommit                     // когорта выполнила commit
+	EvCohortAbort                      // когорта обработала abort
+	EvLog                              // захваченная запись slog
+)
 
 func (NoopEmitter) Emit(Event) {}

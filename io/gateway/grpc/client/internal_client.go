@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -9,8 +10,6 @@ import (
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 )
-
-const coordinatorAbortReason = "coordinator decided abort"
 
 // CohortClient is the production coordinator-to-cohort client. It
 // translates the coordinator domain protocol to protobuf and owns its gRPC
@@ -22,6 +21,23 @@ type CohortClient struct {
 	closeOnce sync.Once
 	closeErr  error
 }
+
+// CoordinatorClient is the cohort-side adapter used to ask a coordinator for a
+// durable transaction outcome. It owns the underlying gRPC connection.
+type CoordinatorClient struct {
+	conn      *grpc.ClientConn
+	rpc       proto.InternalCommitAPIClient
+	closeOnce sync.Once
+	closeErr  error
+}
+
+const coordinatorAbortReason = "coordinator decided abort"
+
+// Participant operation names reported in RPC errors.
+const (
+	commitOperation = "commit"
+	abortOperation  = "abort"
+)
 
 // NewCohortClient connects a cohort participant. The returned client
 // must be closed by its owner.
@@ -60,6 +76,7 @@ func (client *CohortClient) Propose(ctx context.Context, proposal dto.Proposal) 
 	if err != nil {
 		return dto.ParticipantReply{}, participantRPCError("propose", proposal.Height, err)
 	}
+
 	return participantReplyFromProto(resp)
 }
 
@@ -69,25 +86,29 @@ func (client *CohortClient) Precommit(ctx context.Context, height uint64) (dto.P
 	if err != nil {
 		return dto.ParticipantReply{}, participantRPCError("precommit", height, err)
 	}
+
 	return participantReplyFromProto(resp)
 }
 
 // ApplyFinalDecision delivers a durable final decision through the ordinary protocol RPC.
 // A recovered 3PC decision is preceded by PRECOMMIT in cohort delivery; the
 // adapter never bypasses the participant FSM.
-func (client *CohortClient) ApplyFinalDecision(ctx context.Context, decision dto.FinalDecision) (dto.ParticipantReply, error) {
+func (client *CohortClient) ApplyFinalDecision(
+	ctx context.Context,
+	decision dto.FinalDecision,
+) (dto.ParticipantReply, error) {
 	var (
-		resp *proto.Response
-		err  error
-		op   string
+		resp      *proto.Response
+		err       error
+		operation string
 	)
 
 	switch decision.Outcome {
 	case dto.OutcomeCommit:
-		op = "commit"
+		operation = commitOperation
 		resp, err = client.rpc.Commit(ctx, &proto.CommitRequest{Index: decision.Height})
 	case dto.OutcomeAbort:
-		op = "abort"
+		operation = abortOperation
 		resp, err = client.rpc.Abort(ctx, &proto.AbortRequest{
 			Height: decision.Height,
 			Reason: coordinatorAbortReason,
@@ -101,8 +122,9 @@ func (client *CohortClient) ApplyFinalDecision(ctx context.Context, decision dto
 	}
 
 	if err != nil {
-		return dto.ParticipantReply{}, participantRPCError(op, decision.Height, err)
+		return dto.ParticipantReply{}, participantRPCError(operation, decision.Height, err)
 	}
+
 	return participantReplyFromProto(resp)
 }
 
@@ -114,6 +136,7 @@ func (client *CohortClient) Close() error {
 			client.closeErr = client.conn.Close()
 		}
 	})
+
 	return client.closeErr
 }
 
@@ -130,8 +153,9 @@ func commitTypeToProto(protocol dto.Protocol) (proto.CommitType, error) {
 
 func participantReplyFromProto(resp *proto.Response) (dto.ParticipantReply, error) {
 	if resp == nil {
-		return dto.ParticipantReply{}, fmt.Errorf("participant protocol returned an empty response")
+		return dto.ParticipantReply{}, errors.New("participant protocol returned an empty response")
 	}
+
 	return dto.ParticipantReply{
 		Accepted: resp.Type == proto.Type_ACK,
 		Height:   resp.Index,
@@ -140,15 +164,6 @@ func participantReplyFromProto(resp *proto.Response) (dto.ParticipantReply, erro
 
 func participantRPCError(operation string, height uint64, err error) error {
 	return fmt.Errorf("participant %s at height %d: %w", operation, height, err)
-}
-
-// CoordinatorClient is the cohort-side adapter used to ask a coordinator for a
-// durable transaction outcome. It owns the underlying gRPC connection.
-type CoordinatorClient struct {
-	conn      *grpc.ClientConn
-	rpc       proto.InternalCommitAPIClient
-	closeOnce sync.Once
-	closeErr  error
 }
 
 // NewCoordinatorClient connects the cohort-side termination protocol to a
@@ -171,6 +186,7 @@ func (client *CoordinatorClient) Decision(ctx context.Context, height uint64) (d
 	if err != nil {
 		return dto.OutcomeUnknown, fmt.Errorf("request decision at height %d: %w", height, err)
 	}
+
 	if resp == nil {
 		return dto.OutcomeUnknown, fmt.Errorf("request decision at height %d: empty response", height)
 	}
@@ -192,5 +208,6 @@ func (client *CoordinatorClient) Close() error {
 			client.closeErr = client.conn.Close()
 		}
 	})
+
 	return client.closeErr
 }

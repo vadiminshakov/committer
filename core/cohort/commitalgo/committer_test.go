@@ -21,6 +21,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// testHook for testing purposes.
+type testHook struct {
+	proposeResult bool
+	commitResult  bool
+	proposeCalled bool
+	commitCalled  bool
+}
+
 // findWalRecord scans the WAL and returns the first record with the given key.
 func findWalRecord(wal *gowal.Wal, key string) (gowal.Record, bool) {
 	for rec := range wal.Iterator() {
@@ -32,21 +40,15 @@ func findWalRecord(wal *gowal.Wal, key string) (gowal.Record, bool) {
 	return gowal.Record{}, false
 }
 
-// testHook for testing purposes
-type testHook struct {
-	proposeResult bool
-	commitResult  bool
-	proposeCalled bool
-	commitCalled  bool
-}
-
 func (t *testHook) OnPropose(req *dto.ProposeRequest) bool {
 	t.proposeCalled = true
+
 	return t.proposeResult
 }
 
 func (t *testHook) OnCommit(req *dto.CommitRequest) bool {
 	t.commitCalled = true
+
 	return t.commitResult
 }
 
@@ -71,6 +73,7 @@ func newStateStore(t *testing.T, w *gowal.Wal) (*store.Store, *iowal.RecoverySta
 	stateStore, recovery, err := store.New(iowal.New(w), dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { stateStore.Close() })
+
 	return stateStore, recovery
 }
 
@@ -957,6 +960,7 @@ func TestTerminationProtocol_CommitDecision(t *testing.T) {
 	}, 3*time.Second, 20*time.Millisecond, "cohort must commit via termination protocol")
 
 	require.Equal(t, "propose", committer.getCurrentState())
+
 	value, err := stateStore.Get("test-key")
 	require.NoError(t, err)
 	require.Equal(t, "test-value", string(value))
@@ -1008,6 +1012,7 @@ func TestPreparedThreePhaseRecoveryUsesNormalPrecommitAndCommit(t *testing.T) {
 	})
 
 	ctx := context.Background()
+
 	require.Equal(t, preparedStage, committer.getCurrentState())
 	_, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
 	require.Error(t, err, "recovered 3PC PREPARED must not commit directly")

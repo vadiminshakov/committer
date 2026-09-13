@@ -37,6 +37,20 @@ import (
 	"github.com/vadiminshakov/gowal"
 )
 
+type roleComponents struct {
+	cohort      server.Cohort
+	coordinator server.Coordinator
+	close       func() error
+}
+
+func (r *roleComponents) Close() error {
+	if r == nil || r.close == nil {
+		return nil
+	}
+
+	return r.close()
+}
+
 func main() {
 	if err := execute(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -45,7 +59,6 @@ func main() {
 }
 
 func startNode(conf *config.Config) error {
-
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
@@ -53,6 +66,7 @@ func startNode(conf *config.Config) error {
 	slog.Info("Starting node", "role", conf.Role, "protocol", conf.CommitType,
 		"addr", conf.Nodeaddr, "coordinator", conf.Coordinator, "cohorts", conf.Cohorts,
 		"db", conf.DBPath(), "wal", conf.WalDir())
+
 	if conf.VizPort > 0 {
 		slog.Info("Protocol visualization", "url", fmt.Sprintf("http://localhost:%d", conf.VizPort))
 	}
@@ -69,23 +83,26 @@ func startNode(conf *config.Config) error {
 
 func run(conf *config.Config, emitter events.Emitter) error {
 	ctx := make(chan os.Signal, 1)
+
 	signal.Notify(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer signal.Stop(ctx)
 
-	w, err := newWAL(conf)
+	journal, err := newWAL(conf)
 	if err != nil {
 		return err
 	}
+
 	defer func() {
-		if err := w.Close(); err != nil {
+		if err := journal.Close(); err != nil {
 			slog.Warn("failed to close WAL", "err", err)
 		}
 	}()
 
-	stateStore, recovery, err := newStore(w, conf)
+	stateStore, recovery, err := newStore(journal, conf)
 	if err != nil {
 		return err
 	}
+
 	serverOwnsStore := false
 	defer func() {
 		if !serverOwnsStore {
@@ -95,7 +112,7 @@ func run(conf *config.Config, emitter events.Emitter) error {
 		}
 	}()
 
-	roles, err := buildRoles(conf, stateStore, w, recovery, emitter)
+	roles, err := buildRoles(conf, stateStore, journal, recovery, emitter)
 	if err != nil {
 		return err
 	}
@@ -109,6 +126,7 @@ func run(conf *config.Config, emitter events.Emitter) error {
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
+
 	serverOwnsStore = true
 
 	srv.Run(server.CoordinatorCheck)
@@ -135,87 +153,89 @@ func newWAL(conf *config.Config) (*wal.Wal, error) {
 	return wal.New(w), nil
 }
 
-func newStore(w *wal.Wal, conf *config.Config) (*store.Store, *wal.RecoveryState, error) {
-	if conf.Role == "coordinator" {
+func newStore(journal *wal.Wal, conf *config.Config) (*store.Store, *wal.RecoveryState, error) {
+	if conf.Role == config.RoleCoordinator {
 		stateStore, err := store.Open(conf.DBPath())
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to initialize coordinator state store: %w", err)
 		}
+
 		slog.Info("Opened coordinator state store; transaction lifecycle will replay WAL", "keys", stateStore.Size())
+
 		return stateStore, nil, nil
 	}
 
-	stateStore, recovery, err := store.New(w, conf.DBPath())
+	stateStore, recovery, err := store.New(journal, conf.DBPath())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize state store: %w", err)
 	}
 
 	slog.Info("Recovered state from WAL", "next_height", recovery.NextHeight, "keys", stateStore.Size())
+
 	return stateStore, recovery, nil
 }
 
-type roleComponents struct {
-	cohort      server.Cohort
-	coordinator server.Coordinator
-	close       func() error
-}
+func buildRoles(
+	conf *config.Config,
+	stateStore *store.Store,
+	journal *wal.Wal,
+	recovery *wal.RecoveryState,
+	emitter events.Emitter,
+) (*roleComponents, error) {
+	roles := &roleComponents{}
 
-func (r *roleComponents) Close() error {
-	if r == nil || r.close == nil {
-		return nil
-	}
-	return r.close()
-}
-
-func buildRoles(conf *config.Config, stateStore *store.Store, w *wal.Wal, recovery *wal.RecoveryState, emitter events.Emitter) (*roleComponents, error) {
-	rc := &roleComponents{}
 	switch conf.Role {
-	case "cohort":
-		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, w, conf.Timeout)
+	case config.RoleCohort:
+		committer := commitalgo.NewCommitter(stateStore, conf.CommitType, journal, conf.Timeout)
 		committer.SetEmitter(emitter)
+
 		if conf.Coordinator != "" {
 			coordinatorClient, err := client.NewCoordinatorClient(conf.Coordinator)
 			if err != nil {
 				slog.Warn("failed to create coordinator client, decision requests disabled", "err", err)
 			} else {
 				committer.SetDecisionRequester(coordinatorClient)
-				rc.close = coordinatorClient.Close
+				roles.close = coordinatorClient.Close
 			}
 		}
+
 		committer.Resume(recovery)
-		rc.cohort = cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
-	case "coordinator":
-		coord, err := newReadyCoordinator(conf, w, stateStore, emitter)
+		roles.cohort = cohort.NewCohort(committer, cohort.Mode(conf.CommitType))
+	case config.RoleCoordinator:
+		coord, err := newReadyCoordinator(conf, journal, stateStore, emitter)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create coordinator: %w", err)
 		}
-		rc.coordinator = coord
-		rc.close = coord.Close
+
+		roles.coordinator = coord
+		roles.close = coord.Close
 	default:
 		return nil, fmt.Errorf("unsupported role %q, expected coordinator or cohort", conf.Role)
 	}
 
-	return rc, nil
+	return roles, nil
 }
 
 func newReadyCoordinator(
 	conf *config.Config,
-	w *wal.Wal,
+	journal *wal.Wal,
 	stateStore *store.Store,
 	emitter events.Emitter,
 ) (*coordinator.Coordinator, error) {
 	protocol, err := coordinatorProtocol(conf.CommitType)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve commit protocol: %w", err)
 	}
 
 	cohorts := make([]coordinator.Cohort, 0, len(conf.Cohorts))
+
 	addresses := make(map[string]struct{}, len(conf.Cohorts))
 	for _, address := range conf.Cohorts {
 		if _, exists := addresses[address]; exists {
 			for _, cohort := range cohorts {
 				_ = cohort.Close()
 			}
+
 			return nil, fmt.Errorf("duplicate cohort address %q", address)
 		}
 
@@ -224,13 +244,21 @@ func newReadyCoordinator(
 			for _, opened := range cohorts {
 				_ = opened.Close()
 			}
-			return nil, err
+
+			return nil, fmt.Errorf("create cohort client for %q: %w", address, err)
 		}
+
 		addresses[address] = struct{}{}
+
 		cohorts = append(cohorts, cohort)
 	}
 
-	return coordinator.New(protocol, w, stateStore, cohorts, emitter)
+	coord, err := coordinator.New(protocol, journal, stateStore, cohorts, emitter)
+	if err != nil {
+		return nil, fmt.Errorf("create coordinator: %w", err)
+	}
+
+	return coord, nil
 }
 
 func coordinatorProtocol(commitType string) (dto.Protocol, error) {

@@ -24,6 +24,7 @@ func openTestWAL(t *testing.T) *Wal {
 func mustEncode(t *testing.T, key, value string) []byte {
 	payload, err := Encode(Tx{Key: key, Value: []byte(value)})
 	require.NoError(t, err)
+
 	return payload
 }
 
@@ -55,6 +56,7 @@ func TestRecover_DecisionsAndPending(t *testing.T) {
 	applied := make(map[string]string)
 	rec, err := w.Recover(func(key string, value []byte) error {
 		applied[key] = string(value)
+
 		return nil
 	})
 	require.NoError(t, err)

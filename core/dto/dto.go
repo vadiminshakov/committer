@@ -6,11 +6,6 @@ package dto
 
 type Protocol uint8
 
-const (
-	ProtocolTwoPhase Protocol = iota + 1
-	ProtocolThreePhase
-)
-
 type Transaction struct {
 	Key   string
 	Value []byte
@@ -43,13 +38,6 @@ type CommitRequest struct {
 // ResponseType represents the type of response from a cohort.
 type ResponseType int32
 
-const (
-	// ResponseTypeAck indicates successful acknowledgment.
-	ResponseTypeAck ResponseType = iota
-	// ResponseTypeNack indicates negative acknowledgment (rejection).
-	ResponseTypeNack
-)
-
 // CohortResponse represents a response from a cohort node.
 type CohortResponse struct {
 	ResponseType
@@ -77,6 +65,26 @@ type AbortRequest struct {
 // Outcome represents the coordinator's recorded decision for a height.
 type Outcome int32
 
+type FinalDecision struct {
+	Height  uint64
+	Outcome Outcome
+	// RequirePrecommit preserves the ordinary 3PC PREPARED -> PRECOMMIT ->
+	// COMMIT sequence when replaying a recovered or historical commit.
+	RequirePrecommit bool
+}
+
+const (
+	ProtocolTwoPhase Protocol = iota + 1
+	ProtocolThreePhase
+)
+
+const (
+	// ResponseTypeAck indicates successful acknowledgment.
+	ResponseTypeAck ResponseType = iota
+	// ResponseTypeNack indicates negative acknowledgment (rejection).
+	ResponseTypeNack
+)
+
 const (
 	// OutcomeUnknown means no decision has been recorded (yet).
 	OutcomeUnknown Outcome = iota
@@ -85,11 +93,3 @@ const (
 	// OutcomeAbort means the transaction was aborted.
 	OutcomeAbort
 )
-
-type FinalDecision struct {
-	Height  uint64
-	Outcome Outcome
-	// RequirePrecommit preserves the ordinary 3PC PREPARED -> PRECOMMIT ->
-	// COMMIT sequence when replaying a recovered or historical commit.
-	RequirePrecommit bool
-}

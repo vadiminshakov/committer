@@ -29,6 +29,7 @@ func (coordinatorStub) Decision(uint64) dto.Outcome { return dto.OutcomeUnknown 
 func TestPutMapsCommittedTransactionHeight(t *testing.T) {
 	server := &Server{coordinator: coordinatorStub{broadcast: func(_ context.Context, request dto.BroadcastRequest) (*dto.BroadcastResponse, error) {
 		require.Equal(t, dto.BroadcastRequest{Key: "key", Value: []byte("value")}, request)
+
 		return &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Height: 7}, nil
 	}}}
 

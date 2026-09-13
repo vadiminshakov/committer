@@ -73,15 +73,15 @@ var threePhaseTransitions = map[string]map[string]struct{}{
 }
 
 func newStateMachine(mode mode) *stateMachine {
-	tr := twoPhaseTransitions
+	transitions := twoPhaseTransitions
 	if mode == threephase {
-		tr = threePhaseTransitions
+		transitions = threePhaseTransitions
 	}
 
 	return &stateMachine{
 		currentState: proposeStage,
 		mode:         mode,
-		transitions:  tr,
+		transitions:  transitions,
 	}
 }
 
@@ -92,6 +92,7 @@ func (sm *stateMachine) Transition(nextState string) error {
 	if allowedStates, ok := sm.transitions[sm.currentState]; ok {
 		if _, ok = allowedStates[nextState]; ok {
 			sm.currentState = nextState
+
 			return nil
 		}
 	}
@@ -102,11 +103,13 @@ func (sm *stateMachine) Transition(nextState string) error {
 func (sm *stateMachine) getCurrentState() string {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
+
 	return sm.currentState
 }
 
 func (sm *stateMachine) GetMode() mode {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
+
 	return sm.mode
 }

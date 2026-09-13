@@ -4,24 +4,106 @@ run:
   timeout: 5m
 
 linters:
-  # Default linters (errcheck, govet, ineffassign, staticcheck, unused)
-  # plus a few low-noise extras.
-  # revive was evaluated and deliberately left out: with default rules it
-  # demands renaming public API (TWO_PHASE, CohortImpl, ...) and flagging
-  # idiomatic unused ctx params in interface implementations.
   default: standard
   enable:
+    - bodyclose
+    - copyloopvar
+    - cyclop
+    - depguard
+    - dupl
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - forcetypeassert
+    - forbidigo
+    - funlen
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godoclint
+    - godot
+    - gomodguard_v2
+    - gomoddirectives
+    - intrange
+    - ireturn
+    - lll
+    - maintidx
+    - makezero
+    - mirror
     - misspell
+    - mnd
+    - modernize
+    - musttag
+    - nestif
+    - nilerr
+    - nilnil
+    - nlreturn
+    - perfsprint
+    - prealloc
+    - predeclared
+    - rowserrcheck
+    - sqlclosecheck
     - unconvert
+    - varnamelen
+    - whitespace
+    - wrapcheck
+    - wsl_v5
   settings:
     errcheck:
       check-blank: false
-      # Writing CLI output to stdout/stderr is best-effort;
-      # failures there are not actionable.
       exclude-functions:
         - fmt.Fprint
         - fmt.Fprintf
         - fmt.Fprintln
+    depguard:
+      rules:
+        main:
+          files:
+            - $all
+          allow:
+            - $gostd
+            - github.com/vadiminshakov/committer
+            - github.com/dgraph-io/badger
+            - github.com/pkg/errors
+            - github.com/stretchr/testify
+            - github.com/vadiminshakov/gowal
+            - go.uber.org/mock
+            - google.golang.org/grpc
+            - google.golang.org/protobuf
+    gomodguard_v2:
+      allowed:
+        - module: github.com/dgraph-io/badger/v4
+        - module: github.com/pkg/errors
+        - module: github.com/stretchr/testify
+        - module: github.com/vadiminshakov/gowal
+        - module: go.uber.org/mock
+        - module: google.golang.org/grpc
+        - module: google.golang.org/protobuf
+    forbidigo:
+      forbid:
+        - pattern: ^print(ln)?$
+    exhaustive:
+      default-signifies-exhaustive: true
+    cyclop:
+      max-complexity: 15
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+        - .WithMessagef(
+        - .WithStack(
+        - status.Error(
+        - .Err()
+        - .Close()
+      ignore-interface-regexps:
+        - Committer
   exclusions:
     generated: lax
     presets:
@@ -29,10 +111,23 @@ linters:
       - common-false-positives
       - std-error-handling
     rules:
-      # Cleanup helpers (Close, RemoveAll, ...) in tests are best-effort.
       - path: _test\.go
         linters:
           - errcheck
+          - nilnil
+          - funlen
+          - cyclop
+          - gocyclo
+          - gocognit
+          - nestif
+          - maintidx
+          - dupl
+          - goconst
+          - varnamelen
+          - lll
+      - linters:
+          - lll
+        source: ^//go:generate\s
 
 formatters:
   enable:

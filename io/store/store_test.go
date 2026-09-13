@@ -25,6 +25,7 @@ func TestOpenCreatesStoreWithoutRequiringJournalRecovery(t *testing.T) {
 func TestStore_Recovery_Commit(t *testing.T) {
 	walDir := filepath.Join(os.TempDir(), "wal_commit")
 	dbDir := filepath.Join(os.TempDir(), "db_commit")
+
 	defer os.RemoveAll(walDir)
 	defer os.RemoveAll(dbDir)
 
@@ -52,11 +53,13 @@ func TestStore_Recovery_Commit(t *testing.T) {
 
 	w2, err := gowal.NewWAL(gowal.Config{Dir: walDir, Prefix: "wal_", SegmentThreshold: 1024 * 1024, MaxSegments: 10})
 	require.NoError(t, err)
+
 	defer w2.Close()
 
 	// 3. recover
 	s, state, err := New(wal.New(w2), dbDir)
 	require.NoError(t, err)
+
 	defer s.Close()
 
 	// 4. verify
@@ -70,6 +73,7 @@ func TestStore_Recovery_Commit(t *testing.T) {
 func TestStore_Recovery_PreparedOnly(t *testing.T) {
 	walDir := filepath.Join(os.TempDir(), "wal_prepared")
 	dbDir := filepath.Join(os.TempDir(), "db_prepared")
+
 	defer os.RemoveAll(walDir)
 	defer os.RemoveAll(dbDir)
 
@@ -91,10 +95,12 @@ func TestStore_Recovery_PreparedOnly(t *testing.T) {
 
 	w2, err := gowal.NewWAL(gowal.Config{Dir: walDir, Prefix: "wal_", SegmentThreshold: 1024 * 1024, MaxSegments: 10})
 	require.NoError(t, err)
+
 	defer w2.Close()
 
 	s, state, err := New(wal.New(w2), dbDir)
 	require.NoError(t, err)
+
 	defer s.Close()
 
 	// should NOT be applied to DB
@@ -110,6 +116,7 @@ func TestStore_Recovery_PreparedOnly(t *testing.T) {
 func TestStore_Recovery_Abort(t *testing.T) {
 	walDir := filepath.Join(os.TempDir(), "wal_abort")
 	dbDir := filepath.Join(os.TempDir(), "db_abort")
+
 	defer os.RemoveAll(walDir)
 	defer os.RemoveAll(dbDir)
 
@@ -130,10 +137,12 @@ func TestStore_Recovery_Abort(t *testing.T) {
 
 	w2, err := gowal.NewWAL(gowal.Config{Dir: walDir, Prefix: "wal_", SegmentThreshold: 1024 * 1024, MaxSegments: 10})
 	require.NoError(t, err)
+
 	defer w2.Close()
 
 	s, state, err := New(wal.New(w2), dbDir)
 	require.NoError(t, err)
+
 	defer s.Close()
 
 	// height should be 20+1 because it was resolved (Aborted)

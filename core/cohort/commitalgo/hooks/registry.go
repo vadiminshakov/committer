@@ -35,6 +35,7 @@ func (r *Registry) ExecutePropose(req *dto.ProposeRequest) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -46,10 +47,11 @@ func (r *Registry) ExecuteCommit(req *dto.CommitRequest) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
-// Count returns the number of registered hooks
+// Count returns the number of registered hooks.
 func (r *Registry) Count() int {
 	return len(r.hooks)
 }

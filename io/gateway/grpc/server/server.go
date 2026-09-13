@@ -7,6 +7,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -66,7 +67,9 @@ func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto
 	if s.cohort == nil {
 		return nil, status.Error(codes.FailedPrecondition, "cohort role not enabled on this node")
 	}
+
 	resp, err := s.cohort.Propose(ctx, proposeRequestPbToEntity(req))
+
 	return cohortResponseToProto(resp), err
 }
 
@@ -74,7 +77,9 @@ func (s *Server) Precommit(ctx context.Context, req *proto.PrecommitRequest) (*p
 	if s.cohort == nil {
 		return nil, status.Error(codes.FailedPrecondition, "cohort role not enabled on this node")
 	}
+
 	resp, err := s.cohort.Precommit(ctx, req.Index)
+
 	return cohortResponseToProto(resp), err
 }
 
@@ -82,7 +87,9 @@ func (s *Server) Commit(ctx context.Context, req *proto.CommitRequest) (*proto.R
 	if s.cohort == nil {
 		return nil, status.Error(codes.FailedPrecondition, "cohort role not enabled on this node")
 	}
+
 	resp, err := s.cohort.Commit(ctx, commitRequestPbToEntity(req))
+
 	return cohortResponseToProto(resp), err
 }
 
@@ -90,11 +97,13 @@ func (s *Server) Abort(ctx context.Context, req *proto.AbortRequest) (*proto.Res
 	if s.cohort == nil {
 		return nil, status.Error(codes.FailedPrecondition, "cohort role not enabled on this node")
 	}
+
 	abortReq := &dto.AbortRequest{
 		Height: req.Height,
 		Reason: req.Reason,
 	}
 	resp, err := s.cohort.Abort(ctx, abortReq)
+
 	return cohortResponseToProto(resp), err
 }
 
@@ -106,11 +115,14 @@ func (s *Server) Decision(ctx context.Context, req *proto.DecisionRequest) (*pro
 	}
 
 	outcome := proto.Outcome_OUTCOME_UNKNOWN
+
 	switch s.coordinator.Decision(req.Height) {
 	case dto.OutcomeCommit:
 		outcome = proto.Outcome_OUTCOME_COMMIT
 	case dto.OutcomeAbort:
 		outcome = proto.Outcome_OUTCOME_ABORT
+	case dto.OutcomeUnknown:
+		// Explicitly report undecided heights as unknown.
 	}
 
 	return &proto.DecisionResponse{Outcome: outcome}, nil
@@ -119,8 +131,9 @@ func (s *Server) Decision(ctx context.Context, req *proto.DecisionRequest) (*pro
 func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) {
 	value, err := s.store.Get(req.Key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get key %q: %w", req.Key, err)
 	}
+
 	return &proto.Value{Value: value}, nil
 }
 
@@ -129,6 +142,7 @@ func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, er
 	if s.coordinator == nil {
 		return nil, status.Error(codes.FailedPrecondition, "coordinator role not enabled on this node")
 	}
+
 	resp, err := s.coordinator.Broadcast(ctx, dto.BroadcastRequest{
 		Key:   req.Key,
 		Value: req.Value,
@@ -191,7 +205,9 @@ func New(conf *config.Config, cohort Cohort, coordinator Coordinator, stateStore
 	} else {
 		slog.Info("three-phase-commit mode enabled")
 	}
+
 	err := checkServerFields(server)
+
 	return server, err
 }
 
@@ -199,31 +215,36 @@ func checkServerFields(server *Server) error {
 	if server.store == nil {
 		return errors.New("store is not configured")
 	}
+
 	if server.Config.Role == "cohort" && server.cohort == nil {
 		return errors.New("cohort role selected but cohort implementation is nil")
 	}
+
 	if server.Config.Role == "coordinator" && server.coordinator == nil {
 		return errors.New("coordinator role selected but coordinator implementation is nil")
 	}
+
 	return nil
 }
 
 // Run starts the gRPC server in a non-blocking manner.
 func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	var err error
+
 	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
 	proto.RegisterInternalCommitAPIServer(s.GRPCServer, s)
 	proto.RegisterClientAPIServer(s.GRPCServer, s)
 
-	l, err := net.Listen("tcp", s.Addr)
+	listener, err := net.Listen("tcp", s.Addr)
 	if err != nil {
 		slog.Error("failed to listen", "err", err)
 		os.Exit(1)
 	}
+
 	slog.Info("listening", "addr", "tcp://"+s.Addr)
 
 	go func() {
-		if err := s.GRPCServer.Serve(l); err != nil {
+		if err := s.GRPCServer.Serve(listener); err != nil {
 			slog.Error("gRPC server failed", "err", err)
 		}
 	}()
@@ -233,10 +254,12 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 func (s *Server) Stop() {
 	slog.Info("stopping server")
 	s.GRPCServer.GracefulStop()
+
 	if s.store != nil {
 		if err := s.store.Close(); err != nil {
 			slog.Info("failed to close store", "err", err)
 		}
 	}
+
 	slog.Info("server stopped")
 }

@@ -10,18 +10,30 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// gRPC dial timing.
+const (
+	dialBaseDelay         = 100 * time.Millisecond
+	dialMaxDelay          = 10 * time.Second
+	dialMinConnectTimeout = 200 * time.Millisecond
+	dialTimeout           = 10 * time.Second
+)
+
 func createConnection(addr string) (*grpc.ClientConn, error) {
 	connParams := grpc.ConnectParams{
 		Backoff: backoff.Config{
-			BaseDelay: 100 * time.Millisecond,
-			MaxDelay:  10 * time.Second,
+			BaseDelay: dialBaseDelay,
+			MaxDelay:  dialMaxDelay,
 		},
-		MinConnectTimeout: 200 * time.Millisecond,
+		MinConnectTimeout: dialMinConnectTimeout,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithConnectParams(connParams), grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	conn, err := grpc.DialContext(ctx, addr,
+		grpc.WithConnectParams(connParams),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect")
 	}

@@ -60,12 +60,15 @@ func TestHappyPath(t *testing.T) {
 	var canceller func() error
 
 	var height uint64 = 0
+
 	coordConfig := nodes[COORDINATOR_TYPE][0]
 	if coordConfig.CommitType == "two-phase" {
 		canceller = startnodes(pb.CommitType_TWO_PHASE_COMMIT)
+
 		slog.Info("TEST IN TWO-PHASE MODE")
 	} else {
 		canceller = startnodes(pb.CommitType_THREE_PHASE_COMMIT)
+
 		slog.Info("TEST IN THREE-PHASE MODE")
 	}
 
@@ -100,7 +103,9 @@ func TestHappyPath(t *testing.T) {
 				if err != nil || string(resp.Value) != string(val) {
 					return false
 				}
+
 				nodeInfo, err := cli.NodeInfo(context.Background())
+
 				return err == nil && nodeInfo.Height == height
 			}, 3*time.Second, 20*time.Millisecond, "cohort %s did not converge at height %d", node.Nodeaddr, height)
 		}
@@ -119,14 +124,15 @@ func startnodes(commitType pb.CommitType) func() error {
 		err := os.RemoveAll(COORDINATOR_BADGER)
 		failfast(err)
 	}
+
 	if _, err := os.Stat(COHORT_BADGER); !os.IsNotExist(err) {
 		// del dir
 		failfast(os.RemoveAll(COHORT_BADGER))
 	}
+
 	if _, err := os.Stat("./tmp"); !os.IsNotExist(err) {
 		// del dir
 		failfast(os.RemoveAll("./tmp"))
-
 	}
 
 	{
@@ -144,9 +150,11 @@ func startnodes(commitType pb.CommitType) func() error {
 		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
 			node.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 		}
+
 		dbPath := filepath.Join(COHORT_BADGER, strconv.Itoa(i))
 
 		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
+
 		walConfig := gowal.Config{
 			Dir:              "./tmp/cohort/" + strconv.Itoa(i),
 			Prefix:           "msgs_",
@@ -182,6 +190,7 @@ func startnodes(commitType pb.CommitType) func() error {
 	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
 		dbPath := filepath.Join(COORDINATOR_BADGER, strconv.Itoa(i))
 		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
+
 		walConfig := gowal.Config{
 			Dir:              "./tmp/coord/msgs" + strconv.Itoa(i),
 			Prefix:           "msgs",
@@ -204,9 +213,12 @@ func startnodes(commitType pb.CommitType) func() error {
 		failfast(err)
 
 		go coordServer.Run(server.CoordinatorCheck)
+
 		time.Sleep(100 * time.Millisecond)
+
 		stopfuncs = append(stopfuncs, func() {
 			coordServer.Stop()
+
 			_ = coord.Close()
 		})
 	}
@@ -215,7 +227,9 @@ func startnodes(commitType pb.CommitType) func() error {
 		for _, f := range stopfuncs {
 			f()
 		}
+
 		failfast(os.RemoveAll("./tmp"))
+
 		return os.RemoveAll(BADGER_DIR)
 	}
 }

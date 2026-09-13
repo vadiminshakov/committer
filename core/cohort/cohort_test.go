@@ -2,7 +2,7 @@ package cohort
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -85,7 +85,7 @@ func TestCohort_Propose_Error(t *testing.T) {
 		Value:  []byte("test-value"),
 	}
 
-	expectedErr := fmt.Errorf("propose failed")
+	expectedErr := errors.New("propose failed")
 
 	// expect Propose to be called and return error
 	mockCommitter.EXPECT().Propose(ctx, proposeReq).Return(nil, expectedErr)
@@ -142,7 +142,7 @@ func TestCohort_Precommit_ThreePhase_Error(t *testing.T) {
 	cohort := NewCohort(mockCommitter, THREE_PHASE)
 
 	ctx := context.Background()
-	expectedErr := fmt.Errorf("precommit failed")
+	expectedErr := errors.New("precommit failed")
 
 	// expect Precommit to be called and return error
 	mockCommitter.EXPECT().Precommit(ctx, uint64(0)).Return(nil, expectedErr)
@@ -185,7 +185,7 @@ func TestCohort_Commit_Error(t *testing.T) {
 
 	ctx := context.Background()
 	commitReq := &dto.CommitRequest{Height: 0}
-	expectedErr := fmt.Errorf("commit failed")
+	expectedErr := errors.New("commit failed")
 
 	// expect Commit to be called and return error
 	mockCommitter.EXPECT().Commit(ctx, commitReq).Return(nil, expectedErr)

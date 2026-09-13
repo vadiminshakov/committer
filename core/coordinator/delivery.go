@@ -85,13 +85,18 @@ func (d *cohortDelivery) VotePrecommit(ctx context.Context, height uint64) error
 		reply, err := cohort.Precommit(operationCtx, height)
 		if err != nil {
 			d.emitVote(events.EvCoordPrecommit, cohort.Addr(), height, "nack")
+
 			return fmt.Errorf("cohort %s precommit: %w", cohort.Addr(), err)
 		}
+
 		if !reply.Accepted {
 			d.emitVote(events.EvCoordPrecommit, cohort.Addr(), height, "nack")
+
 			return fmt.Errorf("cohort %s rejected precommit at height %d", cohort.Addr(), height)
 		}
+
 		d.emitVote(events.EvCoordPrecommit, cohort.Addr(), height, "ok")
+
 		return nil
 	})
 }
@@ -103,6 +108,7 @@ func (d *cohortDelivery) DeliverFinal(decision dto.FinalDecision) error {
 	if !isFinalOutcome(decision.Outcome) {
 		return fmt.Errorf("cannot deliver non-final outcome %d at height %d", decision.Outcome, decision.Height)
 	}
+
 	if decision.RequirePrecommit && decision.Outcome != dto.OutcomeCommit {
 		return fmt.Errorf("precommit is only valid for a commit decision at height %d", decision.Height)
 	}
@@ -110,13 +116,15 @@ func (d *cohortDelivery) DeliverFinal(decision dto.FinalDecision) error {
 	if err := d.reserveTasks(len(d.cohorts)); err != nil {
 		return err
 	}
+
 	for _, cohort := range d.cohorts {
-		cohort := cohort
 		go func() {
 			defer d.tasks.Done()
+
 			_ = d.retryFinal(d.ctx, cohort, decision)
 		}()
 	}
+
 	return nil
 }
 
@@ -127,22 +135,25 @@ func (d *cohortDelivery) fanOut(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
 	if err := d.reserveTasks(len(d.cohorts)); err != nil {
 		return err
 	}
 
 	results := make(chan error, len(d.cohorts))
 	for _, cohort := range d.cohorts {
-		cohort := cohort
 		go func() {
 			defer d.tasks.Done()
+
 			operationCtx, cancel := d.operationContext(ctx)
 			defer cancel()
+
 			results <- operation(operationCtx, cohort)
 		}()
 	}
 
 	var result error
+
 	for range d.cohorts {
 		select {
 		case err := <-results:
@@ -153,6 +164,7 @@ func (d *cohortDelivery) fanOut(
 			return errors.Join(result, d.ctx.Err())
 		}
 	}
+
 	return result
 }
 
@@ -160,10 +172,13 @@ func (d *cohortDelivery) fanOut(
 func (d *cohortDelivery) reserveTasks(count int) error {
 	d.tasksMu.Lock()
 	defer d.tasksMu.Unlock()
+
 	if d.closed {
 		return d.ctx.Err()
 	}
+
 	d.tasks.Add(count)
+
 	return nil
 }
 
@@ -173,20 +188,27 @@ func (d *cohortDelivery) voteProposal(ctx context.Context, cohort Cohort, propos
 		lastLagHeight uint64
 		hasLagHeight  bool
 	)
+
 	for {
 		reply, err := cohort.Propose(ctx, proposal)
 		if err != nil {
 			d.emitVote(events.EvCoordPropose, cohort.Addr(), proposal.Height, "nack")
+
 			return fmt.Errorf("cohort %s proposal: %w", cohort.Addr(), err)
 		}
+
 		if reply.Accepted {
 			d.emitVote(events.EvCoordPropose, cohort.Addr(), proposal.Height, "ok")
+
 			return nil
 		}
+
 		d.emitVote(events.EvCoordPropose, cohort.Addr(), proposal.Height, "nack")
+
 		if reply.Height >= proposal.Height {
 			return fmt.Errorf("cohort %s rejected proposal at height %d", cohort.Addr(), proposal.Height)
 		}
+
 		if hasLagHeight && reply.Height <= lastLagHeight {
 			return fmt.Errorf(
 				"cohort %s did not advance during proposal catch-up: height %d",
@@ -194,6 +216,7 @@ func (d *cohortDelivery) voteProposal(ctx context.Context, cohort Cohort, propos
 				reply.Height,
 			)
 		}
+
 		if catchUpRounds >= deliveryMaxCatchUpRounds {
 			return fmt.Errorf("cohort %s exceeded proposal catch-up limit at height %d", cohort.Addr(), reply.Height)
 		}
@@ -201,6 +224,7 @@ func (d *cohortDelivery) voteProposal(ctx context.Context, cohort Cohort, propos
 		if err := d.catchUp(ctx, cohort, reply.Height, proposal.Height, proposal.Protocol); err != nil {
 			return err
 		}
+
 		lastLagHeight = reply.Height
 		hasLagHeight = true
 		catchUpRounds++
@@ -217,10 +241,12 @@ func (d *cohortDelivery) catchUp(
 		if d.lookup == nil {
 			return fmt.Errorf("cohort %s catch-up stopped: no final decision at height %d", cohort.Addr(), height)
 		}
+
 		outcome := d.lookup(height)
 		if !isFinalOutcome(outcome) {
 			return fmt.Errorf("cohort %s catch-up stopped: no final decision at height %d", cohort.Addr(), height)
 		}
+
 		decision := dto.FinalDecision{
 			Height:           height,
 			Outcome:          outcome,
@@ -231,6 +257,7 @@ func (d *cohortDelivery) catchUp(
 			return fmt.Errorf("cohort %s catch-up at height %d: %w", cohort.Addr(), height, err)
 		}
 	}
+
 	return nil
 }
 
@@ -255,8 +282,10 @@ func (d *cohortDelivery) retryFinal(ctx context.Context, cohort Cohort, decision
 		reply, err := cohort.ApplyFinalDecision(ctx, decision)
 		if err == nil && reply.Accepted {
 			d.emitFinal(cohort.Addr(), decision, "ok")
+
 			return nil
 		}
+
 		d.emitFinal(cohort.Addr(), decision, "nack")
 
 		timer := time.NewTimer(finalDecisionRetryBackoff)
@@ -264,6 +293,7 @@ func (d *cohortDelivery) retryFinal(ctx context.Context, cohort Cohort, decision
 		case <-timer.C:
 		case <-ctx.Done():
 			timer.Stop()
+
 			return ctx.Err()
 		}
 	}
@@ -283,6 +313,7 @@ func (d *cohortDelivery) emitFinal(cohort string, decision dto.FinalDecision, re
 	if decision.Outcome == dto.OutcomeCommit {
 		kind = events.EvCoordCommit
 	}
+
 	d.emitter.Emit(events.Event{
 		Kind:   kind,
 		Cohort: cohort,
@@ -298,6 +329,7 @@ func isFinalOutcome(outcome dto.Outcome) bool {
 func (d *cohortDelivery) operationContext(request context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(request)
 	stop := context.AfterFunc(d.ctx, cancel)
+
 	return ctx, func() {
 		stop()
 		cancel()
@@ -306,6 +338,7 @@ func (d *cohortDelivery) operationContext(request context.Context) (context.Cont
 
 func cloneProposal(proposal dto.Proposal) dto.Proposal {
 	proposal.Transaction.Value = append([]byte(nil), proposal.Transaction.Value...)
+
 	return proposal
 }
 
@@ -318,11 +351,13 @@ func (d *cohortDelivery) Close() error {
 		d.cancel()
 		d.tasksMu.Unlock()
 		d.tasks.Wait()
+
 		for _, cohort := range d.cohorts {
 			if err := cohort.Close(); err != nil {
 				d.closeErr = errors.Join(d.closeErr, fmt.Errorf("close cohort %s: %w", cohort.Addr(), err))
 			}
 		}
 	})
+
 	return d.closeErr
 }

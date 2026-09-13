@@ -14,6 +14,7 @@ import (
 func newLifecycleMocks(t *testing.T) (*mocks.MockCoordinatorWAL, *mocks.MockCoordinatorStateStore) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
+
 	return mocks.NewMockCoordinatorWAL(ctrl), mocks.NewMockCoordinatorStateStore(ctrl)
 }
 
@@ -23,8 +24,10 @@ func cleanRecovery(height uint64) *iowal.RecoveryState {
 
 func lifecyclePayload(t *testing.T, key, value string) []byte {
 	t.Helper()
+
 	payload, err := iowal.Encode(iowal.Tx{Key: key, Value: []byte(value)})
 	require.NoError(t, err)
+
 	return payload
 }
 
@@ -34,9 +37,11 @@ func TestTransactionLifecycleOwnsRecoveryAndAppliesResolvedCommits(t *testing.T)
 		NextHeight: 1,
 		Decisions:  map[uint64]string{0: iowal.PhaseKeyCommit},
 	}
+
 	journal.EXPECT().Recover(gomock.Any()).DoAndReturn(
 		func(apply func(string, []byte) error) (*iowal.RecoveryState, error) {
 			require.NoError(t, apply("recovered", []byte("value")))
+
 			return recovery, nil
 		},
 	)
@@ -134,6 +139,7 @@ func TestTransactionLifecycleFencesAfterDurableCommitCannotBeApplied(t *testing.
 	require.NoError(t, err)
 	decision, err := lifecycle.Commit()
 	require.Equal(t, dto.FinalDecision{Height: 5, Outcome: dto.OutcomeCommit}, decision)
+
 	var committedNotApplied *CommittedNotAppliedError
 	require.ErrorAs(t, err, &committedNotApplied)
 	require.Equal(t, uint64(5), committedNotApplied.Height)
@@ -188,6 +194,7 @@ func TestTransactionLifecycleConstructionFailsWhenJournalReplayCannotApplyCommit
 			if err := apply("recovered", []byte("value")); err != nil {
 				return nil, err
 			}
+
 			return cleanRecovery(1), nil
 		},
 	)
@@ -233,6 +240,7 @@ func TestTransactionLifecycleFailsClosedWhenCommitWriteReportsError(t *testing.T
 	decision, err := lifecycle.Commit()
 	require.ErrorIs(t, err, writeErr)
 	require.Equal(t, dto.FinalDecision{}, decision)
+
 	_, err = lifecycle.Commit()
 	require.Error(t, err)
 	require.Equal(t, dto.OutcomeUnknown, lifecycle.Decision(6))
@@ -254,6 +262,7 @@ func TestTransactionLifecycleFailsClosedWhenAbortWriteReportsError(t *testing.T)
 	decision, err := lifecycle.Abort()
 	require.ErrorIs(t, err, writeErr)
 	require.Equal(t, dto.FinalDecision{}, decision)
+
 	_, err = lifecycle.Abort()
 	require.Error(t, err)
 	require.Equal(t, dto.OutcomeUnknown, lifecycle.Decision(8))
@@ -411,6 +420,7 @@ func TestTransactionLifecycleConstructionFailsWhenRecoveredCommitCannotBeApplied
 		store.EXPECT().Put("pending", []byte("value")).Return(applyErr),
 	)
 	lifecycle, recovered, err := newTransactionLifecycle(dto.ProtocolThreePhase, journal, store)
+
 	var committedNotApplied *CommittedNotAppliedError
 	require.ErrorAs(t, err, &committedNotApplied)
 	require.ErrorIs(t, err, applyErr)

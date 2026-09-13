@@ -17,9 +17,6 @@ import (
 // Mode represents the commit protocol mode.
 type Mode string
 
-// THREE_PHASE represents the three-phase commit protocol mode.
-const THREE_PHASE Mode = "three-phase"
-
 // Committer defines the interface for commit algorithms.
 //
 //go:generate mockgen -destination=../../mocks/mock_committer.go -package=mocks . Committer
@@ -38,6 +35,9 @@ type CohortImpl struct {
 	commitType Mode
 }
 
+// THREE_PHASE represents the three-phase commit protocol mode.
+const THREE_PHASE Mode = "three-phase"
+
 // NewCohort creates a new cohort instance.
 func NewCohort(
 	committer Committer,
@@ -52,6 +52,7 @@ func (c *CohortImpl) Height() uint64 {
 	return c.committer.Height()
 }
 
+// Propose delegates the proposal vote to the commit algorithm.
 func (c *CohortImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
 	return c.committer.Propose(ctx, req)
 }

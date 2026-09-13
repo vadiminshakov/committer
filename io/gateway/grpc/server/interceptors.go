@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net"
+	"slices"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -14,15 +15,19 @@ import (
 // CoordinatorCheck intercepts InternalCommitAPI RPCs and restricts them to the configured coordinator.
 // ClientAPI methods (Get, NodeInfo) are not affected.
 func CoordinatorCheck(ctx context.Context,
-	req interface{},
+	req any,
 	info *grpc.UnaryServerInfo,
-	handler grpc.UnaryHandler) (interface{}, error) {
-
+	handler grpc.UnaryHandler) (any, error) {
 	if !strings.HasPrefix(info.FullMethod, "/schema.InternalCommitAPI/") {
 		return handler(ctx, req)
 	}
 
-	serv := info.Server.(*Server)
+	serv, valid := info.Server.(*Server)
+
+	if !valid {
+		return nil, status.Errorf(codes.Internal, "unexpected server type %T", info.Server)
+	}
+
 	if serv.Config.Coordinator == "" {
 		return handler(ctx, req)
 	}
@@ -51,10 +56,8 @@ func CoordinatorCheck(ctx context.Context,
 		return nil, status.Errorf(codes.PermissionDenied, "host %s is not the coordinator", peerHost)
 	}
 
-	for _, ip := range ips {
-		if peerHost == ip {
-			return handler(ctx, req)
-		}
+	if slices.Contains(ips, peerHost) {
+		return handler(ctx, req)
 	}
 
 	return nil, status.Errorf(codes.PermissionDenied, "host %s is not the coordinator", peerHost)

@@ -77,6 +77,7 @@ func TestServerAPICohortsEmpty(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil slice, got nil")
 	}
+
 	if len(result) != 0 {
 		t.Fatalf("expected empty slice, got %v", result)
 	}
@@ -101,6 +102,7 @@ func TestServerCohortsFromEvents(t *testing.T) {
 	collector := NewCollector(nil)
 	collector.Emit(events.Event{Cohort: "localhost:3002", Kind: events.EvCoordPropose, Height: 1, Result: "ok"})
 	collector.Emit(events.Event{Cohort: "localhost:3003", Kind: events.EvCoordPrecommit, Height: 1, Result: "nack"})
+
 	conf := &config.Config{
 		Role:     "coordinator",
 		Nodeaddr: "localhost:3000",
@@ -136,7 +138,7 @@ func TestServerMuxRouting(t *testing.T) {
 	})
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"role":        srv.config.Role,
 			"nodeaddr":    srv.config.Nodeaddr,
 			"cohorts":     srv.config.Cohorts,
@@ -144,6 +146,7 @@ func TestServerMuxRouting(t *testing.T) {
 			"commitType":  srv.config.CommitType,
 		})
 	})
+
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("/", http.FileServer(http.FS(staticSub)))
 
@@ -162,10 +165,12 @@ func TestServerMuxRouting(t *testing.T) {
 	}
 
 	body, _ := io.ReadAll(resp.Body)
+
 	var cohortsResult []string
 	if err := json.Unmarshal(body, &cohortsResult); err != nil {
 		t.Fatalf("GET /api/cohorts: failed to parse body %q: %v", string(body), err)
 	}
+
 	if len(cohortsResult) != 2 || cohortsResult[0] != "localhost:3001" {
 		t.Fatalf("GET /api/cohorts: unexpected: %v", cohortsResult)
 	}
@@ -182,10 +187,12 @@ func TestServerMuxRouting(t *testing.T) {
 	}
 
 	body2, _ := io.ReadAll(resp2.Body)
-	var cfgResult map[string]interface{}
+
+	var cfgResult map[string]any
 	if err := json.Unmarshal(body2, &cfgResult); err != nil {
 		t.Fatalf("GET /api/config: failed to parse: %v", err)
 	}
+
 	if cfgResult["role"] != "coordinator" {
 		t.Fatalf("GET /api/config: unexpected role: %v", cfgResult["role"])
 	}

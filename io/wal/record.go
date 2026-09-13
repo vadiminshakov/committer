@@ -2,7 +2,7 @@ package wal
 
 import (
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"strconv"
 	"strings"
 )
@@ -15,6 +15,10 @@ const (
 	PhaseKeyCommit    = "commit"
 	PhaseKeyAbort     = "abort"
 )
+
+// lengthPrefixSize is the size in bytes of the length prefixes framing keys
+// and values in the WAL record encoding.
+const lengthPrefixSize = 4
 
 func PreparedKey(height uint64) string {
 	return txPrefix + "prepared:" + strconv.FormatUint(height, 10)
@@ -31,16 +35,21 @@ func ParseKey(key string) (phase string, height uint64, ok bool) {
 	if !strings.HasPrefix(key, txPrefix) {
 		return "", 0, false
 	}
+
 	rest := key[len(txPrefix):]
+
 	idx := strings.LastIndex(rest, ":")
 	if idx < 0 {
 		return "", 0, false
 	}
+
 	phase = rest[:idx]
+
 	h, err := strconv.ParseUint(rest[idx+1:], 10, 64)
 	if err != nil {
 		return "", 0, false
 	}
+
 	return phase, h, true
 }
 
@@ -50,43 +59,43 @@ type Tx struct {
 	Value []byte
 }
 
-// Encode serializes a Tx into bytes.
-// Format: [KeyLen(4 bytes)] [KeyBytes] [ValueLen(4 bytes)] [ValueBytes]
-func Encode(tx Tx) ([]byte, error) {
-	keyLen := uint32(len(tx.Key))
-	valLen := uint32(len(tx.Value))
+// Encode serializes a transaction into bytes.
+// Format: [KeyLen(4 bytes)] [KeyBytes] [ValueLen(4 bytes)] [ValueBytes].
+func Encode(transaction Tx) ([]byte, error) {
+	keyLen := uint32(len(transaction.Key))
+	valLen := uint32(len(transaction.Value))
 
-	buf := make([]byte, 4+keyLen+4+valLen)
+	buf := make([]byte, lengthPrefixSize+keyLen+lengthPrefixSize+valLen)
 
-	binary.BigEndian.PutUint32(buf[0:4], keyLen)
-	copy(buf[4:4+keyLen], tx.Key)
+	binary.BigEndian.PutUint32(buf[0:lengthPrefixSize], keyLen)
+	copy(buf[lengthPrefixSize:lengthPrefixSize+keyLen], transaction.Key)
 
-	binary.BigEndian.PutUint32(buf[4+keyLen:4+keyLen+4], valLen)
-	copy(buf[4+keyLen+4:], tx.Value)
+	binary.BigEndian.PutUint32(buf[lengthPrefixSize+keyLen:lengthPrefixSize+keyLen+lengthPrefixSize], valLen)
+	copy(buf[lengthPrefixSize+keyLen+lengthPrefixSize:], transaction.Value)
 
 	return buf, nil
 }
 
 // Decode deserializes bytes into a Tx.
 func Decode(data []byte) (Tx, error) {
-	if len(data) < 4 {
-		return Tx{}, fmt.Errorf("data too short for key length")
+	if len(data) < lengthPrefixSize {
+		return Tx{}, errors.New("data too short for key length")
 	}
 
-	keyLen := binary.BigEndian.Uint32(data[0:4])
-	if uint32(len(data)) < 4+keyLen+4 {
-		return Tx{}, fmt.Errorf("data too short for key and value length")
+	keyLen := binary.BigEndian.Uint32(data[0:lengthPrefixSize])
+	if uint32(len(data)) < lengthPrefixSize+keyLen+lengthPrefixSize {
+		return Tx{}, errors.New("data too short for key and value length")
 	}
 
-	key := string(data[4 : 4+keyLen])
+	key := string(data[lengthPrefixSize : lengthPrefixSize+keyLen])
 
-	valLen := binary.BigEndian.Uint32(data[4+keyLen : 4+keyLen+4])
-	if uint32(len(data)) < 4+keyLen+4+valLen {
-		return Tx{}, fmt.Errorf("data too short for value body")
+	valLen := binary.BigEndian.Uint32(data[lengthPrefixSize+keyLen : lengthPrefixSize+keyLen+lengthPrefixSize])
+	if uint32(len(data)) < lengthPrefixSize+keyLen+lengthPrefixSize+valLen {
+		return Tx{}, errors.New("data too short for value body")
 	}
 
 	value := make([]byte, valLen)
-	copy(value, data[4+keyLen+4:4+keyLen+4+valLen])
+	copy(value, data[lengthPrefixSize+keyLen+lengthPrefixSize:lengthPrefixSize+keyLen+lengthPrefixSize+valLen])
 
 	return Tx{Key: key, Value: value}, nil
 }
