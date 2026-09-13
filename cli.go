@@ -89,7 +89,9 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 	if err != nil {
 		return fmt.Errorf("connect to %s: %w", *addr, err)
 	}
-	defer cli.Close()
+	defer func() {
+		_ = cli.Close()
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	switch command {

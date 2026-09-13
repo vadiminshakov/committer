@@ -97,7 +97,7 @@ func (c *Coordinator) Broadcast(ctx context.Context, request dto.BroadcastReques
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	transaction := dto.Transaction{Key: request.Key, Value: request.Value}
+	transaction := dto.Transaction(request)
 	height, err := c.lifecycle.Prepare(transaction)
 	if err != nil {
 		return nackResponse(c.lifecycle.Height(), fmt.Errorf("prepare transaction: %w", err))

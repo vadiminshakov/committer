@@ -16,10 +16,14 @@ const (
 	PhaseKeyAbort     = "abort"
 )
 
-func PreparedKey(height uint64) string  { return txPrefix + "prepared:" + strconv.FormatUint(height, 10) }
-func PrecommitKey(height uint64) string { return txPrefix + "precommit:" + strconv.FormatUint(height, 10) }
-func CommitKey(height uint64) string    { return txPrefix + "commit:" + strconv.FormatUint(height, 10) }
-func AbortKey(height uint64) string     { return txPrefix + "abort:" + strconv.FormatUint(height, 10) }
+func PreparedKey(height uint64) string {
+	return txPrefix + "prepared:" + strconv.FormatUint(height, 10)
+}
+func PrecommitKey(height uint64) string {
+	return txPrefix + "precommit:" + strconv.FormatUint(height, 10)
+}
+func CommitKey(height uint64) string { return txPrefix + "commit:" + strconv.FormatUint(height, 10) }
+func AbortKey(height uint64) string  { return txPrefix + "abort:" + strconv.FormatUint(height, 10) }
 
 // ParseKey extracts the phase and height from a key like "__tx:prepared:10".
 // Returns ok=false for keys that are not protocol-phase records.

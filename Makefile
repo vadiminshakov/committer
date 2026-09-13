@@ -1,4 +1,4 @@
-.PHONY: build prepare demo demo-reset run-example-coordinator run-example-cohort run-example-client tests start-toxiproxy stop-toxiproxy test-chaos proto-gen generate
+.PHONY: build prepare demo demo-reset run-example-coordinator run-example-cohort run-example-client tests lint lint-fix start-toxiproxy stop-toxiproxy test-chaos proto-gen generate
 
 build:
 	@go build -o bin/committer .
@@ -25,6 +25,12 @@ run-example-client:
 
 tests:
 	@go test ./...
+
+lint:
+	@golangci-lint run ./...
+
+lint-fix:
+	@golangci-lint run --fix ./...
 
 start-toxiproxy:
 	@echo "Starting Toxiproxy server..."

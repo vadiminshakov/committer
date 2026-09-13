@@ -1,0 +1,42 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # Default linters (errcheck, govet, ineffassign, staticcheck, unused)
+  # plus a few low-noise extras.
+  # revive was evaluated and deliberately left out: with default rules it
+  # demands renaming public API (TWO_PHASE, CohortImpl, ...) and flagging
+  # idiomatic unused ctx params in interface implementations.
+  default: standard
+  enable:
+    - misspell
+    - unconvert
+  settings:
+    errcheck:
+      check-blank: false
+      # Writing CLI output to stdout/stderr is best-effort;
+      # failures there are not actionable.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - std-error-handling
+    rules:
+      # Cleanup helpers (Close, RemoveAll, ...) in tests are best-effort.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax

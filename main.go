@@ -76,7 +76,11 @@ func run(conf *config.Config, emitter events.Emitter) error {
 	if err != nil {
 		return err
 	}
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			slog.Warn("failed to close WAL", "err", err)
+		}
+	}()
 
 	stateStore, recovery, err := newStore(w, conf)
 	if err != nil {

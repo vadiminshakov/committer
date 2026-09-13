@@ -222,7 +222,11 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 	}
 	slog.Info("listening", "addr", "tcp://"+s.Addr)
 
-	go s.GRPCServer.Serve(l)
+	go func() {
+		if err := s.GRPCServer.Serve(l); err != nil {
+			slog.Error("gRPC server failed", "err", err)
+		}
+	}()
 }
 
 // Stop gracefully stops the gRPC server.

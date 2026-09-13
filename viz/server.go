@@ -30,25 +30,31 @@ func (s *Server) Start() {
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
-		json.NewEncoder(w).Encode(s.collector.Events())
+		if err := json.NewEncoder(w).Encode(s.collector.Events()); err != nil {
+			slog.Warn("failed to encode events response", "err", err)
+		}
 	})
 
 	mux.HandleFunc("/api/cohorts", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
-		json.NewEncoder(w).Encode(s.cohorts())
+		if err := json.NewEncoder(w).Encode(s.cohorts()); err != nil {
+			slog.Warn("failed to encode cohorts response", "err", err)
+		}
 	})
 
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"role":        s.config.Role,
 			"nodeaddr":    s.config.Nodeaddr,
 			"cohorts":     s.config.Cohorts,
 			"coordinator": s.config.Coordinator,
 			"commitType":  s.config.CommitType,
-		})
+		}); err != nil {
+			slog.Warn("failed to encode config response", "err", err)
+		}
 	})
 
 	staticSub, _ := fs.Sub(staticFS, "static")

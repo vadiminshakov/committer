@@ -34,7 +34,9 @@ func run(addr, key, value string, timeout time.Duration) error {
 	if err != nil {
 		return err
 	}
-	defer cli.Close()
+	defer func() {
+		_ = cli.Close()
+	}()
 	for i := 0; i < 5; i++ {
 		k, v := key+strconv.Itoa(i), value+strconv.Itoa(i)
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)

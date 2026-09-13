@@ -31,3 +31,19 @@ jobs:
     # Runs a single command using the runners shell
     - name: Run tests
       run: make prepare && make tests
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: v2.12
+        args: ./...
