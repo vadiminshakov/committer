@@ -1,0 +1,49 @@
+services:
+  cohort:
+    build: .
+    image: committer:local
+    command:
+      - cohort
+      - -nodeaddr=0.0.0.0:3001
+      - -coordinator=coordinator:3000
+      - -data-dir=/data
+    volumes:
+      - cohort_data:/data
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/committer", "status", "--addr", "127.0.0.1:3001", "--timeout", "2s"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  coordinator:
+    build: .
+    image: committer:local
+    command:
+      - coordinator
+      - -nodeaddr=0.0.0.0:3000
+      - -cohorts=cohort:3001
+      - -data-dir=/data
+      - -viz-port=8080
+    ports:
+      - "127.0.0.1:${COMMITTER_RPC_PORT:-3000}:3000"
+      - "127.0.0.1:${COMMITTER_VIZ_PORT:-8080}:8080"
+    volumes:
+      - coordinator_data:/data
+    depends_on:
+      cohort:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/committer", "status", "--addr", "127.0.0.1:3000", "--timeout", "2s"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  cohort_data:
+  coordinator_data:

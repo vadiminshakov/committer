@@ -16,7 +16,31 @@ Go implementation of **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)**
 The coordinator initiates transactions and manages the commit protocol.
 Participants (called **cohorts** in the code and CLI) vote on each transaction and apply its outcome. Nodes communicate over gRPC and persist state using a database and write-ahead log (WAL).
 
-## Quick start
+## Quick start with Docker
+
+Requires Docker with Compose:
+
+```bash
+git clone https://github.com/vadiminshakov/committer.git
+cd committer
+docker compose up --build --wait
+docker compose exec coordinator committer put --addr 127.0.0.1:3000 greeting hello
+docker compose exec coordinator committer get --addr 127.0.0.1:3000 greeting
+```
+
+The last command prints `hello`. Open [the protocol visualization](http://localhost:8080)
+and press **Play**. The coordinator's gRPC port is available at `localhost:3000`;
+the participant is reachable only inside the Compose network. Both services have
+health checks for their gRPC endpoints, and Compose waits for them to pass before
+`docker compose up` returns. The sample write checks the full transaction path.
+Ports 3000 and 8080 must be available.
+
+Use `docker compose logs -f` to see node logs and `docker compose down` to stop
+the nodes. Named volumes preserve their databases and WAL across restarts. To
+delete the data, run `docker compose down --volumes` (this permanently removes
+both nodes' data). This Compose setup is intended for local use.
+
+## Quick start with Go
 
 Requires **Go 1.25 or newer** and `make`. Run commands from the repository root.
 
@@ -179,24 +203,6 @@ committer := commitalgo.NewCommitter(database, "three-phase", wal, timeout,
 // or register later
 committer.RegisterHook(myCustomHook)
 ```
-
-## Testing
-
-```bash
-make tests
-```
-
-To run the demo in separate terminals:
-
-```bash
-make run-example-cohort        # terminal 1
-make run-example-coordinator   # terminal 2
-make run-example-client        # terminal 3
-```
-
-These targets share `.data/demo/` with `make demo` and preserve existing data.
-Stop an existing demo before starting them. `make prepare` only creates the demo
-folder and remains available for compatibility.
 
 ## Contributions
 
