@@ -28,20 +28,6 @@ func TestNewCohort(t *testing.T) {
 	require.Equal(t, THREE_PHASE, cohort3PC.commitType)
 }
 
-func TestCohort_Height(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, "two-phase")
-
-	// expect Height to be called and return 5
-	mockCommitter.EXPECT().Height().Return(uint64(5))
-
-	height := cohort.Height()
-	require.Equal(t, uint64(5), height)
-}
-
 func TestCohort_Propose(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

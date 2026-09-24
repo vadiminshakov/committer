@@ -28,8 +28,7 @@ wait_node() {
             cat "$logfile" >&2
             return 1
         fi
-        if "$bin" status --addr "$addr" --timeout 200ms >/dev/null 2>&1; then
-            # Catch a child that failed to bind while another node answered.
+        if grep -q 'msg=listening' "$logfile" 2>/dev/null; then
             sleep 0.1
             if kill -0 "$pid" 2>/dev/null; then return 0; fi
             cat "$logfile" >&2
@@ -50,7 +49,6 @@ coordinator_pid=$!
 wait_node localhost:3000 "$coordinator_pid" .data/demo/logs/coordinator.log
 "$bin" put greeting hello
 "$bin" get greeting
-"$bin" status
 printf '\nProtocol visualization: http://localhost:8080 (press Play)\nLogs: .data/demo/logs/\nData is preserved in .data/demo. Press Ctrl+C to stop both nodes.\n'
 while kill -0 "$cohort_pid" 2>/dev/null && kill -0 "$coordinator_pid" 2>/dev/null; do sleep 1; done
 echo "A demo node exited; see .data/demo/logs/." >&2

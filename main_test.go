@@ -59,8 +59,6 @@ var testtable = map[string][]byte{
 func TestHappyPath(t *testing.T) {
 	var canceller func() error
 
-	var height uint64 = 0
-
 	coordConfig := nodes[COORDINATOR_TYPE][0]
 	if coordConfig.CommitType == "two-phase" {
 		canceller = startnodes(pb.CommitType_TWO_PHASE_COMMIT)
@@ -88,8 +86,6 @@ func TestHappyPath(t *testing.T) {
 		if resp.Type != pb.Type_ACK {
 			t.Error("msg is not acknowledged")
 		}
-		// ok, value is added, let's increment height counter
-		height++
 	}
 
 	// connect to cohorts and check that them added key-value
@@ -104,10 +100,8 @@ func TestHappyPath(t *testing.T) {
 					return false
 				}
 
-				nodeInfo, err := cli.NodeInfo(context.Background())
-
-				return err == nil && nodeInfo.Height == height
-			}, 3*time.Second, 20*time.Millisecond, "cohort %s did not converge at height %d", node.Nodeaddr, height)
+				return true
+			}, 3*time.Second, 20*time.Millisecond, "cohort %s did not converge", node.Nodeaddr)
 		}
 	}
 

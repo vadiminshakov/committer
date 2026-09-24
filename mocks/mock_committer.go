@@ -72,20 +72,6 @@ func (mr *MockCommitterMockRecorder) Commit(ctx, req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Commit", reflect.TypeOf((*MockCommitter)(nil).Commit), ctx, req)
 }
 
-// Height mocks base method.
-func (m *MockCommitter) Height() uint64 {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Height")
-	ret0, _ := ret[0].(uint64)
-	return ret0
-}
-
-// Height indicates an expected call of Height.
-func (mr *MockCommitterMockRecorder) Height() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Height", reflect.TypeOf((*MockCommitter)(nil).Height))
-}
-
 // Precommit mocks base method.
 func (m *MockCommitter) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
 	m.ctrl.T.Helper()

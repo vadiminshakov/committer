@@ -20,7 +20,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -33,7 +32,6 @@ const (
 // Coordinator defines the interface for coordinator operations.
 type Coordinator interface {
 	Broadcast(ctx context.Context, req dto.BroadcastRequest) (*dto.BroadcastResponse, error)
-	Height() uint64
 	Decision(height uint64) dto.Outcome
 }
 
@@ -45,7 +43,6 @@ type Cohort interface {
 	Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error)
 	Commit(ctx context.Context, in *dto.CommitRequest) (*dto.CohortResponse, error)
 	Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error)
-	Height() uint64
 }
 
 // Server holds server instance, node config and connections to followers (if it's a coordinator node).
@@ -175,18 +172,6 @@ func coordinatorErrorToStatus(err error) error {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
-	}
-}
-
-// NodeInfo returns information about the current node.
-func (s *Server) NodeInfo(ctx context.Context, req *emptypb.Empty) (*proto.Info, error) {
-	switch {
-	case s.cohort != nil:
-		return &proto.Info{Height: s.cohort.Height()}, nil
-	case s.coordinator != nil:
-		return &proto.Info{Height: s.coordinator.Height()}, nil
-	default:
-		return nil, status.Error(codes.FailedPrecondition, "node has neither cohort nor coordinator role configured")
 	}
 }
 

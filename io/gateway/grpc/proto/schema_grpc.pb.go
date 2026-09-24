@@ -7,7 +7,6 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -255,7 +254,6 @@ var InternalCommitAPI_ServiceDesc = grpc.ServiceDesc{
 type ClientAPIClient interface {
 	Put(ctx context.Context, in *Entry, opts ...grpc.CallOption) (*Response, error)
 	Get(ctx context.Context, in *Msg, opts ...grpc.CallOption) (*Value, error)
-	NodeInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*Info, error)
 }
 
 type clientAPIClient struct {
@@ -284,22 +282,12 @@ func (c *clientAPIClient) Get(ctx context.Context, in *Msg, opts ...grpc.CallOpt
 	return out, nil
 }
 
-func (c *clientAPIClient) NodeInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*Info, error) {
-	out := new(Info)
-	err := c.cc.Invoke(ctx, "/schema.ClientAPI/NodeInfo", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // ClientAPIServer is the server API for ClientAPI service.
 // All implementations must embed UnimplementedClientAPIServer
 // for forward compatibility
 type ClientAPIServer interface {
 	Put(context.Context, *Entry) (*Response, error)
 	Get(context.Context, *Msg) (*Value, error)
-	NodeInfo(context.Context, *emptypb.Empty) (*Info, error)
 	mustEmbedUnimplementedClientAPIServer()
 }
 
@@ -312,9 +300,6 @@ func (UnimplementedClientAPIServer) Put(context.Context, *Entry) (*Response, err
 }
 func (UnimplementedClientAPIServer) Get(context.Context, *Msg) (*Value, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
-}
-func (UnimplementedClientAPIServer) NodeInfo(context.Context, *emptypb.Empty) (*Info, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method NodeInfo not implemented")
 }
 func (UnimplementedClientAPIServer) mustEmbedUnimplementedClientAPIServer() {}
 
@@ -365,24 +350,6 @@ func _ClientAPI_Get_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ClientAPI_NodeInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(emptypb.Empty)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ClientAPIServer).NodeInfo(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/schema.ClientAPI/NodeInfo",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClientAPIServer).NodeInfo(ctx, req.(*emptypb.Empty))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // ClientAPI_ServiceDesc is the grpc.ServiceDesc for ClientAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -397,10 +364,6 @@ var ClientAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Get",
 			Handler:    _ClientAPI_Get_Handler,
-		},
-		{
-			MethodName: "NodeInfo",
-			Handler:    _ClientAPI_NodeInfo_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

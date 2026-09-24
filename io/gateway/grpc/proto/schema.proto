@@ -1,6 +1,5 @@
 syntax = "proto3";
 package schema;
-import "google/protobuf/empty.proto";
 option go_package = "github.com/vadiminshakov/committer/proto";
 
 service InternalCommitAPI {
@@ -16,7 +15,6 @@ service InternalCommitAPI {
 service ClientAPI {
   rpc Put(Entry) returns (Response);
   rpc Get(Msg) returns (Value);
-  rpc NodeInfo(google.protobuf.Empty) returns (Info);
 }
 
 message ProposeRequest {
@@ -61,10 +59,6 @@ message Msg {
 
 message Value {
   bytes value = 1;
-}
-
-message Info {
-  uint64 height = 1;
 }
 
 message AbortRequest {

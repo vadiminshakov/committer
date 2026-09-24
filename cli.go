@@ -25,7 +25,6 @@ Node commands:
 Client commands (flags must precede arguments):
   put    --addr localhost:3000 KEY VALUE
   get    --addr localhost:3000 KEY
-  status --addr localhost:3000
 
 Use 'committer <command> -h' for command options.
 The original flag-only node syntax is also supported.
@@ -33,16 +32,14 @@ The original flag-only node syntax is also supported.
 
 const (
 	// Client subcommands.
-	cmdPut    = "put"
-	cmdGet    = "get"
-	cmdStatus = "status"
+	cmdPut = "put"
+	cmdGet = "get"
 )
 
 // Positional argument counts for client subcommands.
 const (
-	putArgCount    = 2
-	getArgCount    = 1
-	statusArgCount = 0
+	putArgCount = 2
+	getArgCount = 1
 )
 
 // defaultClientTimeout bounds every client request unless -timeout overrides it.
@@ -56,7 +53,7 @@ func execute(args []string, stdout, stderr io.Writer) error {
 	}
 
 	switch args[0] {
-	case cmdPut, cmdGet, cmdStatus:
+	case cmdPut, cmdGet:
 		return runClientCommand(args[0], args[1:], stdout, stderr)
 	case config.RoleCoordinator, config.RoleCohort:
 	default:
@@ -89,7 +86,7 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 	timeout := flagset.Duration("timeout", defaultClientTimeout, "request deadline, e.g. 5s or 500ms")
 
 	flagset.Usage = func() {
-		suffix := map[string]string{cmdPut: "KEY VALUE", cmdGet: "KEY", cmdStatus: ""}[command]
+		suffix := map[string]string{cmdPut: "KEY VALUE", cmdGet: "KEY"}[command]
 		fmt.Fprintf(stderr, "Usage: committer %s [flags] %s\n", command, suffix)
 		flagset.PrintDefaults()
 	}
@@ -101,7 +98,7 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 		return fmt.Errorf("parse flags: %w", err)
 	}
 
-	expected := map[string]int{cmdPut: putArgCount, cmdGet: getArgCount, cmdStatus: statusArgCount}[command]
+	expected := map[string]int{cmdPut: putArgCount, cmdGet: getArgCount}[command]
 	if flagset.NArg() != expected {
 		flagset.Usage()
 
@@ -116,7 +113,7 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 		return errors.New("-timeout must be positive")
 	}
 
-	if command != cmdStatus && flagset.Arg(0) == "" {
+	if flagset.Arg(0) == "" {
 		return errors.New("key must not be empty")
 	}
 
@@ -132,7 +129,7 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	if err := invokeClientOperation(cli, command, flagset.Args(), stdout, *addr, ctx); err != nil {
+	if err := invokeClientOperation(cli, command, flagset.Args(), stdout, ctx); err != nil {
 		return fmt.Errorf("%s at %s failed: %s%s",
 			command, *addr, status.Convert(err).Message(), hintForClientError(command, err))
 	}
@@ -149,7 +146,6 @@ func invokeClientOperation(
 	command string,
 	positional []string,
 	stdout io.Writer,
-	addr string,
 	ctx context.Context,
 ) error {
 	switch command {
@@ -171,13 +167,6 @@ func invokeClientOperation(
 		}
 
 		fmt.Fprintln(stdout, string(resp.Value))
-	case cmdStatus:
-		resp, err := cli.NodeInfo(ctx)
-		if err != nil {
-			return err
-		}
-
-		fmt.Fprintf(stdout, "Node: %s\nReachable: yes\nHeight: %d\n", addr, resp.Height)
 	default:
 		return fmt.Errorf("unknown client command %q", command)
 	}

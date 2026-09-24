@@ -13,7 +13,7 @@ import (
 )
 
 // CoordinatorCheck intercepts InternalCommitAPI RPCs and restricts them to the configured coordinator.
-// ClientAPI methods (Get, NodeInfo) are not affected.
+// ClientAPI methods are not affected.
 func CoordinatorCheck(ctx context.Context,
 	req any,
 	info *grpc.UnaryServerInfo,

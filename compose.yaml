@@ -9,12 +9,6 @@ services:
       - -data-dir=/data
     volumes:
       - cohort_data:/data
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/committer", "status", "--addr", "127.0.0.1:3001", "--timeout", "2s"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
     restart: unless-stopped
     stop_grace_period: 30s
 
@@ -34,13 +28,7 @@ services:
       - coordinator_data:/data
     depends_on:
       cohort:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/committer", "status", "--addr", "127.0.0.1:3000", "--timeout", "2s"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
+        condition: service_started
     restart: unless-stopped
     stop_grace_period: 30s
 

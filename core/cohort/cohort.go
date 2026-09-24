@@ -21,7 +21,6 @@ type Mode string
 //
 //go:generate mockgen -destination=../../mocks/mock_committer.go -package=mocks . Committer
 type Committer interface {
-	Height() uint64
 	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
 	Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error)
 	Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error)
@@ -46,10 +45,6 @@ func NewCohort(
 		committer:  committer,
 		commitType: commitType,
 	}
-}
-
-func (c *CohortImpl) Height() uint64 {
-	return c.committer.Height()
 }
 
 // Propose delegates the proposal vote to the commit algorithm.

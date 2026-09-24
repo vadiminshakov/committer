@@ -30,9 +30,8 @@ docker compose exec coordinator committer get --addr 127.0.0.1:3000 greeting
 
 The last command prints `hello`. Open [the protocol visualization](http://localhost:8080)
 and press **Play**. The coordinator's gRPC port is available at `localhost:3000`;
-the participant is reachable only inside the Compose network. Both services have
-health checks for their gRPC endpoints, and Compose waits for them to pass before
-`docker compose up` returns. The sample write checks the full transaction path.
+the participant is reachable only inside the Compose network. The coordinator starts
+after the cohort container. The sample write checks the full transaction path.
 Ports 3000 and 8080 must be available.
 
 Use `docker compose logs -f` to see node logs and `docker compose down` to stop
@@ -56,9 +55,6 @@ using 2PC, writes `greeting=hello`, and reads it back:
 ```text
 Committed transaction 0
 hello
-Node: localhost:3000
-Reachable: yes
-Height: 1
 ```
 
 The transaction number and height increase on subsequent runs. Open
@@ -83,11 +79,9 @@ make build
 # Terminal 3: client
 ./bin/committer put --addr localhost:3000 greeting hello
 ./bin/committer get --addr localhost:3000 greeting
-./bin/committer status --addr localhost:3000
 ```
 
-`get` prints `hello`. `status` reports reachability and the node's current height;
-it is not a cluster health check. Put client flags **before** key/value arguments.
+`get` prints `hello`. Put client flags **before** key/value arguments.
 Quote values containing spaces: `./bin/committer put greeting "hello world"`.
 Requests have a 5-second deadline, configurable with `--timeout 10s`.
 

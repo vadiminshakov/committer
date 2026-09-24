@@ -22,8 +22,6 @@ func (s coordinatorStub) Broadcast(ctx context.Context, request dto.BroadcastReq
 	return s.broadcast(ctx, request)
 }
 
-func (coordinatorStub) Height() uint64 { return 0 }
-
 func (coordinatorStub) Decision(uint64) dto.Outcome { return dto.OutcomeUnknown }
 
 func TestPutMapsCommittedTransactionHeight(t *testing.T) {

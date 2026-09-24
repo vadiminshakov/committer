@@ -10,7 +10,6 @@ import (
 
 	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // ClientAPIClient provides access to the client API.
@@ -35,16 +34,6 @@ func (client *ClientAPIClient) Put(ctx context.Context, key string, value []byte
 	resp, err := client.rpc.Put(ctx, &proto.Entry{Key: key, Value: value})
 	if err != nil {
 		return nil, fmt.Errorf("put key %q: %w", key, err)
-	}
-
-	return resp, nil
-}
-
-// NodeInfo gets the current height of the node.
-func (client *ClientAPIClient) NodeInfo(ctx context.Context) (*proto.Info, error) {
-	resp, err := client.rpc.NodeInfo(ctx, &emptypb.Empty{})
-	if err != nil {
-		return nil, fmt.Errorf("get node info: %w", err)
 	}
 
 	return resp, nil
