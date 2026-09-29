@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/vadiminshakov/committer/config"
+	"github.com/vadiminshakov/committer/v2/internal/config"
 )
 
 type Server struct {

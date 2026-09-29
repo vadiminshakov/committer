@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
-	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2/internal/config"
+	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/client"
+	pb "github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -131,7 +131,7 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 
 	if err := invokeClientOperation(cli, command, flagset.Args(), stdout, ctx); err != nil {
 		return fmt.Errorf("%s at %s failed: %s%s",
-			command, *addr, status.Convert(err).Message(), hintForClientError(command, err))
+			command, *addr, grpcStatus(err).Message(), hintForClientError(command, err))
 	}
 
 	return nil
@@ -178,20 +178,34 @@ func invokeClientOperation(
 func hintForClientError(command string, err error) string {
 	hint := ""
 
-	switch status.Code(err) {
+	code := grpcStatus(err).Code()
+
+	switch code {
 	case codes.Unavailable:
 		hint = "; check that the node is running and --addr is correct"
 	case codes.DeadlineExceeded:
 		hint = "; check node connectivity or increase --timeout"
+	case codes.Aborted:
+		hint = "; the transaction was aborted and can be retried"
 	case codes.FailedPrecondition:
 		hint = "; for put, check the coordinator address and its participants"
 	default:
 		// No hint for other codes.
 	}
 
-	if command == cmdPut && (status.Code(err) == codes.DeadlineExceeded || status.Code(err) == codes.Unavailable) {
+	if command == cmdPut && (code == codes.DeadlineExceeded || code == codes.Unavailable) {
 		hint += "; the transaction outcome may be unknown"
 	}
 
 	return hint
+}
+
+// grpcStatus finds the gRPC status in a wrapped error chain.
+func grpcStatus(err error) *status.Status {
+	var withStatus interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &withStatus) {
+		return withStatus.GRPCStatus()
+	}
+
+	return status.Convert(err)
 }

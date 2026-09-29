@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/vadiminshakov/committer/config"
-	"github.com/vadiminshakov/committer/events"
+	"github.com/vadiminshakov/committer/v2/internal/config"
+	"github.com/vadiminshakov/committer/v2/internal/events"
 )
 
 func TestServerAPICohorts(t *testing.T) {

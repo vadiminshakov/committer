@@ -12,9 +12,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/events"
-	iowal "github.com/vadiminshakov/committer/io/wal"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	"github.com/vadiminshakov/committer/v2/internal/events"
+	iowal "github.com/vadiminshakov/committer/v2/internal/io/wal"
 )
 
 //go:generate mockgen -destination=../../mocks/mock_coordinator.go -package=mocks -mock_names=wal=MockCoordinatorWAL,stateStore=MockCoordinatorStateStore,Cohort=MockCoordinatorCohort . wal,stateStore,Cohort

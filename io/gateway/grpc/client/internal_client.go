@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 )
 
@@ -159,6 +159,7 @@ func participantReplyFromProto(resp *proto.Response) (dto.ParticipantReply, erro
 	return dto.ParticipantReply{
 		Accepted: resp.Type == proto.Type_ACK,
 		Height:   resp.Index,
+		Reason:   resp.Reason,
 	}, nil
 }
 

@@ -1,69 +1,621 @@
-// Package cohort implements the cohort role in distributed atomic commit protocols.
-// A cohort is a participant in the atomic commit protocol that receives
-// proposals from the coordinator and responds with either commit or abort.
-//
-// Cohorts participate in 2PC and 3PC transactions by responding to coordinator
-// requests and maintaining local transaction state.
-package cohort
+// Package commitalgo implements cohort-side 2PC and 3PC.
+package commitalgo
 
 import (
+	"bytes"
 	"context"
-	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
 
-	"github.com/vadiminshakov/committer/core/cohort/commitalgo/hooks"
-	"github.com/vadiminshakov/committer/core/dto"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	"github.com/vadiminshakov/committer/v2/internal/events"
+	iowal "github.com/vadiminshakov/committer/v2/internal/io/wal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-// Mode represents the commit protocol mode.
-type Mode string
+// wal persists protocol records.
+type wal interface {
+	Write(key string, value []byte) error
+	Close() error
+}
 
-// Committer defines the interface for commit algorithms.
+// Resource is the local state a cohort protects with the commit protocol.
+// See the public committer.Resource for the full contract.
 //
-//go:generate mockgen -destination=../../mocks/mock_committer.go -package=mocks . Committer
-type Committer interface {
-	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
-	Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error)
-	Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error)
-	Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error)
-	RegisterHook(hook hooks.Hook)
+//go:generate mockgen -destination=../../../mocks/mock_resource.go -package=mocks . Resource
+type Resource interface {
+	// Prepare votes on tx; a non-nil error is a NO vote with that reason.
+	Prepare(ctx context.Context, height uint64, tx dto.Transaction) error
+	// Commit applies tx. It must be idempotent per height.
+	Commit(ctx context.Context, height uint64, tx dto.Transaction) error
+	// Abort releases height. It must be idempotent and accept unknown heights.
+	Abort(ctx context.Context, height uint64) error
 }
 
-// CohortImpl implements the cohort node functionality.
-type CohortImpl struct {
-	committer  Committer
-	commitType Mode
+// DecisionRequester asks the coordinator for the recorded outcome of a height.
+//
+//go:generate mockgen -destination=../../../mocks/mock_decision_requester.go -package=mocks -mock_names=DecisionRequester=MockDecisionRequester . DecisionRequester
+type DecisionRequester interface {
+	Decision(ctx context.Context, height uint64) (dto.Outcome, error)
 }
 
-// THREE_PHASE represents the three-phase commit protocol mode.
-const THREE_PHASE Mode = "three-phase"
+// CommitterImpl runs the cohort commit state machine.
+type CommitterImpl struct {
+	resource       Resource
+	wal            wal
+	state          *stateMachine
+	height         atomic.Uint64
+	timeout        uint64
+	mu             sync.Mutex
+	pendingPayload []byte            // encoded payload of the current transaction
+	decisions      map[uint64]string // final outcome of each resolved height
+	coordClient    DecisionRequester // coordinator used for decision requests
+	emitter        events.Emitter
+}
 
-// NewCohort creates a new cohort instance.
-func NewCohort(
-	committer Committer,
-	commitType Mode) *CohortImpl {
-	return &CohortImpl{
-		committer:  committer,
-		commitType: commitType,
+// NewCommitter creates a committer.
+func NewCommitter(resource Resource, commitType string, wal wal, timeout uint64) *CommitterImpl {
+	return &CommitterImpl{
+		resource:  resource,
+		wal:       wal,
+		timeout:   timeout,
+		state:     newStateMachine(mode(commitType)),
+		decisions: make(map[uint64]string),
+		emitter:   events.NoopEmitter{},
 	}
 }
 
-// Propose delegates the proposal vote to the commit algorithm.
-func (c *CohortImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
-	return c.committer.Propose(ctx, req)
-}
-
-func (s *CohortImpl) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
-	if s.commitType != THREE_PHASE {
-		return nil, errors.New("precommit is allowed for 3PC mode only")
+// SetEmitter sets the event emitter. A nil emitter disables events.
+func (c *CommitterImpl) SetEmitter(e events.Emitter) {
+	if e == nil {
+		e = events.NoopEmitter{}
 	}
 
-	return s.committer.Precommit(ctx, index)
+	c.emitter = e
 }
 
-func (c *CohortImpl) Commit(ctx context.Context, in *dto.CommitRequest) (resp *dto.CohortResponse, err error) {
-	return c.committer.Commit(ctx, in)
+// SetDecisionRequester sets the coordinator used by the termination protocol.
+// Call it before serving requests.
+func (c *CommitterImpl) SetDecisionRequester(dr DecisionRequester) {
+	c.coordClient = dr
 }
 
-func (c *CohortImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error) {
-	return c.committer.Abort(ctx, req)
+// Height returns the current transaction height.
+func (c *CommitterImpl) Height() uint64 {
+	return c.height.Load()
+}
+
+// SetHeight initializes committer height from recovered WAL state.
+func (c *CommitterImpl) SetHeight(height uint64) {
+	c.height.Store(height)
+}
+
+// Propose handles the propose phase.
+func (c *CommitterImpl) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	currentHeight := c.height.Load()
+	if req.Height != currentHeight {
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, nil
+	}
+
+	payload, err := iowal.Encode(iowal.Tx{Key: req.Key, Value: req.Value})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "encode error: %v", err)
+	}
+
+	// duplicate proposals are idempotent only when their payload matches.
+	if st := c.state.getCurrentState(); st != proposeStage {
+		if bytes.Equal(payload, c.pendingPayload) {
+			return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
+		}
+
+		slog.Warn("rejecting conflicting proposal for occupied height", "height", req.Height, "state", st)
+		// NACK prevents retries from replacing the payload at this height.
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, nil
+	}
+
+	tx := dto.Transaction{Key: req.Key, Value: req.Value}
+	if err := c.resource.Prepare(ctx, req.Height, tx); err != nil {
+		slog.Info("resource rejected proposal", "height", req.Height, "err", err)
+
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: req.Height, Reason: err.Error()}, nil
+	}
+
+	c.emitter.Emit(events.Event{Kind: events.EvCohortPropose, Height: req.Height, Key: req.Key})
+
+	if err := c.wal.Write(iowal.PreparedKey(req.Height), payload); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to write wal on index %d: %v", req.Height, err)
+	}
+
+	c.pendingPayload = payload
+
+	if err := c.enterPrepared(req.Height); err != nil {
+		return nil, status.Errorf(codes.Internal, "state error: %v", err)
+	}
+
+	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
+}
+
+// Precommit handles the 3PC precommit phase.
+func (c *CommitterImpl) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	currentHeight := c.height.Load()
+	if index != currentHeight {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"invalid precommit height: expected %d, got %d", currentHeight, index)
+	}
+
+	currentState := c.state.getCurrentState()
+	if currentState == precommitStage && c.pendingPayload != nil {
+		// repeat the ACK without rewriting the durable PRECOMMIT record.
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: index}, nil
+	}
+
+	if currentState != preparedStage {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"precommit allowed only from prepared/waiting state, current: %s", currentState)
+	}
+
+	if c.pendingPayload == nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "no prepared record for height %d", index)
+	}
+
+	if err := c.wal.Write(iowal.PrecommitKey(index), c.pendingPayload); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to write precommit: %v", err)
+	}
+
+	if err := c.state.Transition(precommitStage); err != nil {
+		return nil, status.Errorf(codes.Internal, "state error: %v", err)
+	}
+
+	c.emitter.Emit(events.Event{Kind: events.EvCohortPrecommit, Height: index})
+
+	go c.handlePrecommitTimeout(index)
+
+	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: index}, nil
+}
+
+// Commit validates and serializes an external commit request.
+func (c *CommitterImpl) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "commit request is required")
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.commit(ctx, req)
+}
+
+// staleCommitResponse answers a commit for an already-resolved height.
+// It reports handled=false when the commit targets the current height.
+func (c *CommitterImpl) staleCommitResponse(height, currentHeight uint64) (*dto.CohortResponse, bool) {
+	if height < currentHeight {
+		if c.decisions[height] == iowal.PhaseKeyCommit {
+			slog.Debug("commit already applied", "height", height, "current_height", currentHeight)
+
+			return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: height}, true
+		}
+
+		slog.Warn("rejecting commit for height resolved as abort", "height", height)
+
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, true
+	}
+
+	if height > currentHeight {
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, true
+	}
+
+	return nil, false
+}
+
+func (c *CommitterImpl) commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
+	height := req.Height
+	currentHeight := c.height.Load()
+
+	if resp, handled := c.staleCommitResponse(height, currentHeight); handled {
+		return resp, nil
+	}
+
+	currentState := c.state.getCurrentState()
+
+	expectedState := c.getExpectedCommitState()
+	if currentState != expectedState && currentState != commitStage {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"invalid state for commit: expected %s for %s mode, but current state is %s",
+			expectedState, c.state.GetMode(), currentState)
+	}
+
+	if currentState != commitStage {
+		if err := c.state.Transition(commitStage); err != nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "invalid state transition to commit: %v", err)
+		}
+	}
+
+	c.emitter.Emit(events.Event{Kind: events.EvCohortCommit, Height: height})
+
+	if c.pendingPayload == nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "no pending payload")
+	}
+
+	walTx, err := iowal.Decode(c.pendingPayload)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "decode error: %v", err)
+	}
+
+	if err := c.wal.Write(iowal.CommitKey(height), c.pendingPayload); err != nil {
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack},
+			fmt.Errorf("write commit record at height %d: %w", height, err)
+	}
+
+	// COMMIT is durable, so the height stays in commitStage until the resource
+	// applies it: a redelivered COMMIT or a restart retries the call.
+	if err := c.resource.Commit(ctx, height, dto.Transaction{Key: walTx.Key, Value: walTx.Value}); err != nil {
+		slog.Error("resource failed to apply committed tx, will retry on redelivery or restart",
+			"height", height, "err", err)
+
+		return nil, status.Errorf(codes.Unavailable, "apply committed tx at height %d: %v", height, err)
+	}
+
+	c.decisions[height] = iowal.PhaseKeyCommit
+	c.height.Store(currentHeight + 1)
+	c.resetPending()
+
+	if terr := c.state.Transition(proposeStage); terr != nil {
+		slog.Error("failed to transition back to propose state after successful commit", "err", terr)
+	}
+
+	c.emitter.Emit(events.Event{Kind: events.EvCohortCommit, Height: currentHeight, Result: "ok"})
+
+	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck}, nil
+}
+
+// Abort handles coordinator abort requests.
+func (c *CommitterImpl) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error) {
+	slog.Warn("received abort request", "height", req.Height, "reason", req.Reason)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	currentHeight := c.height.Load()
+
+	if req.Height != currentHeight {
+		slog.Debug("ignoring abort for non-current height", "height", req.Height, "current", currentHeight)
+
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: currentHeight}, nil
+	}
+
+	slog.Info("processing abort for current height", "height", req.Height)
+
+	if err := c.abortCurrent(ctx, req.Height, req.Reason); err != nil {
+		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack}, err
+	}
+
+	slog.Info("successfully processed abort", "height", req.Height)
+
+	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: c.height.Load()}, nil
+}
+
+func (c *CommitterImpl) abortCurrent(ctx context.Context, height uint64, reason string) error {
+	currentState := c.state.getCurrentState()
+	if c.state.GetMode() == threephase && (currentState == precommitStage || currentState == commitStage) {
+		return status.Errorf(codes.FailedPrecondition,
+			"cannot abort 3PC transaction after precommit, current state: %s", currentState)
+	}
+
+	if currentState == commitStage {
+		return status.Errorf(codes.FailedPrecondition, "cannot abort transaction while commit is in progress")
+	}
+
+	if err := c.wal.Write(iowal.AbortKey(height), nil); err != nil {
+		slog.Error("failed to write abort record", "height", height, "err", err)
+
+		return fmt.Errorf("write abort record at height %d: %w", height, err)
+	}
+
+	// ABORT is durable; keeping the height lets a redelivered ABORT retry.
+	if err := c.resource.Abort(ctx, height); err != nil {
+		slog.Error("resource failed to abort tx", "height", height, "err", err)
+
+		return status.Errorf(codes.Unavailable, "abort tx at height %d: %v", height, err)
+	}
+
+	c.decisions[height] = iowal.PhaseKeyAbort
+	c.height.Store(height + 1)
+	c.resetPending()
+
+	c.emitter.Emit(events.Event{Kind: events.EvCohortAbort, Height: height, Message: reason})
+	c.resetToPropose(height, reason)
+
+	return nil
+}
+
+func (c *CommitterImpl) resetToPropose(height uint64, reason string) {
+	slog.Debug("resetting state to propose", "height", height, "reason", reason)
+
+	currentState := c.state.getCurrentState()
+
+	if c.state.GetMode() == threephase && currentState == precommitStage {
+		// The 3PC state machine reaches propose through commit.
+		if err := c.state.Transition(commitStage); err != nil {
+			slog.Error("failed to transition to commit state during reset", "height", height, "err", err)
+
+			return
+		}
+	}
+
+	if err := c.state.Transition(proposeStage); err != nil {
+		slog.Error("failed to reset to propose state", "height", height, "err", err, "current", c.state.getCurrentState())
+	}
+}
+
+func (c *CommitterImpl) getExpectedCommitState() string {
+	if c.state.GetMode() == twophase {
+		return preparedStage
+	}
+
+	return precommitStage
+}
+
+func (c *CommitterImpl) handlePrecommitTimeout(height uint64) {
+	timer := time.NewTimer(time.Duration(c.timeout) * time.Millisecond)
+	defer timer.Stop()
+
+	<-timer.C
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	currentState := c.state.getCurrentState()
+	currentHeight := c.height.Load()
+
+	slog.Debug("precommit timeout handler", "state", currentState, "height", currentHeight, "index", height)
+
+	if currentState != precommitStage || currentHeight != height {
+		slog.Debug("skipping autocommit", "height", height, "state", currentState, "current_height", currentHeight)
+
+		return
+	}
+
+	if c.pendingPayload == nil {
+		slog.Error("no pending payload during precommit timeout", "height", height)
+
+		return
+	}
+
+	slog.Warn("performing autocommit after precommit timeout", "height", height)
+
+	response, err := c.commit(context.Background(), &dto.CommitRequest{Height: height})
+	if err != nil {
+		slog.Error("autocommit failed", "height", height, "err", err)
+
+		return
+	}
+
+	if response != nil && response.ResponseType == dto.ResponseTypeNack {
+		slog.Warn("autocommit returned NACK", "height", height)
+
+		return
+	}
+
+	slog.Info("successfully autocommitted after precommit timeout", "height", height)
+}
+
+// awaitDecision polls the coordinator while the height remains PREPARED.
+func (c *CommitterImpl) awaitDecision(height uint64) {
+	if c.coordClient == nil {
+		return
+	}
+
+	interval := time.Duration(c.timeout) * time.Millisecond
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if !c.stillPrepared(height) {
+			return
+		}
+
+		reqCtx, cancel := context.WithTimeout(context.Background(), interval)
+		outcome, err := c.coordClient.Decision(reqCtx, height)
+
+		cancel()
+
+		if err != nil {
+			slog.Warn("decision request failed, will retry", "height", height, "err", err)
+
+			continue
+		}
+
+		if outcome == dto.OutcomeUnknown {
+			continue
+		}
+
+		if c.applyDecision(height, outcome) {
+			return
+		}
+	}
+}
+
+func (c *CommitterImpl) stillPrepared(height uint64) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.state.getCurrentState() == preparedStage && c.height.Load() == height
+}
+
+// applyDecision applies the outcome and reports whether the height is resolved.
+func (c *CommitterImpl) applyDecision(height uint64, outcome dto.Outcome) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.state.getCurrentState() != preparedStage || c.height.Load() != height {
+		return true
+	}
+
+	slog.Info("applying coordinator decision", "height", height, "outcome", outcome)
+
+	switch outcome {
+	case dto.OutcomeCommit:
+		if _, err := c.commit(context.Background(), &dto.CommitRequest{Height: height}); err != nil {
+			slog.Error("failed to apply commit decision", "height", height, "err", err)
+
+			return false
+		}
+	case dto.OutcomeAbort:
+		if err := c.abortCurrent(context.Background(), height, "coordinator decision"); err != nil {
+			slog.Error("failed to apply abort decision", "height", height, "err", err)
+
+			return false
+		}
+	default:
+		return false
+	}
+
+	return true
+}
+
+// enterPrepared enters PREPARED and starts decision polling.
+func (c *CommitterImpl) enterPrepared(height uint64) error {
+	if err := c.state.Transition(preparedStage); err != nil {
+		return err
+	}
+	go c.awaitDecision(height)
+
+	return nil
+}
+
+// Resume restores WAL state, brings the resource in line with it, and resumes
+// termination handling. Call it once before serving requests.
+func (c *CommitterImpl) Resume(ctx context.Context, rec *iowal.RecoveryState) error {
+	if rec.Decisions != nil {
+		c.decisions = rec.Decisions
+	}
+
+	if err := c.reapplyLastDecision(ctx, rec.LastDecided); err != nil {
+		return err
+	}
+
+	if rec.Unresolved == nil {
+		c.height.Store(rec.NextHeight)
+
+		// Prepare runs before the PREPARED record is written, so a crash in
+		// between can leave the resource holding the next height. No ACK was
+		// sent for it, hence the coordinator cannot have committed it.
+		if err := c.resource.Abort(ctx, rec.NextHeight); err != nil {
+			return fmt.Errorf("release unlogged prepare at height %d: %w", rec.NextHeight, err)
+		}
+
+		return nil
+	}
+
+	unresolved := rec.Unresolved
+	c.height.Store(unresolved.Height)
+	c.pendingPayload = unresolved.Payload
+
+	if c.state.mode == twophase {
+		c.resumeTwoPhaseInDoubt(unresolved)
+
+		return nil
+	}
+
+	switch unresolved.Phase {
+	case iowal.PhaseKeyPrepared:
+		c.resumeThreePhasePrepared(unresolved)
+	case iowal.PhaseKeyPrecommit:
+		c.resumeThreePhasePrecommit(unresolved)
+	default:
+		return fmt.Errorf("cannot resume transaction at height %d with unexpected WAL phase %q",
+			unresolved.Height, unresolved.Phase)
+	}
+
+	return nil
+}
+
+// reapplyLastDecision repeats the newest durable outcome on the resource. A
+// crash may land between the WAL decision record and the resource call; every
+// older height was applied before the cohort moved past it.
+func (c *CommitterImpl) reapplyLastDecision(ctx context.Context, last *iowal.DecidedTransaction) error {
+	if last == nil {
+		return nil
+	}
+
+	switch last.Phase {
+	case iowal.PhaseKeyCommit:
+		walTx, err := iowal.Decode(last.Payload)
+		if err != nil {
+			return fmt.Errorf("decode committed tx at height %d: %w", last.Height, err)
+		}
+
+		if err := c.resource.Commit(ctx, last.Height, dto.Transaction{Key: walTx.Key, Value: walTx.Value}); err != nil {
+			return fmt.Errorf("reapply commit at height %d: %w", last.Height, err)
+		}
+	case iowal.PhaseKeyAbort:
+		if err := c.resource.Abort(ctx, last.Height); err != nil {
+			return fmt.Errorf("reapply abort at height %d: %w", last.Height, err)
+		}
+	}
+
+	return nil
+}
+
+// resumeTwoPhaseInDoubt restores PREPARED and awaits the coordinator decision.
+func (c *CommitterImpl) resumeTwoPhaseInDoubt(unresolved *iowal.UnresolvedTransaction) {
+	if err := c.enterPrepared(unresolved.Height); err != nil {
+		slog.Error("failed to restore prepared state", "err", err)
+
+		return
+	}
+
+	slog.Warn("recovered in-doubt transaction, awaiting coordinator decision", "height", unresolved.Height)
+}
+
+// resumeThreePhasePrepared restores PREPARED and awaits the coordinator decision.
+func (c *CommitterImpl) resumeThreePhasePrepared(unresolved *iowal.UnresolvedTransaction) {
+	if err := c.enterPrepared(unresolved.Height); err != nil {
+		slog.Error("failed to restore prepared state", "err", err)
+
+		return
+	}
+
+	slog.Warn("recovered prepared 3PC transaction, awaiting coordinator decision", "height", unresolved.Height)
+}
+
+// resumeThreePhasePrecommit restores PRECOMMIT and resumes autocommit.
+func (c *CommitterImpl) resumeThreePhasePrecommit(unresolved *iowal.UnresolvedTransaction) {
+	if err := c.state.Transition(preparedStage); err != nil {
+		slog.Error("failed to restore prepared state before precommit", "err", err)
+
+		return
+	}
+
+	if err := c.state.Transition(precommitStage); err != nil {
+		slog.Error("failed to restore precommit state", "err", err)
+
+		return
+	}
+
+	slog.Warn("recovered precommitted 3PC transaction, resuming commit timeout", "height", unresolved.Height)
+	go c.handlePrecommitTimeout(unresolved.Height)
+}
+
+func (c *CommitterImpl) resetPending() {
+	c.pendingPayload = nil
+}
+
+func (c *CommitterImpl) getCurrentState() string {
+	return c.state.getCurrentState()
 }

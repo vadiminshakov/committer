@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 )
 

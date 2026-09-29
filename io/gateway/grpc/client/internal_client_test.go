@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

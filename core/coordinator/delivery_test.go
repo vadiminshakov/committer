@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/mocks"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	"github.com/vadiminshakov/committer/v2/internal/mocks"
 	"go.uber.org/mock/gomock"
 )
 

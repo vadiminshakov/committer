@@ -1,15 +1,17 @@
 package store
 
 import (
+	"context"
 	stdErrors "errors"
 	"os"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/pkg/errors"
-	"github.com/vadiminshakov/committer/io/wal"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
 )
 
-// Store persists committed key/value pairs in BadgerDB and reconstructs them from WAL on startup.
+// Store persists committed key/value pairs in BadgerDB. It is the built-in
+// resource of the committer binary.
 type Store struct {
 	db *badger.DB
 }
@@ -66,8 +68,7 @@ func (s *Store) Size() int {
 	return count
 }
 
-// Open opens a state store without replaying a journal. The owner of a deep
-// transaction lifecycle can use this form and invoke journal recovery itself.
+// Open opens a state store. Owners of a WAL replay it themselves.
 func Open(dbPath string) (*Store, error) {
 	if dbPath == "" {
 		return nil, errors.New("db path is empty")
@@ -85,29 +86,6 @@ func Open(dbPath string) (*Store, error) {
 	}
 
 	return &Store{db: db}, nil
-}
-
-// New creates a WAL-backed store and reconstructs state from WAL entries.
-// Cohort construction and existing callers retain this convenience behavior;
-// coordinator construction uses Open so its transaction lifecycle owns replay.
-func New(journal *wal.Wal, dbPath string) (*Store, *wal.RecoveryState, error) {
-	if journal == nil {
-		return nil, nil, errors.New("wal is nil")
-	}
-
-	store, err := Open(dbPath)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "open state store")
-	}
-
-	recovery, err := journal.Recover(store.Put)
-	if err != nil {
-		_ = store.Close()
-
-		return nil, nil, errors.Wrap(err, "recover state store")
-	}
-
-	return store, recovery, nil
 }
 
 // Put stores the provided value for the key.
@@ -168,6 +146,26 @@ func (s *Store) Get(key string) ([]byte, error) {
 	}
 
 	return cloneBytes(result), nil
+}
+
+// Prepare votes on a key/value write. Badger applies a single write
+// atomically, so there is nothing to reserve before commit.
+func (s *Store) Prepare(_ context.Context, _ uint64, tx dto.Transaction) error {
+	if tx.Key == "" {
+		return errors.New("key cannot be empty")
+	}
+
+	return nil
+}
+
+// Commit applies a key/value write. Repeating it is harmless.
+func (s *Store) Commit(_ context.Context, _ uint64, tx dto.Transaction) error {
+	return s.Put(tx.Key, tx.Value)
+}
+
+// Abort is a no-op: Prepare reserves nothing.
+func (s *Store) Abort(context.Context, uint64) error {
+	return nil
 }
 
 // Close closes the underlying Badger database.

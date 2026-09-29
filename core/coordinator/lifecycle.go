@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vadiminshakov/committer/core/dto"
-	iowal "github.com/vadiminshakov/committer/io/wal"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	iowal "github.com/vadiminshakov/committer/v2/internal/io/wal"
 )
 
 // CommittedNotAppliedError reports that COMMIT is durable but its mutation is
@@ -120,11 +120,13 @@ func newTransactionLifecycle(
 		return nil, nil, errors.New("transaction WAL is nil")
 	}
 
-	if store == nil {
-		return nil, nil, errors.New("transaction store is nil")
+	// A coordinator without a local store only orchestrates cohorts.
+	var applyFn func(key string, value []byte) error
+	if store != nil {
+		applyFn = store.Put
 	}
 
-	recovery, err := wal.Recover(store.Put)
+	recovery, err := wal.Recover(applyFn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("recover transaction WAL: %w", err)
 	}
@@ -308,13 +310,15 @@ func (l *transactionLifecycle) Commit() (dto.FinalDecision, error) {
 	l.decisions[height] = dto.OutcomeCommit
 	l.phase = lifecycleFenced
 
-	decoded, err := iowal.Decode(l.pendingPayload)
-	if err != nil {
-		return decision, &CommittedNotAppliedError{Height: height, cause: fmt.Errorf("decode transaction: %w", err)}
-	}
+	if l.store != nil {
+		decoded, err := iowal.Decode(l.pendingPayload)
+		if err != nil {
+			return decision, &CommittedNotAppliedError{Height: height, cause: fmt.Errorf("decode transaction: %w", err)}
+		}
 
-	if err := l.store.Put(decoded.Key, decoded.Value); err != nil {
-		return decision, &CommittedNotAppliedError{Height: height, cause: err}
+		if err := l.store.Put(decoded.Key, decoded.Value); err != nil {
+			return decision, &CommittedNotAppliedError{Height: height, cause: err}
+		}
 	}
 
 	l.pendingPayload = nil

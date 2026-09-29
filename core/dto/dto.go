@@ -20,6 +20,7 @@ type Proposal struct {
 type ParticipantReply struct {
 	Accepted bool
 	Height   uint64
+	Reason   string // why the participant rejected, if it did
 }
 
 // ProposeRequest represents a proposal for a new transaction.
@@ -42,6 +43,7 @@ type ResponseType int32
 type CohortResponse struct {
 	ResponseType
 	Height uint64 // Current height of the cohort
+	Reason string // Why the cohort answered NACK, if known
 }
 
 // BroadcastRequest represents a request to be broadcast to all cohorts.

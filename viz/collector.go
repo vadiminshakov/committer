@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vadiminshakov/committer/events"
+	"github.com/vadiminshakov/committer/v2/internal/events"
 )
 
 type Collector struct {

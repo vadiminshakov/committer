@@ -12,23 +12,16 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
-	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/cohort"
-	"github.com/vadiminshakov/committer/core/cohort/commitalgo"
-	"github.com/vadiminshakov/committer/events"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
-	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/server"
-	"github.com/vadiminshakov/committer/io/store"
-	"github.com/vadiminshakov/committer/io/wal"
-	"github.com/vadiminshakov/gowal"
+	"github.com/vadiminshakov/committer/v2/internal/config"
+	"github.com/vadiminshakov/committer/v2/internal/events"
+	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/client"
+	pb "github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
 )
 
 const TOXIPROXY_URL = "http://localhost:8474"
@@ -487,29 +480,19 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 
 // startnodesChaos starts nodes with Toxiproxy support
 func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() error {
-	COORDINATOR_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "coordinator", time.Now().UnixNano())
-	COHORT_BADGER := fmt.Sprintf("%s%s%d", BADGER_DIR, "cohort", time.Now().UnixNano())
+	dataDir, err := os.MkdirTemp("", "committer-chaos-")
+	failfast(err)
 
-	// cleanup dirs
-	cleanupDirs := []string{COORDINATOR_BADGER, COHORT_BADGER, "./tmp"}
-	for _, dir := range cleanupDirs {
-		if _, err := os.Stat(dir); !os.IsNotExist(err) {
-			failfast(os.RemoveAll(dir))
-		}
-	}
-
-	// create dirs
-	createDirs := []string{COORDINATOR_BADGER, COHORT_BADGER, "./tmp", "./tmp/cohort", "./tmp/coord"}
-	for _, dir := range createDirs {
-		failfast(os.Mkdir(dir, os.FileMode(0777)))
-	}
-
-	stopfuncs := make([]func(), 0, len(nodes[COHORT_TYPE])+len(nodes[COORDINATOR_TYPE]))
+	stopfuncs := make([]func() error, 0, len(nodes[COHORT_TYPE])+len(nodes[COORDINATOR_TYPE]))
 
 	// start cohorts
-	for i, node := range nodes[COHORT_TYPE] {
+	for _, node := range nodes[COHORT_TYPE] {
 		nodeConfig := *node
+		nodeConfig.DataDir = dataDir
+		nodeConfig.CommitType = config.CommitTwoPhase
+
 		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
+			nodeConfig.CommitType = config.CommitThreePhase
 			// use proxy address of coordinator
 			if proxyAddr := helper.getProxyAddress(nodes[COORDINATOR_TYPE][1].Nodeaddr); proxyAddr != "" {
 				nodeConfig.Coordinator = proxyAddr
@@ -517,44 +500,17 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 				nodeConfig.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 			}
 		}
-		dbPath := filepath.Join(COHORT_BADGER, strconv.Itoa(i))
-		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
 
-		walConfig := gowal.Config{
-			Dir:              "./tmp/cohort/" + strconv.Itoa(i),
-			Prefix:           "msgs_",
-			SegmentThreshold: 100,
-			MaxSegments:      100,
-			IsInSyncDiskMode: false,
-		}
-		c, err := gowal.NewWAL(walConfig)
+		stop, err := startKVNode(context.Background(), &nodeConfig, events.NoopEmitter{})
 		failfast(err)
 
-		walObj := wal.New(c)
-		stateStore, recovery, err := store.New(walObj, dbPath)
-		failfast(err)
-
-		ct := server.TWO_PHASE
-		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
-			ct = server.THREE_PHASE
-		}
-
-		committer := commitalgo.NewCommitter(stateStore, ct, walObj, nodeConfig.Timeout)
-		committer.Resume(recovery)
-		cohortImpl := cohort.NewCohort(committer, cohort.Mode(nodeConfig.CommitType))
-
-		cohortServer, err := server.New(&nodeConfig, cohortImpl, nil, stateStore)
-		failfast(err)
-
-		go cohortServer.Run(server.CoordinatorCheck)
-		stopfuncs = append(stopfuncs, cohortServer.Stop)
+		stopfuncs = append(stopfuncs, stop)
 	}
 
 	// start coordinators
-	for i, coordConfig := range nodes[COORDINATOR_TYPE] {
+	for _, coordConfig := range nodes[COORDINATOR_TYPE] {
 		coordinatorConfig := *coordConfig
-		dbPath := filepath.Join(COORDINATOR_BADGER, strconv.Itoa(i))
-		failfast(os.MkdirAll(dbPath, os.FileMode(0o777)))
+		coordinatorConfig.DataDir = dataDir
 		// update cohorts addresses to use proxies
 		updatedCohorts := make([]string, len(coordConfig.Cohorts))
 		for j, cohortAddr := range coordConfig.Cohorts {
@@ -566,41 +522,19 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		}
 		coordinatorConfig.Cohorts = updatedCohorts
 
-		walConfig := gowal.Config{
-			Dir:              "./tmp/coord/msgs" + strconv.Itoa(i),
-			Prefix:           "msgs",
-			SegmentThreshold: 100,
-			MaxSegments:      100,
-			IsInSyncDiskMode: false,
-		}
-
-		c, err := gowal.NewWAL(walConfig)
+		stop, err := startKVNode(context.Background(), &coordinatorConfig, events.NoopEmitter{})
 		failfast(err)
 
-		walObj := wal.New(c)
-		stateStore, err := store.Open(dbPath)
-		failfast(err)
-
-		coord, err := newReadyCoordinator(&coordinatorConfig, walObj, stateStore, events.NoopEmitter{})
-		failfast(err)
-
-		coordServer, err := server.New(&coordinatorConfig, nil, coord, stateStore)
-		failfast(err)
-
-		go coordServer.Run(server.CoordinatorCheck)
-		time.Sleep(100 * time.Millisecond)
-		stopfuncs = append(stopfuncs, func() {
-			coordServer.Stop()
-			_ = coord.Close()
-		})
+		stopfuncs = append(stopfuncs, stop)
 	}
 
 	return func() error {
-		for _, f := range stopfuncs {
-			f()
+		var errs error
+		for _, stop := range stopfuncs {
+			errs = errors.Join(errs, stop())
 		}
-		failfast(os.RemoveAll("./tmp"))
-		return os.RemoveAll(BADGER_DIR)
+
+		return errors.Join(errs, os.RemoveAll(dataDir))
 	}
 }
 

@@ -13,6 +13,15 @@ type UnresolvedTransaction struct {
 	Payload []byte
 }
 
+// DecidedTransaction describes the highest height with a final decision.
+type DecidedTransaction struct {
+	Height uint64
+	// Phase is PhaseKeyCommit or PhaseKeyAbort.
+	Phase string
+	// Payload is the committed transaction; nil for an abort.
+	Payload []byte
+}
+
 // RecoveryState contains facts reconstructed from WAL during startup.
 type RecoveryState struct {
 	// NextHeight is the first protocol height not represented in WAL.
@@ -23,6 +32,9 @@ type RecoveryState struct {
 	// (PhaseKeyCommit or PhaseKeyAbort). Used to answer decision requests
 	// from in-doubt cohorts and to catch up lagging ones.
 	Decisions map[uint64]string
+	// LastDecided is the highest decided height, or nil when none is decided.
+	// Its outcome may not have reached the local resource before a crash.
+	LastDecided *DecidedTransaction
 }
 
 // Wal wraps *gowal.Wal and exposes a primitive-typed interface,
@@ -54,6 +66,7 @@ func (a *Wal) Close() error         { return a.w.Close() }
 
 // Recover replays WAL entries, applies committed transactions, and reports the
 // next unused height plus any last transaction that still lacks a decision.
+// A nil applyFn only reconstructs protocol state.
 func (a *Wal) Recover(applyFn func(key string, value []byte) error) (*RecoveryState, error) {
 	states := make(map[uint64]*heightState)
 
@@ -98,6 +111,11 @@ func applyRecord(
 
 		state.maxPhase = phase
 		state.decided = true
+		state.pendingPayload = record.Value
+
+		if applyFn == nil {
+			return nil
+		}
 
 		walTx, err := Decode(record.Value)
 		if err != nil {
@@ -133,8 +151,18 @@ func summarizeRecovery(states map[uint64]*heightState) *RecoveryState {
 			maxHeight = height
 		}
 
-		if state.maxPhase == PhaseKeyCommit || state.maxPhase == PhaseKeyAbort {
-			result.Decisions[height] = state.maxPhase
+		if state.maxPhase != PhaseKeyCommit && state.maxPhase != PhaseKeyAbort {
+			continue
+		}
+
+		result.Decisions[height] = state.maxPhase
+
+		if result.LastDecided == nil || height > result.LastDecided.Height {
+			result.LastDecided = &DecidedTransaction{
+				Height:  height,
+				Phase:   state.maxPhase,
+				Payload: state.pendingPayload,
+			}
 		}
 	}
 

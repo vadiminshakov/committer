@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/dto"
-	iowal "github.com/vadiminshakov/committer/io/wal"
-	"github.com/vadiminshakov/committer/mocks"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	iowal "github.com/vadiminshakov/committer/v2/internal/io/wal"
+	"github.com/vadiminshakov/committer/v2/internal/mocks"
 	"go.uber.org/mock/gomock"
 )
 

@@ -1,6 +1,6 @@
 syntax = "proto3";
 package schema;
-option go_package = "github.com/vadiminshakov/committer/proto";
+option go_package = "github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto";
 
 service InternalCommitAPI {
   rpc Propose(ProposeRequest) returns (Response);
@@ -37,6 +37,8 @@ enum Type {
 message Response {
   Type type = 1;
   uint64 index = 2;
+  // reason explains a NACK, e.g. why a participant's resource rejected a proposal.
+  string reason = 3;
 }
 
 message PrecommitRequest {

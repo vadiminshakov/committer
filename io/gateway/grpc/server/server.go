@@ -10,13 +10,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"os"
 
-	"github.com/vadiminshakov/committer/config"
-	corecoordinator "github.com/vadiminshakov/committer/core/coordinator"
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
-	"github.com/vadiminshakov/committer/io/store"
+	"github.com/vadiminshakov/committer/v2/internal/config"
+	corecoordinator "github.com/vadiminshakov/committer/v2/internal/core/coordinator"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -45,19 +43,22 @@ type Cohort interface {
 	Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortResponse, error)
 }
 
+// Reader serves client reads of committed values.
+type Reader interface {
+	Get(key string) ([]byte, error)
+}
+
 // Server holds server instance, node config and connections to followers (if it's a coordinator node).
 type Server struct {
 	proto.UnimplementedInternalCommitAPIServer
 	proto.UnimplementedClientAPIServer
 
-	cohort      Cohort                               // Cohort implementation for this node
-	store       *store.Store                         // Persistent storage
-	coordinator Coordinator                          // Coordinator implementation (if this node is a coordinator)
-	GRPCServer  *grpc.Server                         // gRPC server instance
-	Config      *config.Config                       // Node configuration
-	ProposeHook func(req *proto.ProposeRequest) bool // Hook for propose phase
-	CommitHook  func(req *proto.CommitRequest) bool  // Hook for commit phase
-	Addr        string                               // Server address
+	cohort      Cohort         // Cohort implementation for this node
+	reader      Reader         // Serves Get; nil disables reads
+	coordinator Coordinator    // Coordinator implementation (if this node is a coordinator)
+	GRPCServer  *grpc.Server   // gRPC server instance
+	Config      *config.Config // Node configuration
+	Addr        string         // Server address
 }
 
 func (s *Server) Propose(ctx context.Context, req *proto.ProposeRequest) (*proto.Response, error) {
@@ -126,7 +127,11 @@ func (s *Server) Decision(ctx context.Context, req *proto.DecisionRequest) (*pro
 }
 
 func (s *Server) Get(ctx context.Context, req *proto.Msg) (*proto.Value, error) {
-	value, err := s.store.Get(req.Key)
+	if s.reader == nil {
+		return nil, status.Error(codes.Unimplemented, "this node does not serve reads")
+	}
+
+	value, err := s.reader.Get(req.Key)
 	if err != nil {
 		return nil, fmt.Errorf("get key %q: %w", req.Key, err)
 	}
@@ -157,6 +162,9 @@ func (s *Server) Put(ctx context.Context, req *proto.Entry) (*proto.Response, er
 func coordinatorErrorToStatus(err error) error {
 	var committedNotApplied *corecoordinator.CommittedNotAppliedError
 	switch {
+	// ABORT is durable here even when a deadline caused it: report the outcome.
+	case errors.Is(err, corecoordinator.ErrProposeVote):
+		return status.Error(codes.Aborted, err.Error())
 	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, err.Error())
 	case errors.Is(err, context.DeadlineExceeded):
@@ -167,8 +175,7 @@ func coordinatorErrorToStatus(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, corecoordinator.ErrCoordinatorNotReady):
 		return status.Error(codes.FailedPrecondition, err.Error())
-	case errors.Is(err, corecoordinator.ErrProposeVote),
-		errors.Is(err, corecoordinator.ErrPrecommitVote):
+	case errors.Is(err, corecoordinator.ErrPrecommitVote):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
@@ -176,12 +183,13 @@ func coordinatorErrorToStatus(err error) error {
 }
 
 // New creates a new Server instance with the specified configuration.
-func New(conf *config.Config, cohort Cohort, coordinator Coordinator, stateStore *store.Store) (*Server, error) {
+// reader may be nil. The server does not own or close it.
+func New(conf *config.Config, cohort Cohort, coordinator Coordinator, reader Reader) (*Server, error) {
 	server := &Server{
 		Addr:        conf.Nodeaddr,
 		cohort:      cohort,
 		coordinator: coordinator,
-		store:       stateStore,
+		reader:      reader,
 		Config:      conf,
 	}
 
@@ -197,10 +205,6 @@ func New(conf *config.Config, cohort Cohort, coordinator Coordinator, stateStore
 }
 
 func checkServerFields(server *Server) error {
-	if server.store == nil {
-		return errors.New("store is not configured")
-	}
-
 	if server.Config.Role == "cohort" && server.cohort == nil {
 		return errors.New("cohort role selected but cohort implementation is nil")
 	}
@@ -212,19 +216,16 @@ func checkServerFields(server *Server) error {
 	return nil
 }
 
-// Run starts the gRPC server in a non-blocking manner.
-func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
-	var err error
+// Run binds the listen address and serves in the background.
+func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) error {
+	listener, err := net.Listen("tcp", s.Addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", s.Addr, err)
+	}
 
 	s.GRPCServer = grpc.NewServer(grpc.ChainUnaryInterceptor(opts...))
 	proto.RegisterInternalCommitAPIServer(s.GRPCServer, s)
 	proto.RegisterClientAPIServer(s.GRPCServer, s)
-
-	listener, err := net.Listen("tcp", s.Addr)
-	if err != nil {
-		slog.Error("failed to listen", "err", err)
-		os.Exit(1)
-	}
 
 	slog.Info("listening", "addr", "tcp://"+s.Addr)
 
@@ -233,18 +234,13 @@ func (s *Server) Run(opts ...grpc.UnaryServerInterceptor) {
 			slog.Error("gRPC server failed", "err", err)
 		}
 	}()
+
+	return nil
 }
 
 // Stop gracefully stops the gRPC server.
 func (s *Server) Stop() {
 	slog.Info("stopping server")
 	s.GRPCServer.GracefulStop()
-
-	if s.store != nil {
-		if err := s.store.Close(); err != nil {
-			slog.Info("failed to close store", "err", err)
-		}
-	}
-
 	slog.Info("server stopped")
 }

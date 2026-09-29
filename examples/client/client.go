@@ -3,14 +3,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 
-	"github.com/vadiminshakov/committer/io/gateway/grpc/client"
-	pb "github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2"
 )
 
 // Example defaults.
@@ -39,7 +39,7 @@ func main() {
 }
 
 func run(addr, key, value string, timeout time.Duration) error {
-	cli, err := client.NewClientAPI(addr)
+	cli, err := committer.Dial(addr)
 	if err != nil {
 		return fmt.Errorf("connect to %s: %w", addr, err)
 	}
@@ -51,17 +51,17 @@ func run(addr, key, value string, timeout time.Duration) error {
 	for i := range exampleKeyCount {
 		itemKey, itemValue := key+strconv.Itoa(i), value+strconv.Itoa(i)
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		resp, err := cli.Put(ctx, itemKey, []byte(itemValue))
+		_, err := cli.Commit(ctx, itemKey, []byte(itemValue))
 
 		cancel()
+
+		if errors.Is(err, committer.ErrAborted) {
+			return fmt.Errorf("put %q was rejected: %w", itemKey, err)
+		}
 
 		if err != nil {
 			return fmt.Errorf("put %q: %w; check that coordinator and cohort "+
 				"are running at the configured addresses", itemKey, err)
-		}
-
-		if resp.Type != pb.Type_ACK {
-			return fmt.Errorf("transaction %d was rejected", resp.Index)
 		}
 
 		ctx, cancel = context.WithTimeout(context.Background(), timeout)
@@ -73,7 +73,7 @@ func run(addr, key, value string, timeout time.Duration) error {
 			return fmt.Errorf("get %q: %w", itemKey, err)
 		}
 
-		fmt.Printf("got value for key '%s': %s\n", itemKey, string(result.Value))
+		fmt.Printf("got value for key '%s': %s\n", itemKey, string(result))
 	}
 
 	return nil

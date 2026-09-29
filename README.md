@@ -1,5 +1,5 @@
 ![tests](https://github.com/vadiminshakov/committer/actions/workflows/tests.yml/badge.svg?branch=master)
-[![Go Reference](https://pkg.go.dev/badge/github.com/vadiminshakov/committer.svg)](https://pkg.go.dev/github.com/vadiminshakov/committer)
+[![Go Reference](https://pkg.go.dev/badge/github.com/vadiminshakov/committer/v2.svg)](https://pkg.go.dev/github.com/vadiminshakov/committer/v2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/vadiminshakov/committer)](https://goreportcard.com/report/github.com/vadiminshakov/committer)
 [![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)
 
@@ -11,10 +11,80 @@
 
 Go implementation of **Two-Phase Commit (2PC)** and **Three-Phase Commit (3PC)** protocols for distributed systems.
 
+Use it in two ways:
+
+- **As a library.** Make one change commit atomically across several services:
+  each service plugs its own storage into the protocol as a `Resource`.
+- **As a demo cluster.** The `committer` binary runs a replicated key/value
+  store with a protocol visualization, useful for learning how 2PC and 3PC behave.
+
 ## Architecture
 
 The coordinator initiates transactions and manages the commit protocol.
-Participants (called **cohorts** in the code and CLI) vote on each transaction and apply its outcome. Nodes communicate over gRPC and persist state using a database and write-ahead log (WAL).
+Participants (called **cohorts** in the CLI) vote on each transaction and apply its outcome.
+Nodes communicate over gRPC and log every protocol step to a write-ahead log (WAL),
+so an interrupted transaction is finished after a crash.
+
+## Use as a library
+
+```bash
+go get github.com/vadiminshakov/committer/v2
+```
+
+Each participant wraps the state it owns in a `Resource`:
+
+```go
+type Resource interface {
+    // Prepare votes on tx. nil is YES: Commit must then succeed eventually,
+    // so reserve what it needs. An error is NO; its text reaches the caller.
+    Prepare(ctx context.Context, tx committer.Tx) error
+    // Commit applies tx. It must be idempotent.
+    Commit(ctx context.Context, tx committer.Tx) error
+    // Abort releases height. It must be idempotent and accept unknown heights.
+    Abort(ctx context.Context, height uint64) error
+}
+```
+
+`Tx` carries the coordinator-assigned `Height` (the transaction's ID) and the
+`Key`/`Value` payload passed to `Commit`; their meaning is up to your resource.
+
+Start a participant next to each resource and one coordinator:
+
+```go
+participant, err := committer.StartParticipant(ctx, committer.ParticipantConfig{
+    Addr:        "localhost:3001",
+    Coordinator: "localhost:3000",
+    DataDir:     "/var/lib/orders", // WAL; reuse it across restarts
+}, ordersDB)
+defer participant.Close()
+
+coordinator, err := committer.StartCoordinator(committer.CoordinatorConfig{
+    Addr:         "localhost:3000",
+    Participants: []string{"localhost:3001", "localhost:3002"},
+    DataDir:      "/var/lib/coordinator",
+})
+defer coordinator.Close()
+
+height, err := coordinator.Commit(ctx, "order-42", payload)
+switch {
+case errors.Is(err, committer.ErrAborted):
+    // a participant voted NO; nothing was applied, safe to retry
+case err != nil:
+    // outcome unknown for now: check coordinator.Outcome(height) later
+}
+```
+
+`Commit` returns once the COMMIT decision is durable; participants apply it in
+the background and keep retrying until they succeed. To send transactions to a
+coordinator in another process, use `committer.Dial(addr)`.
+
+**What the participant guarantees your resource:** calls arrive one at a time,
+in height order. After a restart the participant repeats the last COMMIT or
+ABORT, since a crash may have interrupted it, and calls `Abort` for a height
+whose `Prepare` it had not yet logged. A failed `Commit` or `Abort` is retried.
+
+[examples/transfer](examples/transfer/main.go) moves money between two banks,
+each with its own resource; run it with `go run ./examples/transfer`.
 
 ## Quick start with Docker
 
@@ -91,6 +161,7 @@ connection during `put` does not by itself establish whether the transaction com
 
 For 3PC, pass `-committype three-phase -timeout 1s` to **both** nodes.
 Run `./bin/committer --help` or `./bin/committer coordinator -h` for help.
+To install the binary: `go install github.com/vadiminshakov/committer/v2/cmd/committer@latest`.
 
 ## Protocol visualization
 
@@ -178,25 +249,22 @@ With both nodes running:
 go run ./examples/client -addr localhost:3000 -timeout 5s
 ```
 
-The example writes and reads five keys (`somekey0` through `somekey4`), printing
-`got value for key 'somekey0': somevalue0`, and so on. Customize prefixes with
-`-key` and `-value`. See [the example source](examples/client/client.go) for bounded
+The example writes and reads five keys (`somekey0` through `somekey4`) through
+`committer.Dial`, printing `got value for key 'somekey0': somevalue0`, and so on.
+Customize prefixes with `-key` and `-value`. See [the example source](examples/client/client.go) for bounded
 requests, error handling and closing the client connection.
 
-## Hooks
+## Migrating from v1
 
-Custom validation and business logic for the **Propose** and **Commit** stages. Hooks run in registration order; returning `false` rejects the operation.
-
-```go
-committer := commitalgo.NewCommitter(database, "three-phase", wal, timeout,
-    hooks.NewMetricsHook(),
-    hooks.NewValidationHook(100, 1024),
-    hooks.NewAuditHook("audit.log"),
-)
-
-// or register later
-committer.RegisterHook(myCustomHook)
-```
+- The module path is `github.com/vadiminshakov/committer/v2`. Implementation
+  packages moved to `internal/`; use the root `committer` package instead.
+- The binary lives in `cmd/committer`:
+  `go install github.com/vadiminshakov/committer/v2/cmd/committer@latest`.
+- Hooks are gone. Validation belongs in `Resource.Prepare`, which can also
+  explain a rejection; wrap a `Resource` to add metrics or auditing.
+- A cohort of the binary no longer replays its whole WAL into Badger on start;
+  it repeats only the last decision. Existing data directories keep working.
+- A rejected `put` now returns gRPC code `Aborted`.
 
 ## Contributions
 

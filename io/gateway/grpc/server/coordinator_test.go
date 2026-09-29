@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	corecoordinator "github.com/vadiminshakov/committer/core/coordinator"
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	corecoordinator "github.com/vadiminshakov/committer/v2/internal/core/coordinator"
+	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -58,7 +58,12 @@ func TestCoordinatorErrorStatusMapping(t *testing.T) {
 		{name: "deadline", err: fmt.Errorf("vote: %w", context.DeadlineExceeded), code: codes.DeadlineExceeded},
 		{name: "invalid transaction", err: corecoordinator.ErrInvalidTransaction, code: codes.InvalidArgument},
 		{name: "not ready", err: corecoordinator.ErrCoordinatorNotReady, code: codes.FailedPrecondition},
-		{name: "propose vote rejected", err: corecoordinator.ErrProposeVote, code: codes.FailedPrecondition},
+		{name: "propose vote rejected", err: corecoordinator.ErrProposeVote, code: codes.Aborted},
+		{
+			name: "abort after deadline",
+			err:  fmt.Errorf("%w: %w", corecoordinator.ErrProposeVote, context.DeadlineExceeded),
+			code: codes.Aborted,
+		},
 		{name: "precommit vote rejected", err: corecoordinator.ErrPrecommitVote, code: codes.FailedPrecondition},
 		{name: "internal", err: errors.New("journal unavailable"), code: codes.Internal},
 	}
