@@ -1,36 +1,37 @@
-// Package main provides a distributed consensus system implementing Two-Phase Commit (2PC)
-// and Three-Phase Commit (3PC) protocols for distributed transactions.
-//
-// Committer is a Go implementation of distributed atomic commit protocols that allows
-// you to achieve data consistency in distributed systems using Two-Phase Commit (2PC)
-// and Three-Phase Commit (3PC) protocols for distributed transactions.
-// The system consists of coordinators that manage transactions and cohorts that
-// participate in the consensus process.
+// Command committer runs a key/value cluster on the committer library: a
+// coordinator, cohorts that keep the data in Badger, and put/get commands.
 //
 // Usage:
 //
-//	# Start coordinator (presence of -cohorts implies coordinator role)
-//	./committer -nodeaddr=localhost:3000 -cohorts=localhost:3001,localhost:3002
+//	# Start a cohort and a coordinator; -cli serves put and get on -nodeaddr.
+//	./committer cohort -nodeaddr=localhost:3001 -cli -coordinator=localhost:3000
+//	./committer coordinator -nodeaddr=localhost:3000 -cli -cohorts=localhost:3001
 //
-//	# Start cohort (no -cohorts implies cohort role)
-//	./committer -coordinator=localhost:3000 -nodeaddr=localhost:3001
+//	# Write through the coordinator, read from the cohort.
+//	./committer put greeting hello
+//	./committer get greeting
 package main
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"log/slog"
+	"io"
 	"os"
-	"os/signal"
-	"syscall"
-
-	"github.com/vadiminshakov/committer/v2/internal/config"
-	"github.com/vadiminshakov/committer/v2/internal/events"
-	"github.com/vadiminshakov/committer/v2/internal/io/store"
-	"github.com/vadiminshakov/committer/v2/internal/node"
-	"github.com/vadiminshakov/committer/v2/internal/viz"
+	"strings"
 )
+
+const usage = `Usage: committer <command> [flags] [arguments]
+
+Node commands:
+  coordinator -nodeaddr localhost:3000 -cohorts localhost:3001 -cli
+  cohort -nodeaddr localhost:3001 -coordinator localhost:3000 -cli
+
+CLI commands (flags must precede arguments):
+  put    --addr localhost:3000 KEY VALUE    (a coordinator started with -cli)
+  get    --addr localhost:3001 KEY          (a cohort started with -cli)
+
+Use 'committer <command> -h' for command options.
+The original flag-only node syntax is also supported.
+`
 
 func main() {
 	if err := execute(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -39,67 +40,24 @@ func main() {
 	}
 }
 
-func startNode(conf *config.Config) error {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+func execute(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprint(stdout, usage)
 
-	slog.Info("Starting node", "role", conf.Role, "protocol", conf.CommitType,
-		"addr", conf.Nodeaddr, "coordinator", conf.Coordinator, "cohorts", conf.Cohorts,
-		"db", conf.DBPath(), "wal", conf.WalDir())
-
-	if conf.VizPort > 0 {
-		slog.Info("Protocol visualization", "url", fmt.Sprintf("http://localhost:%d", conf.VizPort))
+		return nil
 	}
 
-	var emitter events.Emitter = events.NoopEmitter{}
-	if conf.VizPort > 0 {
-		collector := viz.NewCollector(emitter)
-		viz.NewServer(collector, conf, conf.VizPort).Start()
-		emitter = collector
+	switch args[0] {
+	case cmdPut, cmdGet:
+		return runCLICommand(args[0], args[1:], stdout, stderr)
+	case roleCoordinator, roleCohort:
+		return runNode(args, stderr)
 	}
 
-	return run(conf, emitter)
-}
-
-func run(conf *config.Config, emitter events.Emitter) error {
-	signals := make(chan os.Signal, 1)
-
-	signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer signal.Stop(signals)
-
-	stop, err := startKVNode(context.Background(), conf, emitter)
-	if err != nil {
-		return err
+	// The original flag-only syntax starts a node too.
+	if strings.HasPrefix(args[0], "-") {
+		return runNode(args, stderr)
 	}
 
-	<-signals
-
-	return stop()
-}
-
-// startKVNode starts a node whose state is a Badger key/value store: the
-// resource of a cohort, and a readable copy of committed data on the
-// coordinator. The returned function stops the node and closes the store.
-func startKVNode(ctx context.Context, conf *config.Config, emitter events.Emitter) (func() error, error) {
-	stateStore, err := store.Open(conf.DBPath())
-	if err != nil {
-		return nil, fmt.Errorf("open state store: %w", err)
-	}
-
-	params := node.Params{Config: conf, Reader: stateStore, Emitter: emitter}
-	if conf.Role == config.RoleCohort {
-		params.Resource = stateStore
-	} else {
-		params.LocalStore = stateStore
-	}
-
-	started, err := node.Start(ctx, params)
-	if err != nil {
-		return nil, errors.Join(err, stateStore.Close())
-	}
-
-	return func() error {
-		return errors.Join(started.Close(), stateStore.Close())
-	}, nil
+	return fmt.Errorf("unknown command %q; run 'committer --help'", args[0])
 }

@@ -18,10 +18,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/v2/internal/config"
-	"github.com/vadiminshakov/committer/v2/internal/events"
-	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/client"
-	pb "github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2/cmd/committer/internal/cliapi"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/events"
 )
 
 const TOXIPROXY_URL = "http://localhost:8474"
@@ -44,7 +43,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
 		require.NoError(t, chaosHelper.addResetPeer(nodes[COHORT_TYPE][0].Nodeaddr, 0))
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -52,10 +51,10 @@ func TestChaosFollowerFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "reset_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "reset_test", []byte("value"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to send propose")
 	})
@@ -76,7 +75,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
 		require.NoError(t, chaosHelper.addDataLimit(nodes[COHORT_TYPE][0].Nodeaddr, 10)) // 10 bytes
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -84,10 +83,10 @@ func TestChaosFollowerFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "early_fail_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "early_fail_test", []byte("value"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to send propose")
 	})
@@ -108,7 +107,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
 		require.NoError(t, chaosHelper.addDataLimit(nodes[COHORT_TYPE][0].Nodeaddr, 50)) // 50 bytes
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -116,10 +115,10 @@ func TestChaosFollowerFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "early_fail_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "early_fail_test", []byte("value"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to send propose")
 	})
@@ -140,7 +139,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
 		require.NoError(t, chaosHelper.addDataLimit(nodes[COHORT_TYPE][0].Nodeaddr, 100)) // 100 bytes
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -148,10 +147,10 @@ func TestChaosFollowerFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "early_fail_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "early_fail_test", []byte("value"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to send propose")
 	})
@@ -172,7 +171,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
 		require.NoError(t, chaosHelper.addDataLimit(nodes[COHORT_TYPE][0].Nodeaddr, 150)) // 150 bytes
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -180,10 +179,10 @@ func TestChaosFollowerFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "early_fail_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "early_fail_test", []byte("value"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to send precommit")
 	})
@@ -204,7 +203,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
 		require.NoError(t, chaosHelper.addDataLimit(nodes[COHORT_TYPE][0].Nodeaddr, 200)) // 200 bytes
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -212,10 +211,10 @@ func TestChaosFollowerFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "early_fail_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "early_fail_test", []byte("value"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to send precommit")
 	})
@@ -236,7 +235,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
 		require.NoError(t, chaosHelper.addDataLimit(nodes[COHORT_TYPE][0].Nodeaddr, 250)) // 250 bytes
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -244,15 +243,15 @@ func TestChaosFollowerFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "commit_fail_test", []byte("test_value_250"))
+		_, err = c.Commit(context.Background(), "commit_fail_test", []byte("test_value_250"))
 		if err != nil {
 			// A failure before the durable final decision is still returned to
-			// the client. If the coordinator nevertheless has a durable COMMIT,
+			// the client. If a healthy cohort nevertheless applied COMMIT, all
 			// healthy cohorts must converge to it.
-			if checkValueOnCoordinator(t, "commit_fail_test", []byte("test_value_250")) {
+			if valueEventuallyOnNode(nodes[COHORT_TYPE][1].Nodeaddr, "commit_fail_test", []byte("test_value_250")) {
 				checkValueOnCohorts(t, "commit_fail_test", []byte("test_value_250"), 0) // skip failed cohort (index 0)
 				checkValueNotOnNode(t, nodes[COHORT_TYPE][0].Nodeaddr, "commit_fail_test")
 			}
@@ -261,7 +260,6 @@ func TestChaosFollowerFailure(t *testing.T) {
 			// coordinator's durable/apply outcome, not immediate delivery to the
 			// cohort behind the permanent fault.
 			t.Log("operation committed; waiting only for reachable cohorts")
-			checkValueOnCoordinator(t, "commit_fail_test", []byte("test_value_250"))
 			checkValueOnCohorts(t, "commit_fail_test", []byte("test_value_250"), 0)
 		}
 	})
@@ -282,7 +280,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
 		require.NoError(t, chaosHelper.addDataLimit(nodes[COHORT_TYPE][0].Nodeaddr, 500)) // 500 bytes
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -290,14 +288,13 @@ func TestChaosFollowerFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "success_test", []byte("test_value_500"))
+		_, err = c.Commit(context.Background(), "success_test", []byte("test_value_500"))
 		require.NoError(t, err)
 
 		// check if value was committed on all nodes
-		checkValueOnCoordinator(t, "success_test", []byte("test_value_500"))
 		checkValueOnAllCohorts(t, "success_test", []byte("test_value_500"))
 	})
 }
@@ -318,9 +315,11 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		require.NoError(t, chaosHelper.addResetPeer(nodes[COORDINATOR_TYPE][1].Nodeaddr, 0))
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+			require.NoError(t, chaosHelper.addResetPeer(addr, 0))
+		}
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -328,10 +327,10 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "coord_reset_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "coord_reset_test", []byte("value"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "connection closed before server preface received")
 	})
@@ -350,9 +349,11 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		require.NoError(t, chaosHelper.addDataLimit(nodes[COORDINATOR_TYPE][1].Nodeaddr, 50))
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+			require.NoError(t, chaosHelper.addDataLimit(addr, 50))
+		}
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -360,10 +361,10 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "coord_50_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "coord_50_test", []byte("value"))
 		require.Error(t, err)
 	})
 
@@ -381,9 +382,11 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		require.NoError(t, chaosHelper.addDataLimit(nodes[COORDINATOR_TYPE][1].Nodeaddr, 100))
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+			require.NoError(t, chaosHelper.addDataLimit(addr, 100))
+		}
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -391,10 +394,10 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "coord_100_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "coord_100_test", []byte("value"))
 		require.Error(t, err)
 	})
 
@@ -412,9 +415,11 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		require.NoError(t, chaosHelper.addDataLimit(nodes[COORDINATOR_TYPE][1].Nodeaddr, 200))
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+			require.NoError(t, chaosHelper.addDataLimit(addr, 200))
+		}
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -422,10 +427,10 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "coord_200_test", []byte("value"))
+		_, err = c.Commit(context.Background(), "coord_200_test", []byte("value"))
 		// may succeed or fail depending on when exactly coordinator fails
 		// the main point is to check cohort consistency afterwards
 		if err != nil {
@@ -452,9 +457,11 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		require.NoError(t, chaosHelper.addDataLimit(nodes[COORDINATOR_TYPE][1].Nodeaddr, 300))
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+			require.NoError(t, chaosHelper.addDataLimit(addr, 300))
+		}
 
-		canceller := startnodesChaos(chaosHelper, pb.CommitType_THREE_PHASE_COMMIT)
+		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
 		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
@@ -462,10 +469,10 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			coordAddr = proxyAddr
 		}
 
-		c, err := client.NewClientAPI(coordAddr)
+		c, err := cliapi.Dial(coordAddr)
 		require.NoError(t, err)
 
-		_, err = c.Put(context.Background(), "coord_commit_test", []byte("commit_value"))
+		_, err = c.Commit(context.Background(), "coord_commit_test", []byte("commit_value"))
 		// may succeed or fail depending on timing
 		if err != nil {
 			t.Logf("coordinator operation failed: %v", err)
@@ -479,7 +486,7 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 }
 
 // startnodesChaos starts nodes with Toxiproxy support
-func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() error {
+func startnodesChaos(helper *chaosTestHelper, protocol dto.Protocol) func() error {
 	dataDir, err := os.MkdirTemp("", "committer-chaos-")
 	failfast(err)
 
@@ -487,21 +494,20 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 
 	// start cohorts
 	for _, node := range nodes[COHORT_TYPE] {
-		nodeConfig := *node
-		nodeConfig.DataDir = dataDir
-		nodeConfig.CommitType = config.CommitTwoPhase
+		conf := *node
+		conf.DataDir = dataDir
+		conf.Protocol = protocol
 
-		if commitType == pb.CommitType_THREE_PHASE_COMMIT {
-			nodeConfig.CommitType = config.CommitThreePhase
+		if protocol == dto.ProtocolThreePhase {
 			// use proxy address of coordinator
 			if proxyAddr := helper.getProxyAddress(nodes[COORDINATOR_TYPE][1].Nodeaddr); proxyAddr != "" {
-				nodeConfig.Coordinator = proxyAddr
+				conf.Coordinator = proxyAddr
 			} else {
-				nodeConfig.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
+				conf.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
 			}
 		}
 
-		stop, err := startKVNode(context.Background(), &nodeConfig, events.NoopEmitter{})
+		stop, err := startNode(context.Background(), &conf, events.NoopEmitter{})
 		failfast(err)
 
 		stopfuncs = append(stopfuncs, stop)
@@ -522,7 +528,7 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 		}
 		coordinatorConfig.Cohorts = updatedCohorts
 
-		stop, err := startKVNode(context.Background(), &coordinatorConfig, events.NoopEmitter{})
+		stop, err := startNode(context.Background(), &coordinatorConfig, events.NoopEmitter{})
 		failfast(err)
 
 		stopfuncs = append(stopfuncs, stop)
@@ -538,22 +544,24 @@ func startnodesChaos(helper *chaosTestHelper, commitType pb.CommitType) func() e
 	}
 }
 
-// checkValueOnCoordinator checks if a value exists on coordinator
-func checkValueOnCoordinator(t *testing.T, key string, expectedValue []byte) bool {
-	t.Helper()
-
-	coordClient, err := client.NewClientAPI(nodes[COORDINATOR_TYPE][1].Nodeaddr)
-	require.NoError(t, err)
-
-	coordValue, err := coordClient.Get(context.Background(), key)
+// valueEventuallyOnNode reports whether the node at cliAddr serves value for
+// key within a short wait.
+func valueEventuallyOnNode(cliAddr, key string, value []byte) bool {
+	cli, err := cliapi.Dial(cliAddr)
 	if err != nil {
-		t.Logf("coordinator does not have value for key %s: %v", key, err)
 		return false
 	}
+	defer cli.Close()
 
-	require.Equal(t, expectedValue, coordValue.Value)
-	t.Logf("coordinator has correct value for key %s", key)
-	return true
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, err := cli.Get(context.Background(), key); err == nil && string(got) == string(value) {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	return false
 }
 
 // checkValueOnCohorts checks if a value exists on working cohorts (excluding failed one)
@@ -566,12 +574,12 @@ func checkValueOnCohorts(t *testing.T, key string, expectedValue []byte, skipFai
 			continue
 		}
 
-		cohortClient, err := client.NewClientAPI(cohortAddr.Nodeaddr)
+		cohortClient, err := cliapi.Dial(cohortAddr.Nodeaddr)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
 			cohortValue, err := cohortClient.Get(context.Background(), key)
-			return err == nil && string(cohortValue.Value) == string(expectedValue)
+			return err == nil && string(cohortValue) == string(expectedValue)
 		}, 2*time.Second, 20*time.Millisecond)
 		successCount++
 	}
@@ -583,12 +591,12 @@ func checkValueOnAllCohorts(t *testing.T, key string, expectedValue []byte) {
 	t.Helper()
 
 	for _, cohortAddr := range nodes[COHORT_TYPE] {
-		cohortClient, err := client.NewClientAPI(cohortAddr.Nodeaddr)
+		cohortClient, err := cliapi.Dial(cohortAddr.Nodeaddr)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
 			cohortValue, err := cohortClient.Get(context.Background(), key)
-			return err == nil && string(cohortValue.Value) == string(expectedValue)
+			return err == nil && string(cohortValue) == string(expectedValue)
 		}, 2*time.Second, 20*time.Millisecond)
 	}
 }
@@ -597,7 +605,7 @@ func checkValueOnAllCohorts(t *testing.T, key string, expectedValue []byte) {
 func checkValueNotOnNode(t *testing.T, nodeAddr string, key string) {
 	t.Helper()
 
-	nodeClient, err := client.NewClientAPI(nodeAddr)
+	nodeClient, err := cliapi.Dial(nodeAddr)
 	require.NoError(t, err)
 
 	_, err = nodeClient.Get(context.Background(), key)
@@ -616,12 +624,12 @@ func checkFollowerStatesAfterCoordinatorFailure(t *testing.T, key string, expect
 	notCommittedCount := 0
 
 	for _, cohortAddr := range nodes[COHORT_TYPE] {
-		cohortClient, err := client.NewClientAPI(cohortAddr.Nodeaddr)
+		cohortClient, err := cliapi.Dial(cohortAddr.Nodeaddr)
 		require.NoError(t, err)
 
 		cohortValue, err := cohortClient.Get(context.Background(), key)
 		if err == nil {
-			require.Equal(t, expectedValue, cohortValue.Value)
+			require.Equal(t, expectedValue, cohortValue)
 			committedCount++
 		} else {
 			notCommittedCount++
