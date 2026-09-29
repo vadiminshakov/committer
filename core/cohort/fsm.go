@@ -1,4 +1,4 @@
-package commitalgo
+package cohort
 
 import (
 	"errors"
