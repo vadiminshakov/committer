@@ -6,84 +6,39 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
-	"github.com/vadiminshakov/committer/v2/internal/config"
-	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/client"
-	pb "github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2/cmd/committer/internal/cliapi"
+	"github.com/vadiminshakov/committer/v2/core/dto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-const usage = `Usage: committer <command> [flags] [arguments]
-
-Node commands:
-  coordinator -nodeaddr localhost:3000 -cohorts localhost:3001
-  cohort -nodeaddr localhost:3001 -coordinator localhost:3000
-
-Client commands (flags must precede arguments):
-  put    --addr localhost:3000 KEY VALUE
-  get    --addr localhost:3000 KEY
-
-Use 'committer <command> -h' for command options.
-The original flag-only node syntax is also supported.
-`
-
 const (
-	// Client subcommands.
+	// CLI subcommands.
 	cmdPut = "put"
 	cmdGet = "get"
 )
 
-// Positional argument counts for client subcommands.
+// Positional argument counts for CLI subcommands.
 const (
 	putArgCount = 2
 	getArgCount = 1
 )
 
-// defaultClientTimeout bounds every client request unless -timeout overrides it.
-const defaultClientTimeout = 5 * time.Second
+// defaultCLITimeout bounds every CLI request unless -timeout overrides it.
+const defaultCLITimeout = 5 * time.Second
 
-func execute(args []string, stdout, stderr io.Writer) error {
-	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprint(stdout, usage)
+// defaultCLIAddrs match the README example: put goes to the coordinator,
+// get to the cohort.
+var defaultCLIAddrs = map[string]string{cmdPut: "localhost:3000", cmdGet: "localhost:3001"}
 
-		return nil
-	}
-
-	switch args[0] {
-	case cmdPut, cmdGet:
-		return runClientCommand(args[0], args[1:], stdout, stderr)
-	case config.RoleCoordinator, config.RoleCohort:
-	default:
-		if !strings.HasPrefix(args[0], "-") {
-			return fmt.Errorf("unknown command %q; run 'committer --help'", args[0])
-		}
-	}
-
-	return startNodeFromArgs(args, stderr)
-}
-
-// startNodeFromArgs parses node flags and starts the node.
-func startNodeFromArgs(args []string, stderr io.Writer) error {
-	conf, err := config.Parse(args, stderr)
-	if errors.Is(err, flag.ErrHelp) {
-		return nil
-	}
-
-	if err != nil {
-		return fmt.Errorf("parse node config: %w", err)
-	}
-
-	return startNode(conf)
-}
-
-func runClientCommand(command string, args []string, stdout, stderr io.Writer) error {
+func runCLICommand(command string, args []string, stdout, stderr io.Writer) error {
 	flagset := flag.NewFlagSet("committer "+command, flag.ContinueOnError)
 	flagset.SetOutput(stderr)
-	addr := flagset.String("addr", "localhost:3000", "target node address (put requires a coordinator)")
-	timeout := flagset.Duration("timeout", defaultClientTimeout, "request deadline, e.g. 5s or 500ms")
+	addr := flagset.String("addr", defaultCLIAddrs[command],
+		"address of the target node started with -cli: a coordinator for put, a cohort for get")
+	timeout := flagset.Duration("timeout", defaultCLITimeout, "request deadline, e.g. 5s or 500ms")
 
 	flagset.Usage = func() {
 		suffix := map[string]string{cmdPut: "KEY VALUE", cmdGet: "KEY"}[command]
@@ -105,7 +60,7 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 		return fmt.Errorf("%s requires %d arguments; place flags before arguments", command, expected)
 	}
 
-	if err := config.ValidateAddress(*addr); err != nil {
+	if err := dto.Addr(*addr).Validate(); err != nil {
 		return fmt.Errorf("invalid -addr flag: %w", err)
 	}
 
@@ -117,7 +72,7 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 		return errors.New("key must not be empty")
 	}
 
-	cli, err := client.NewClientAPI(*addr)
+	cli, err := cliapi.Dial(*addr)
 	if err != nil {
 		return fmt.Errorf("connect to %s: %w", *addr, err)
 	}
@@ -129,20 +84,20 @@ func runClientCommand(command string, args []string, stdout, stderr io.Writer) e
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	if err := invokeClientOperation(cli, command, flagset.Args(), stdout, ctx); err != nil {
+	if err := invokeCLIOperation(cli, command, flagset.Args(), stdout, ctx); err != nil {
 		return fmt.Errorf("%s at %s failed: %s%s",
-			command, *addr, grpcStatus(err).Message(), hintForClientError(command, err))
+			command, *addr, cliErrorMessage(err), hintForCLIError(command, err))
 	}
 
 	return nil
 }
 
-// invokeClientOperation executes one client subcommand and prints its result.
-// Client API errors already carry operation context, so they pass through unwrapped.
+// invokeCLIOperation executes one CLI subcommand and prints its result.
+// CLI API errors already carry operation context, so they pass through unwrapped.
 //
 //nolint:wrapcheck
-func invokeClientOperation(
-	cli *client.ClientAPIClient,
+func invokeCLIOperation(
+	cli *cliapi.Client,
 	command string,
 	positional []string,
 	stdout io.Writer,
@@ -150,45 +105,46 @@ func invokeClientOperation(
 ) error {
 	switch command {
 	case cmdPut:
-		resp, err := cli.Put(ctx, positional[0], []byte(positional[1]))
+		height, err := cli.Commit(ctx, positional[0], []byte(positional[1]))
 		if err != nil {
 			return err
 		}
 
-		if resp.Type != pb.Type_ACK {
-			return fmt.Errorf("transaction %d was rejected", resp.Index)
-		}
-
-		fmt.Fprintf(stdout, "Committed transaction %d\n", resp.Index)
+		fmt.Fprintf(stdout, "Committed transaction %d\n", height)
 	case cmdGet:
-		resp, err := cli.Get(ctx, positional[0])
+		value, err := cli.Get(ctx, positional[0])
 		if err != nil {
 			return err
 		}
 
-		fmt.Fprintln(stdout, string(resp.Value))
+		fmt.Fprintln(stdout, string(value))
 	default:
-		return fmt.Errorf("unknown client command %q", command)
+		return fmt.Errorf("unknown CLI command %q", command)
 	}
 
 	return nil
 }
 
-// hintForClientError suggests likely causes for common client failures.
-func hintForClientError(command string, err error) string {
-	hint := ""
+// hintForCLIError suggests likely causes for common CLI failures.
+func hintForCLIError(command string, err error) string {
+	if errors.Is(err, dto.ErrAborted) {
+		return "; the transaction was aborted and can be retried"
+	}
 
-	code := grpcStatus(err).Code()
+	hint := ""
+	code := status.Code(err)
 
 	switch code {
 	case codes.Unavailable:
-		hint = "; check that the node is running and --addr is correct"
+		hint = "; check that the node is running and --addr is its -nodeaddr and it runs with -cli"
+	case codes.Unimplemented:
+		hint = "; start the node with -cli"
 	case codes.DeadlineExceeded:
 		hint = "; check node connectivity or increase --timeout"
-	case codes.Aborted:
-		hint = "; the transaction was aborted and can be retried"
 	case codes.FailedPrecondition:
-		hint = "; for put, check the coordinator address and its participants"
+		if command == cmdPut {
+			hint = "; check the coordinator address and its participants"
+		}
 	default:
 		// No hint for other codes.
 	}
@@ -200,12 +156,11 @@ func hintForClientError(command string, err error) string {
 	return hint
 }
 
-// grpcStatus finds the gRPC status in a wrapped error chain.
-func grpcStatus(err error) *status.Status {
-	var withStatus interface{ GRPCStatus() *status.Status }
-	if errors.As(err, &withStatus) {
-		return withStatus.GRPCStatus()
+// cliErrorMessage drops the gRPC wrapping from status errors.
+func cliErrorMessage(err error) string {
+	if rpcStatus, ok := status.FromError(err); ok {
+		return rpcStatus.Message()
 	}
 
-	return status.Convert(err)
+	return err.Error()
 }
