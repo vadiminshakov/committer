@@ -37,7 +37,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
@@ -46,7 +46,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -69,7 +69,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
@@ -78,7 +78,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -101,7 +101,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
@@ -110,7 +110,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -133,7 +133,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
@@ -142,7 +142,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -165,7 +165,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
@@ -174,7 +174,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -197,7 +197,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
@@ -206,7 +206,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -229,7 +229,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
@@ -238,7 +238,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -251,9 +251,9 @@ func TestChaosFollowerFailure(t *testing.T) {
 			// A failure before the durable final decision is still returned to
 			// the client. If a healthy cohort nevertheless applied COMMIT, all
 			// healthy cohorts must converge to it.
-			if valueEventuallyOnNode(nodes[COHORT_TYPE][1].Nodeaddr, "commit_fail_test", []byte("test_value_250")) {
+			if valueEventuallyOnNode(nodes[COHORT_TYPE][1].ClientAddr, "commit_fail_test", []byte("test_value_250")) {
 				checkValueOnCohorts(t, "commit_fail_test", []byte("test_value_250"), 0) // skip failed cohort (index 0)
-				checkValueNotOnNode(t, nodes[COHORT_TYPE][0].Nodeaddr, "commit_fail_test")
+				checkValueNotOnNode(t, nodes[COHORT_TYPE][0].ClientAddr, "commit_fail_test")
 			}
 		} else {
 			// Final-decision ACKs are asynchronous: client success proves the
@@ -274,7 +274,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
@@ -283,7 +283,7 @@ func TestChaosFollowerFailure(t *testing.T) {
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -311,18 +311,18 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr, nodes[COORDINATOR_TYPE][1].ClientAddr} {
 			require.NoError(t, chaosHelper.addResetPeer(addr, 0))
 		}
 
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -345,18 +345,18 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr, nodes[COORDINATOR_TYPE][1].ClientAddr} {
 			require.NoError(t, chaosHelper.addDataLimit(addr, 50))
 		}
 
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -378,18 +378,18 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr, nodes[COORDINATOR_TYPE][1].ClientAddr} {
 			require.NoError(t, chaosHelper.addDataLimit(addr, 100))
 		}
 
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -411,18 +411,18 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr, nodes[COORDINATOR_TYPE][1].ClientAddr} {
 			require.NoError(t, chaosHelper.addDataLimit(addr, 200))
 		}
 
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -453,18 +453,18 @@ func TestChaosCoordinatorFailure(t *testing.T) {
 			allAddresses = append(allAddresses, node.Nodeaddr)
 		}
 		for _, node := range nodes[COORDINATOR_TYPE] {
-			allAddresses = append(allAddresses, node.Nodeaddr)
+			allAddresses = append(allAddresses, node.Nodeaddr, node.ClientAddr)
 		}
 
 		require.NoError(t, chaosHelper.setupProxies(allAddresses))
-		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr} {
+		for _, addr := range []string{nodes[COORDINATOR_TYPE][1].Nodeaddr, nodes[COORDINATOR_TYPE][1].ClientAddr} {
 			require.NoError(t, chaosHelper.addDataLimit(addr, 300))
 		}
 
 		canceller := startnodesChaos(chaosHelper, dto.ProtocolThreePhase)
 		defer canceller()
 
-		coordAddr := nodes[COORDINATOR_TYPE][1].Nodeaddr
+		coordAddr := nodes[COORDINATOR_TYPE][1].ClientAddr
 		if proxyAddr := chaosHelper.getProxyAddress(coordAddr); proxyAddr != "" {
 			coordAddr = proxyAddr
 		}
@@ -544,10 +544,10 @@ func startnodesChaos(helper *chaosTestHelper, protocol dto.Protocol) func() erro
 	}
 }
 
-// valueEventuallyOnNode reports whether the node at cliAddr serves value for
+// valueEventuallyOnNode reports whether the node at clientAddr serves value for
 // key within a short wait.
-func valueEventuallyOnNode(cliAddr, key string, value []byte) bool {
-	cli, err := cliapi.Dial(cliAddr)
+func valueEventuallyOnNode(clientAddr, key string, value []byte) bool {
+	cli, err := cliapi.Dial(clientAddr)
 	if err != nil {
 		return false
 	}
@@ -574,7 +574,7 @@ func checkValueOnCohorts(t *testing.T, key string, expectedValue []byte, skipFai
 			continue
 		}
 
-		cohortClient, err := cliapi.Dial(cohortAddr.Nodeaddr)
+		cohortClient, err := cliapi.Dial(cohortAddr.ClientAddr)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
@@ -591,7 +591,7 @@ func checkValueOnAllCohorts(t *testing.T, key string, expectedValue []byte) {
 	t.Helper()
 
 	for _, cohortAddr := range nodes[COHORT_TYPE] {
-		cohortClient, err := cliapi.Dial(cohortAddr.Nodeaddr)
+		cohortClient, err := cliapi.Dial(cohortAddr.ClientAddr)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
@@ -624,7 +624,7 @@ func checkFollowerStatesAfterCoordinatorFailure(t *testing.T, key string, expect
 	notCommittedCount := 0
 
 	for _, cohortAddr := range nodes[COHORT_TYPE] {
-		cohortClient, err := cliapi.Dial(cohortAddr.Nodeaddr)
+		cohortClient, err := cliapi.Dial(cohortAddr.ClientAddr)
 		require.NoError(t, err)
 
 		cohortValue, err := cohortClient.Get(context.Background(), key)

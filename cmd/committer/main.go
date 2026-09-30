@@ -3,9 +3,9 @@
 //
 // Usage:
 //
-//	# Start a cohort and a coordinator; -cli serves put and get on -nodeaddr.
-//	./committer cohort -nodeaddr=localhost:3001 -cli -coordinator=localhost:3000
-//	./committer coordinator -nodeaddr=localhost:3000 -cli -cohorts=localhost:3001
+//	# Start a cohort and a coordinator; -clientaddr serves put and get.
+//	./committer cohort -nodeaddr=localhost:3001 -clientaddr=localhost:4001 -coordinator=localhost:3000
+//	./committer coordinator -nodeaddr=localhost:3000 -clientaddr=localhost:4000 -cohorts=localhost:3001
 //
 //	# Write through the coordinator, read from the cohort.
 //	./committer put greeting hello
@@ -22,12 +22,12 @@ import (
 const usage = `Usage: committer <command> [flags] [arguments]
 
 Node commands:
-  coordinator -nodeaddr localhost:3000 -cohorts localhost:3001 -cli
-  cohort -nodeaddr localhost:3001 -coordinator localhost:3000 -cli
+  coordinator -nodeaddr localhost:3000 -clientaddr localhost:4000 -cohorts localhost:3001
+  cohort -nodeaddr localhost:3001 -clientaddr localhost:4001 -coordinator localhost:3000
 
 CLI commands (flags must precede arguments):
-  put    --addr localhost:3000 KEY VALUE    (a coordinator started with -cli)
-  get    --addr localhost:3001 KEY          (a cohort started with -cli)
+  put    --addr localhost:4000 KEY VALUE    (a coordinator's -clientaddr)
+  get    --addr localhost:4001 KEY          (a cohort's -clientaddr)
 
 Use 'committer <command> -h' for command options.
 The original flag-only node syntax is also supported.

@@ -29,15 +29,15 @@ const (
 // defaultCLITimeout bounds every CLI request unless -timeout overrides it.
 const defaultCLITimeout = 5 * time.Second
 
-// defaultCLIAddrs match the README example: put goes to the coordinator,
+// defaultClientAddrs match the README example: put goes to the coordinator,
 // get to the cohort.
-var defaultCLIAddrs = map[string]string{cmdPut: "localhost:3000", cmdGet: "localhost:3001"}
+var defaultClientAddrs = map[string]string{cmdPut: "localhost:4000", cmdGet: "localhost:4001"}
 
 func runCLICommand(command string, args []string, stdout, stderr io.Writer) error {
 	flagset := flag.NewFlagSet("committer "+command, flag.ContinueOnError)
 	flagset.SetOutput(stderr)
-	addr := flagset.String("addr", defaultCLIAddrs[command],
-		"address of the target node started with -cli: a coordinator for put, a cohort for get")
+	addr := flagset.String("addr", defaultClientAddrs[command],
+		"-clientaddr of the target node: a coordinator for put, a cohort for get")
 	timeout := flagset.Duration("timeout", defaultCLITimeout, "request deadline, e.g. 5s or 500ms")
 
 	flagset.Usage = func() {
@@ -136,9 +136,9 @@ func hintForCLIError(command string, err error) string {
 
 	switch code {
 	case codes.Unavailable:
-		hint = "; check that the node is running and --addr is its -nodeaddr and it runs with -cli"
+		hint = "; check that the node is running with -clientaddr and --addr matches it"
 	case codes.Unimplemented:
-		hint = "; start the node with -cli"
+		hint = "; --addr must be the node's -clientaddr, not its -nodeaddr"
 	case codes.DeadlineExceeded:
 		hint = "; check node connectivity or increase --timeout"
 	case codes.FailedPrecondition:

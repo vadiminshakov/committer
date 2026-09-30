@@ -1,12 +1,14 @@
 // Package cliapi is the CLI API of the committer binary: the CLI writes
 // through a coordinator and reads a cohort's committed data. A node started
-// with -cli serves it on its node address, beside the protocol.
+// with -clientaddr serves it there, apart from the protocol traffic.
 package cliapi
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 
 	"github.com/vadiminshakov/committer/v2/cmd/committer/internal/cliapi/pb"
 	"github.com/vadiminshakov/committer/v2/core/dto"
@@ -34,10 +36,26 @@ type Server struct {
 	reader    Reader
 }
 
-// Register adds the CLI API to registrar, typically the node's own gRPC
-// server.
-func Register(registrar grpc.ServiceRegistrar, committer Committer, reader Reader) {
-	pb.RegisterCLIServer(registrar, &Server{committer: committer, reader: reader})
+// Serve serves the CLI API on addr in the background. The returned function
+// stops the server.
+func Serve(addr string, committer Committer, reader Reader) (func(), error) {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", addr, err)
+	}
+
+	srv := grpc.NewServer()
+	pb.RegisterCLIServer(srv, &Server{committer: committer, reader: reader})
+
+	slog.Info("CLI API listening", "addr", "tcp://"+addr)
+
+	go func() {
+		if err := srv.Serve(listener); err != nil {
+			slog.Error("CLI API server failed", "err", err)
+		}
+	}()
+
+	return srv.GracefulStop, nil
 }
 
 // Put runs one transaction on the coordinator.

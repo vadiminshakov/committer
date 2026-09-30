@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,7 +23,6 @@ import (
 	"github.com/vadiminshakov/committer/v2/events"
 	"github.com/vadiminshakov/committer/v2/io/store"
 	iowal "github.com/vadiminshakov/committer/v2/io/wal"
-	"google.golang.org/grpc"
 )
 
 const (
@@ -36,7 +34,7 @@ const (
 type nodeConfig struct {
 	Role        string // roleCoordinator or roleCohort
 	Nodeaddr    string // protocol traffic
-	CLI         bool   // serve put and get on Nodeaddr
+	ClientAddr  string // serves put and get; empty disables the client API
 	Coordinator string // cohort only
 	Cohorts     []string
 	Protocol    dto.Protocol
@@ -58,7 +56,7 @@ func runNode(args []string, stderr io.Writer) error {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(stderr, nil)))
 	slog.Info("Starting node", "role", conf.Role, "protocol", conf.Protocol,
-		"addr", conf.Nodeaddr, "cli", conf.CLI,
+		"addr", conf.Nodeaddr, "clientaddr", conf.ClientAddr,
 		"coordinator", conf.Coordinator, "cohorts", conf.Cohorts,
 		"wal", iowal.Dir(conf.DataDir, conf.Role, conf.Nodeaddr))
 
@@ -94,31 +92,26 @@ func runNode(args []string, stderr io.Writer) error {
 }
 
 // startNode starts a cluster node. A cohort keeps the data
-// in a Badger store, its resource. With -cli, the coordinator serves put and
-// a cohort serves get on the node address. The returned function stops the
+// in a Badger store, its resource. With -clientaddr, the coordinator serves put
+// and a cohort serves get on that address. The returned function stops the
 // node.
 func startNode(ctx context.Context, conf *nodeConfig, emitter events.Emitter) (func() error, error) {
 	if conf.Role == roleCohort {
 		return startCohort(ctx, conf, emitter)
 	}
 
-	committer := &startingCommitter{}
-
 	coord, err := coordinator.Start(coordinator.Config{
-		Addr:             dto.Addr(conf.Nodeaddr),
-		Cohorts:          addrs(conf.Cohorts),
-		Protocol:         conf.Protocol,
-		DataDir:          conf.DataDir,
-		Emitter:          emitter,
-		RegisterServices: cliServices(conf, committer, nil),
+		Addr:     dto.Addr(conf.Nodeaddr),
+		Cohorts:  addrs(conf.Cohorts),
+		Protocol: conf.Protocol,
+		DataDir:  conf.DataDir,
+		Emitter:  emitter,
 	})
 	if err != nil {
 		return nil, err //nolint:wrapcheck // already describes the failure
 	}
 
-	committer.coord.Store(coord)
-
-	return coord.Close, nil
+	return withClientAPI(conf, coord, nil, coord.Close)
 }
 
 // addrs converts flag values checked by validateAddresses.
@@ -147,43 +140,39 @@ func startCohort(ctx context.Context, conf *nodeConfig, emitter events.Emitter) 
 		Timeout:     conf.Timeout,
 		DataDir:     conf.DataDir,
 		Emitter:     emitter,
-
-		RegisterServices: cliServices(conf, nil, stateStore),
 	}, stateStore)
 	if err != nil {
 		return nil, errors.Join(err, stateStore.Close())
 	}
 
-	return func() error {
+	return withClientAPI(conf, nil, stateStore, func() error {
 		return errors.Join(participant.Close(), stateStore.Close())
+	})
+}
+
+// withClientAPI serves the client API on -clientaddr, if set, for a started node. The
+// returned function stops the client API, then the node through stop. If the
+// client API cannot start, the node is stopped.
+func withClientAPI(
+	conf *nodeConfig,
+	committer cliapi.Committer,
+	reader cliapi.Reader,
+	stop func() error,
+) (func() error, error) {
+	if conf.ClientAddr == "" {
+		return stop, nil
+	}
+
+	stopClientAPI, err := cliapi.Serve(conf.ClientAddr, committer, reader)
+	if err != nil {
+		return nil, errors.Join(err, stop())
+	}
+
+	return func() error {
+		stopClientAPI()
+
+		return stop()
 	}, nil
-}
-
-// cliServices registers the CLI API on the node's server if -cli is set.
-func cliServices(conf *nodeConfig, committer cliapi.Committer, reader cliapi.Reader) func(grpc.ServiceRegistrar) {
-	if !conf.CLI {
-		return nil
-	}
-
-	return func(registrar grpc.ServiceRegistrar) {
-		cliapi.Register(registrar, committer, reader)
-	}
-}
-
-// startingCommitter forwards put to the coordinator. The server may accept
-// calls before coordinator.Start returns; until then put reports the
-// coordinator not ready.
-type startingCommitter struct {
-	coord atomic.Pointer[coordinator.Coordinator]
-}
-
-func (c *startingCommitter) Commit(ctx context.Context, key string, value []byte) (uint64, error) {
-	coord := c.coord.Load()
-	if coord == nil {
-		return 0, dto.ErrCoordinatorNotReady
-	}
-
-	return coord.Commit(ctx, key, value) //nolint:wrapcheck // the CLI API maps coordinator errors
 }
 
 // parseNodeFlags parses the arguments of a node command. The first argument
@@ -199,8 +188,8 @@ func parseNodeFlags(args []string, output io.Writer) (*nodeConfig, error) {
 
 	conf := &nodeConfig{Role: role}
 	flagset.StringVar(&conf.Nodeaddr, "nodeaddr", "localhost:3050", "node listen address (host:port)")
-	flagset.BoolVar(&conf.CLI, "cli", false,
-		"serve put (coordinator) and get (cohort) on -nodeaddr")
+	flagset.StringVar(&conf.ClientAddr, "clientaddr", "",
+		"serve put (coordinator) and get (cohort) on this address (host:port); empty disables it")
 	flagset.StringVar(&conf.Coordinator, "coordinator", "", "coordinator address (required for cohort command)")
 	commitType := flagset.String("committype", dto.ProtocolTwoPhase.String(), "two-phase or three-phase")
 	timeout := flagset.String("timeout", "1s", "3PC timeout, e.g. 1s or 500ms (bare numbers mean milliseconds)")
@@ -314,6 +303,16 @@ func (conf *nodeConfig) validateAddresses() error {
 		}
 
 		seen[addr] = true
+	}
+
+	if conf.ClientAddr != "" {
+		if err := dto.Addr(conf.ClientAddr).Validate(); err != nil {
+			return fmt.Errorf("-clientaddr: %w", err)
+		}
+
+		if conf.ClientAddr == conf.Nodeaddr {
+			return errors.New("-clientaddr must differ from -nodeaddr")
+		}
 	}
 
 	return nil
