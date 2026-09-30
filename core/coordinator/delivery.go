@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vadiminshakov/committer/v2/internal/core/dto"
-	"github.com/vadiminshakov/committer/v2/internal/events"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/events"
 )
 
 const (

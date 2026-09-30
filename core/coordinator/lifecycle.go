@@ -5,24 +5,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vadiminshakov/committer/v2/internal/core/dto"
-	iowal "github.com/vadiminshakov/committer/v2/internal/io/wal"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	iowal "github.com/vadiminshakov/committer/v2/io/wal"
 )
-
-// CommittedNotAppliedError reports that COMMIT is durable but its mutation is
-// not yet reflected in the local store. The coordinator must remain fenced.
-type CommittedNotAppliedError struct {
-	Height uint64
-	cause  error
-}
 
 type lifecycleWAL interface {
 	Write(key string, value []byte) error
 	Recover(applyFn func(key string, value []byte) error) (*iowal.RecoveryState, error)
-}
-
-type lifecycleStore interface {
-	Put(key string, value []byte) error
 }
 
 type lifecyclePhase uint8
@@ -31,17 +20,7 @@ const (
 	lifecycleReady lifecyclePhase = iota
 	lifecyclePrepared
 	lifecyclePrecommitted
-	lifecycleFenced
 	lifecycleFailed
-)
-
-var (
-	// ErrInvalidTransaction reports a request rejected before any durable
-	// transaction record is written.
-	ErrInvalidTransaction = errors.New("invalid transaction")
-	// ErrCoordinatorNotReady reports that an unresolved or fenced transaction
-	// prevents the lifecycle from accepting another transaction.
-	ErrCoordinatorNotReady = errors.New("coordinator is not ready")
 )
 
 // transactionLifecycle owns durable state and legal transitions for the one
@@ -51,20 +30,11 @@ type transactionLifecycle struct {
 
 	protocol dto.Protocol
 	wal      lifecycleWAL
-	store    lifecycleStore
 
 	height         uint64
 	phase          lifecyclePhase
 	pendingPayload []byte
 	decisions      map[uint64]dto.Outcome
-}
-
-func (e *CommittedNotAppliedError) Error() string {
-	return fmt.Sprintf("transaction at height %d is committed but not applied: %v", e.Height, e.cause)
-}
-
-func (e *CommittedNotAppliedError) Unwrap() error {
-	return e.cause
 }
 
 // validateUnresolvedRecovery checks that a recovered in-doubt transaction is
@@ -110,7 +80,6 @@ func validateUnresolvedRecovery(recovery *iowal.RecoveryState) error {
 func newTransactionLifecycle(
 	protocol dto.Protocol,
 	wal lifecycleWAL,
-	store lifecycleStore,
 ) (*transactionLifecycle, *dto.FinalDecision, error) {
 	if protocol != dto.ProtocolTwoPhase && protocol != dto.ProtocolThreePhase {
 		return nil, nil, fmt.Errorf("unsupported transaction protocol %d", protocol)
@@ -120,13 +89,7 @@ func newTransactionLifecycle(
 		return nil, nil, errors.New("transaction WAL is nil")
 	}
 
-	// A coordinator without a local store only orchestrates cohorts.
-	var applyFn func(key string, value []byte) error
-	if store != nil {
-		applyFn = store.Put
-	}
-
-	recovery, err := wal.Recover(applyFn)
+	recovery, err := wal.Recover(nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("recover transaction WAL: %w", err)
 	}
@@ -144,7 +107,6 @@ func newTransactionLifecycle(
 	lifecycle := &transactionLifecycle{
 		protocol:  protocol,
 		wal:       wal,
-		store:     store,
 		height:    recovery.NextHeight,
 		decisions: make(map[uint64]dto.Outcome, len(recovery.Decisions)),
 	}
@@ -245,11 +207,11 @@ func (l *transactionLifecycle) Prepare(transaction dto.Transaction) (uint64, err
 	defer l.mu.Unlock()
 
 	if transaction.Key == "" {
-		return 0, fmt.Errorf("%w: transaction key is empty", ErrInvalidTransaction)
+		return 0, fmt.Errorf("%w: transaction key is empty", dto.ErrInvalidTransaction)
 	}
 
 	if l.phase != lifecycleReady {
-		return 0, fmt.Errorf("%w: transaction at height %d is not resolved", ErrCoordinatorNotReady, l.height)
+		return 0, fmt.Errorf("%w: transaction at height %d is not resolved", dto.ErrCoordinatorNotReady, l.height)
 	}
 
 	payload, err := iowal.Encode(iowal.Tx{Key: transaction.Key, Value: transaction.Value})
@@ -308,19 +270,6 @@ func (l *transactionLifecycle) Commit() (dto.FinalDecision, error) {
 
 	decision := dto.FinalDecision{Height: height, Outcome: dto.OutcomeCommit}
 	l.decisions[height] = dto.OutcomeCommit
-	l.phase = lifecycleFenced
-
-	if l.store != nil {
-		decoded, err := iowal.Decode(l.pendingPayload)
-		if err != nil {
-			return decision, &CommittedNotAppliedError{Height: height, cause: fmt.Errorf("decode transaction: %w", err)}
-		}
-
-		if err := l.store.Put(decoded.Key, decoded.Value); err != nil {
-			return decision, &CommittedNotAppliedError{Height: height, cause: err}
-		}
-	}
-
 	l.pendingPayload = nil
 	l.phase = lifecycleReady
 	l.height++
