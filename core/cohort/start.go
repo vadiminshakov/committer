@@ -67,7 +67,7 @@ func Start(ctx context.Context, cfg Config, resource Resource) (*Cohort, error) 
 
 	release := func() error { return errors.Join(coordinatorClient.Close(), journal.Close()) }
 
-	cohort := New(resource, cfg.Protocol.String(), journal, uint64(timeout.Milliseconds()))
+	cohort := newCohort(resource, cfg.Protocol.String(), journal, uint64(timeout.Milliseconds()))
 	cohort.SetEmitter(cfg.Emitter)
 	cohort.SetDecisionRequester(coordinatorClient)
 
@@ -91,7 +91,8 @@ func Start(ctx context.Context, cfg Config, resource Resource) (*Cohort, error) 
 	return cohort, nil
 }
 
-// Close stops a cohort from Start and closes its WAL, but not the Resource.
+// Close stops the server and closes the coordinator client and WAL.
+// The caller remains responsible for the Resource.
 func (c *Cohort) Close() error {
 	if c.shutdown == nil {
 		return nil

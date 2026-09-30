@@ -63,14 +63,11 @@ type Cohort struct {
 	decisions      map[uint64]string // final outcome of each resolved height
 	coordClient    DecisionRequester // coordinator used for decision requests
 	emitter        events.Emitter
-	// shutdown releases the server, coordinator client and WAL owned by a
-	// cohort from Start.
 	shutdown func() error
 }
 
-// New creates a cohort state machine over resource and wal. Start builds a
-// served cohort; New is for tests and custom transports.
-func New(resource Resource, commitType string, wal wal, timeout uint64) *Cohort {
+// newCohort creates a cohort state machine over resource and wal.
+func newCohort(resource Resource, commitType string, wal wal, timeout uint64) *Cohort {
 	return &Cohort{
 		resource:  resource,
 		wal:       wal,
