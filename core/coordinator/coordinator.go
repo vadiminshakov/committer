@@ -17,6 +17,21 @@ import (
 	iowal "github.com/vadiminshakov/committer/v2/io/wal"
 )
 
+var (
+	// ErrAborted means the transaction is durably aborted: no cohort applied
+	// it, and the same change can be retried.
+	ErrAborted = errors.New("transaction aborted")
+	// ErrPrecommitVote means a 3PC cohort did not acknowledge PRECOMMIT; the
+	// outcome is left to recovery.
+	ErrPrecommitVote = errors.New("failed to send precommit")
+	// ErrInvalidTransaction reports a request rejected before any durable
+	// transaction record is written.
+	ErrInvalidTransaction = errors.New("invalid transaction")
+	// ErrCoordinatorNotReady reports that an unresolved or failed transaction
+	// prevents the coordinator from accepting another transaction.
+	ErrCoordinatorNotReady = errors.New("coordinator is not ready")
+)
+
 //go:generate mockgen -destination=../../mocks/mock_coordinator.go -package=mocks -mock_names=wal=MockCoordinatorWAL,Cohort=MockCoordinatorCohort . wal,Cohort
 type wal interface {
 	Write(key string, value []byte) error
@@ -28,7 +43,7 @@ type Coordinator struct {
 	lifecycle *transactionLifecycle
 	delivery  *cohortDelivery
 	emitter   events.Emitter
-	shutdown func() error
+	shutdown  func() error
 
 	mu sync.Mutex
 }
@@ -120,7 +135,7 @@ func (c *Coordinator) Commit(ctx context.Context, key string, value []byte) (uin
 		})
 
 		if err := c.delivery.VotePrecommit(ctx, height); err != nil {
-			return height, fmt.Errorf("%w: %w", dto.ErrPrecommitVote, err)
+			return height, fmt.Errorf("%w: %w", ErrPrecommitVote, err)
 		}
 	}
 
@@ -182,7 +197,7 @@ func (c *Coordinator) abortTransaction(height uint64, key string, voteErr error)
 		)
 	}
 
-	return height, fmt.Errorf("%w: %w", dto.ErrAborted, voteErr)
+	return height, fmt.Errorf("%w: %w", ErrAborted, voteErr)
 }
 
 // Height returns the protocol height at which the next ready transaction will run.

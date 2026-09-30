@@ -155,7 +155,7 @@ func TestCoordinatorProposalFailureAbort(t *testing.T) {
 
 		height, err := coordinator.Commit(context.Background(), "order", []byte("cancel"))
 		require.ErrorContains(t, err, "transaction aborted")
-		require.ErrorIs(t, err, dto.ErrAborted)
+		require.ErrorIs(t, err, ErrAborted)
 		require.Equal(t, uint64(0), height)
 		require.Equal(t, dto.OutcomeAbort, coordinator.Decision(0))
 		require.Equal(t, uint64(1), coordinator.Height())
@@ -202,7 +202,7 @@ func TestCoordinatorPrecommitFailureStaysInDoubt(t *testing.T) {
 
 	height, err := coordinator.Commit(context.Background(), "invoice", []byte("pending"))
 	require.ErrorContains(t, err, "failed to send precommit")
-	require.ErrorIs(t, err, dto.ErrPrecommitVote)
+	require.ErrorIs(t, err, ErrPrecommitVote)
 	require.Equal(t, uint64(0), height)
 	require.Equal(t, dto.OutcomeUnknown, coordinator.Decision(0))
 	require.Equal(t, uint64(0), coordinator.Height())
@@ -241,7 +241,7 @@ func TestCoordinatorAbortJournalError(t *testing.T) {
 	require.Equal(t, uint64(0), height)
 	require.ErrorIs(t, err, abortErr)
 	require.ErrorContains(t, err, "failed to send propose")
-	require.NotErrorIs(t, err, dto.ErrAborted)
+	require.NotErrorIs(t, err, ErrAborted)
 }
 
 func TestCoordinatorFinalDeliveryDoesNotDelayCommittedResponse(t *testing.T) {
