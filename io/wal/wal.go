@@ -1,6 +1,9 @@
 package wal
 
 import (
+	"path/filepath"
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/vadiminshakov/gowal"
 )
@@ -51,6 +54,39 @@ type heightState struct {
 
 func New(w *gowal.Wal) *Wal {
 	return &Wal{w: w}
+}
+
+const (
+	segmentPrefix    = "msgs_"
+	segmentThreshold = 10000
+	maxSegments      = 100
+)
+
+// Dir returns the WAL directory of the node with role ("cohort" or
+// "coordinator") listening on addr: <dataDir>/wal/<role>/<addr>. An empty
+// dataDir means ".data".
+func Dir(dataDir, role, addr string) string {
+	if dataDir == "" {
+		dataDir = ".data"
+	}
+
+	return filepath.Join(dataDir, "wal", role, strings.NewReplacer(":", "_", "/", "_").Replace(addr))
+}
+
+// Open opens or creates the WAL of a node in dir.
+func Open(dir string) (*Wal, error) {
+	log, err := gowal.NewWAL(gowal.Config{
+		Dir:              dir,
+		Prefix:           segmentPrefix,
+		SegmentThreshold: segmentThreshold,
+		MaxSegments:      maxSegments,
+		IsInSyncDiskMode: true,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "open WAL in %s", dir)
+	}
+
+	return New(log), nil
 }
 
 func (a *Wal) Write(key string, value []byte) error {

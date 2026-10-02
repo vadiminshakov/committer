@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/v2/internal/core/dto"
-	"github.com/vadiminshakov/committer/v2/internal/io/wal"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/io/wal"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -165,12 +165,12 @@ func TestStoreAsResource(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 
 	ctx := context.Background()
-	tx := dto.Transaction{Key: "k", Value: []byte("v")}
+	tx := dto.Tx{Key: "k", Value: []byte("v")}
 
-	require.Error(t, s.Prepare(ctx, 0, dto.Transaction{}))
-	require.NoError(t, s.Prepare(ctx, 0, tx))
-	require.NoError(t, s.Commit(ctx, 0, tx))
-	require.NoError(t, s.Commit(ctx, 0, tx), "commit must be idempotent")
+	require.Error(t, s.Prepare(ctx, dto.Tx{}))
+	require.NoError(t, s.Prepare(ctx, tx))
+	require.NoError(t, s.Commit(ctx, tx))
+	require.NoError(t, s.Commit(ctx, tx), "commit must be idempotent")
 	require.NoError(t, s.Abort(ctx, 42), "abort of an unknown height is a no-op")
 
 	value, err := s.Get("k")

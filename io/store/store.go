@@ -7,7 +7,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/pkg/errors"
-	"github.com/vadiminshakov/committer/v2/internal/core/dto"
+	"github.com/vadiminshakov/committer/v2/core/dto"
 )
 
 // Store persists committed key/value pairs in BadgerDB. It is the built-in
@@ -150,7 +150,7 @@ func (s *Store) Get(key string) ([]byte, error) {
 
 // Prepare votes on a key/value write. Badger applies a single write
 // atomically, so there is nothing to reserve before commit.
-func (s *Store) Prepare(_ context.Context, _ uint64, tx dto.Transaction) error {
+func (s *Store) Prepare(_ context.Context, tx dto.Tx) error {
 	if tx.Key == "" {
 		return errors.New("key cannot be empty")
 	}
@@ -159,7 +159,7 @@ func (s *Store) Prepare(_ context.Context, _ uint64, tx dto.Transaction) error {
 }
 
 // Commit applies a key/value write. Repeating it is harmless.
-func (s *Store) Commit(_ context.Context, _ uint64, tx dto.Transaction) error {
+func (s *Store) Commit(_ context.Context, tx dto.Tx) error {
 	return s.Put(tx.Key, tx.Value)
 }
 
