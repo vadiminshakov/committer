@@ -38,7 +38,7 @@ type Server struct {
 
 	cohort          Cohort
 	coordinator     Coordinator
-	addr            string
+	listenAddr      string
 	coordinatorAddr string
 	grpc            *grpc.Server
 }
@@ -108,9 +108,9 @@ func (s *Server) Decision(ctx context.Context, req *proto.DecisionRequest) (*pro
 	return &proto.DecisionResponse{Outcome: outcome}, nil
 }
 
-func New(addr, coordinatorAddr string, cohort Cohort, coordinator Coordinator) *Server {
+func New(listenAddr, coordinatorAddr string, cohort Cohort, coordinator Coordinator) *Server {
 	return &Server{
-		addr:            addr,
+		listenAddr:      listenAddr,
 		coordinatorAddr: coordinatorAddr,
 		cohort:          cohort,
 		coordinator:     coordinator,
@@ -119,15 +119,15 @@ func New(addr, coordinatorAddr string, cohort Cohort, coordinator Coordinator) *
 
 // Run binds the listen address and serves in the background.
 func (s *Server) Run() error {
-	listener, err := net.Listen("tcp", s.addr)
+	listener, err := net.Listen("tcp", s.listenAddr)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", s.addr, err)
+		return fmt.Errorf("listen on %s: %w", s.listenAddr, err)
 	}
 
 	s.grpc = grpc.NewServer(grpc.UnaryInterceptor(s.coordinatorCheck))
 	proto.RegisterInternalCommitAPIServer(s.grpc, s)
 
-	slog.Info("listening", "addr", "tcp://"+s.addr)
+	slog.Info("listening", "addr", "tcp://"+s.listenAddr)
 
 	go func() {
 		if err := s.grpc.Serve(listener); err != nil {
