@@ -16,7 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vadiminshakov/committer/v2"
+	"github.com/vadiminshakov/committer/v2/core/cohort"
+	"github.com/vadiminshakov/committer/v2/core/coordinator"
+	"github.com/vadiminshakov/committer/v2/core/dto"
 )
 
 const (
@@ -56,7 +58,7 @@ func newBank(name string, balances map[string]int) *bank {
 	return &bank{name: name, balances: balances, holds: map[uint64]transfer{}, applied: map[uint64]bool{}}
 }
 
-func (b *bank) Prepare(_ context.Context, txn committer.Tx) error {
+func (b *bank) Prepare(_ context.Context, txn dto.Tx) error {
 	var move transfer
 	if err := json.Unmarshal(txn.Value, &move); err != nil {
 		return fmt.Errorf("%s: bad transfer: %w", b.name, err)
@@ -74,7 +76,7 @@ func (b *bank) Prepare(_ context.Context, txn committer.Tx) error {
 	return nil
 }
 
-func (b *bank) Commit(_ context.Context, txn committer.Tx) error {
+func (b *bank) Commit(_ context.Context, txn dto.Tx) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -157,8 +159,8 @@ func run() error {
 	north := newBank("north-bank", map[string]int{alice: aliceBalance})
 	south := newBank("south-bank", map[string]int{bob: bobBalance})
 
-	for addr, resource := range map[string]*bank{northBankAddr: north, southBankAddr: south} {
-		participant, err := committer.StartParticipant(context.Background(), committer.ParticipantConfig{
+	for addr, resource := range map[dto.Addr]*bank{northBankAddr: north, southBankAddr: south} {
+		participant, err := cohort.Start(context.Background(), cohort.Config{
 			Addr:        addr,
 			Coordinator: coordinatorAddr,
 			DataDir:     dataDir,
@@ -169,18 +171,18 @@ func run() error {
 		defer participant.Close()
 	}
 
-	coordinator, err := committer.StartCoordinator(committer.CoordinatorConfig{
-		Addr:         coordinatorAddr,
-		Participants: []string{northBankAddr, southBankAddr},
-		DataDir:      dataDir,
+	coord, err := coordinator.Start(coordinator.Config{
+		Addr:    coordinatorAddr,
+		Cohorts: []dto.Addr{northBankAddr, southBankAddr},
+		DataDir: dataDir,
 	})
 	if err != nil {
 		return fmt.Errorf("start coordinator: %w", err)
 	}
-	defer coordinator.Close()
+	defer coord.Close()
 
 	for _, amount := range []int{affordableSum, unaffordableSum} {
-		if err := send(coordinator, transfer{From: alice, To: bob, Amount: amount}); err != nil {
+		if err := send(coord, transfer{From: alice, To: bob, Amount: amount}); err != nil {
 			return err
 		}
 	}
@@ -193,16 +195,16 @@ func run() error {
 	return nil
 }
 
-func send(coordinator *committer.Coordinator, move transfer) error {
+func send(coord *coordinator.Coordinator, move transfer) error {
 	payload, err := json.Marshal(move)
 	if err != nil {
 		return fmt.Errorf("encode transfer: %w", err)
 	}
 
-	height, err := coordinator.Commit(context.Background(), "transfer", payload)
+	height, err := coord.Commit(context.Background(), "transfer", payload)
 
 	switch {
-	case errors.Is(err, committer.ErrAborted):
+	case errors.Is(err, coordinator.ErrAborted):
 		fmt.Printf("transfer of %d aborted: %v\n", move.Amount, err)
 	case err != nil:
 		return fmt.Errorf("transfer of %d: %w", move.Amount, err)

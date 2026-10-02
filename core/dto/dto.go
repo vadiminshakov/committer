@@ -4,9 +4,21 @@
 // and three-phase commit protocols.
 package dto
 
+import "fmt"
+
 type Protocol uint8
 
 type Transaction struct {
+	Key   string
+	Value []byte
+}
+
+type Tx struct {
+	// Height is the transaction's sequence number, assigned by the coordinator.
+	// It is unique within a cluster and identifies the transaction in every
+	// Resource call.
+	Height uint64
+
 	Key   string
 	Value []byte
 }
@@ -46,18 +58,6 @@ type CohortResponse struct {
 	Reason string // Why the cohort answered NACK, if known
 }
 
-// BroadcastRequest represents a request to be broadcast to all cohorts.
-type BroadcastRequest struct {
-	Key   string // Key to be stored
-	Value []byte // Value to be stored
-}
-
-// BroadcastResponse represents a response to a broadcast request.
-type BroadcastResponse struct {
-	Type   ResponseType // Response type (ACK/NACK)
-	Height uint64       // Height of the committed transaction
-}
-
 // AbortRequest represents a request to abort a transaction.
 type AbortRequest struct {
 	Height uint64 // Transaction height to abort
@@ -79,6 +79,17 @@ const (
 	ProtocolTwoPhase Protocol = iota + 1
 	ProtocolThreePhase
 )
+
+func (p Protocol) String() string {
+	switch p {
+	case 0, ProtocolTwoPhase:
+		return "two-phase"
+	case ProtocolThreePhase:
+		return "three-phase"
+	default:
+		return fmt.Sprintf("protocol(%d)", uint8(p))
+	}
+}
 
 const (
 	// ResponseTypeAck indicates successful acknowledgment.

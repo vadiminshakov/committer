@@ -1,8 +1,8 @@
 package server
 
 import (
-	"github.com/vadiminshakov/committer/v2/internal/core/dto"
-	"github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/io/gateway/grpc/proto"
 )
 
 func proposeRequestPbToEntity(request *proto.ProposeRequest) *dto.ProposeRequest {

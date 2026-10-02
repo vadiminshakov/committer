@@ -1,6 +1,6 @@
 syntax = "proto3";
 package schema;
-option go_package = "github.com/vadiminshakov/committer/v2/internal/io/gateway/grpc/proto";
+option go_package = "github.com/vadiminshakov/committer/v2/io/gateway/grpc/proto";
 
 service InternalCommitAPI {
   rpc Propose(ProposeRequest) returns (Response);
@@ -10,11 +10,6 @@ service InternalCommitAPI {
   // Decision lets an in-doubt cohort ask the coordinator for the recorded
   // outcome of a given height (2PC termination protocol).
   rpc Decision(DecisionRequest) returns (DecisionResponse);
-}
-
-service ClientAPI {
-  rpc Put(Entry) returns (Response);
-  rpc Get(Msg) returns (Value);
 }
 
 message ProposeRequest {
@@ -48,19 +43,6 @@ message PrecommitRequest {
 message CommitRequest {
   uint64 index = 1;
   bool isRollback = 2;
-}
-
-message Entry {
-  string key = 1;
-  bytes value = 2;
-}
-
-message Msg {
-  string key = 1;
-}
-
-message Value {
-  bytes value = 1;
 }
 
 message AbortRequest {

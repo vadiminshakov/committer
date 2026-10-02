@@ -207,11 +207,11 @@ func (l *transactionLifecycle) Prepare(transaction dto.Transaction) (uint64, err
 	defer l.mu.Unlock()
 
 	if transaction.Key == "" {
-		return 0, fmt.Errorf("%w: transaction key is empty", dto.ErrInvalidTransaction)
+		return 0, fmt.Errorf("%w: transaction key is empty", ErrInvalidTransaction)
 	}
 
 	if l.phase != lifecycleReady {
-		return 0, fmt.Errorf("%w: transaction at height %d is not resolved", dto.ErrCoordinatorNotReady, l.height)
+		return 0, fmt.Errorf("%w: transaction at height %d is not resolved", ErrCoordinatorNotReady, l.height)
 	}
 
 	payload, err := iowal.Encode(iowal.Tx{Key: transaction.Key, Value: transaction.Value})

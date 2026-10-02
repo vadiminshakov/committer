@@ -103,7 +103,7 @@ func TestTransactionLifecycleRejectsEmptyKeyBeforePrepareIsDurable(t *testing.T)
 	lifecycle, _, err := newTransactionLifecycle(dto.ProtocolTwoPhase, journal)
 	require.NoError(t, err)
 	_, err = lifecycle.Prepare(dto.Transaction{Value: []byte("invalid")})
-	require.ErrorIs(t, err, dto.ErrInvalidTransaction)
+	require.ErrorIs(t, err, ErrInvalidTransaction)
 	require.Equal(t, uint64(0), lifecycle.Height())
 	require.Equal(t, dto.OutcomeUnknown, lifecycle.Decision(0))
 }
@@ -118,7 +118,7 @@ func TestTransactionLifecycleFailsClosedWhenPreparedWriteReportsError(t *testing
 	_, err = lifecycle.Prepare(dto.Transaction{Key: "first", Value: []byte("value")})
 	require.ErrorIs(t, err, writeErr)
 	_, err = lifecycle.Prepare(dto.Transaction{Key: "second", Value: []byte("must not start")})
-	require.ErrorIs(t, err, dto.ErrCoordinatorNotReady)
+	require.ErrorIs(t, err, ErrCoordinatorNotReady)
 	require.Equal(t, uint64(2), lifecycle.Height())
 }
 

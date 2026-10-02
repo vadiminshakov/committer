@@ -149,7 +149,7 @@ func testCommitAcrossParticipants(t *testing.T, protocol dto.Protocol) {
 	ledgers[1].reject["order-2"] = "insufficient funds"
 
 	height, err = coord.Commit(ctx, "order-2", []byte("paid"))
-	require.ErrorIs(t, err, dto.ErrAborted)
+	require.ErrorIs(t, err, coordinator.ErrAborted)
 	require.ErrorContains(t, err, "insufficient funds")
 	require.Equal(t, dto.OutcomeAbort, coord.Decision(height))
 
@@ -169,7 +169,7 @@ func testCommitAcrossParticipants(t *testing.T, protocol dto.Protocol) {
 	require.NoError(t, err)
 
 	_, err = coord.Commit(ctx, "", nil)
-	require.ErrorIs(t, err, dto.ErrInvalidTransaction)
+	require.ErrorIs(t, err, coordinator.ErrInvalidTransaction)
 }
 
 func TestStartValidatesConfig(t *testing.T) {

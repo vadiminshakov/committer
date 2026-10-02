@@ -6,29 +6,26 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/vadiminshakov/committer/v2/io/gateway/grpc/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
-// CoordinatorCheck intercepts InternalCommitAPI RPCs and restricts them to the configured coordinator.
-// ClientAPI methods are not affected.
-func CoordinatorCheck(ctx context.Context,
+// internalCommitAPIPrefix prefixes the full method names of the internal
+// commit API.
+var internalCommitAPIPrefix = "/" + proto.InternalCommitAPI_ServiceDesc.ServiceName + "/"
+
+// coordinatorCheck restricts internal commit API RPCs to the configured
+// coordinator's host.
+func (s *Server) coordinatorCheck(
+	ctx context.Context,
 	req any,
 	info *grpc.UnaryServerInfo,
-	handler grpc.UnaryHandler) (any, error) {
-	if !strings.HasPrefix(info.FullMethod, "/schema.InternalCommitAPI/") {
-		return handler(ctx, req)
-	}
-
-	serv, valid := info.Server.(*Server)
-
-	if !valid {
-		return nil, status.Errorf(codes.Internal, "unexpected server type %T", info.Server)
-	}
-
-	if serv.Config.Coordinator == "" {
+	handler grpc.UnaryHandler,
+) (any, error) {
+	if s.coordinatorAddr == "" || !strings.HasPrefix(info.FullMethod, internalCommitAPIPrefix) {
 		return handler(ctx, req)
 	}
 
@@ -42,9 +39,9 @@ func CoordinatorCheck(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "failed to parse peer address: %v", err)
 	}
 
-	coordHost, _, err := net.SplitHostPort(serv.Config.Coordinator)
+	coordHost, _, err := net.SplitHostPort(s.coordinatorAddr)
 	if err != nil {
-		coordHost = serv.Config.Coordinator
+		coordHost = s.coordinatorAddr
 	}
 
 	if peerHost == coordHost {

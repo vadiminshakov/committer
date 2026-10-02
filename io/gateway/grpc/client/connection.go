@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// gRPC dial timing.
 const (
 	dialBaseDelay         = 100 * time.Millisecond
 	dialMaxDelay          = 10 * time.Second
