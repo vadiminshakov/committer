@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/vadiminshakov/committer/v2/cmd/committer/internal/cliapi/pb"
-	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/core/coordinator"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -29,16 +29,16 @@ func Dial(addr string) (*Client, error) {
 }
 
 // Commit runs one transaction on a coordinator and returns its height. An
-// error wrapping dto.ErrAborted means durably aborted; other failures are gRPC
+// error wrapping coordinator.ErrAborted means durably aborted; other failures are gRPC
 // status errors, and a transport error or deadline leaves the outcome unknown.
 func (c *Client) Commit(ctx context.Context, key string, value []byte) (uint64, error) {
 	resp, err := c.rpc.Put(ctx, &pb.PutRequest{Key: key, Value: value})
 	if err != nil {
 		switch status.Code(err) {
 		case codes.Aborted:
-			return 0, fmt.Errorf("%w: %s", dto.ErrAborted, status.Convert(err).Message())
+			return 0, fmt.Errorf("%w: %s", coordinator.ErrAborted, status.Convert(err).Message())
 		case codes.InvalidArgument:
-			return 0, fmt.Errorf("%w: %s", dto.ErrInvalidTransaction, status.Convert(err).Message())
+			return 0, fmt.Errorf("%w: %s", coordinator.ErrInvalidTransaction, status.Convert(err).Message())
 		default:
 			return 0, err //nolint:wrapcheck // callers inspect the gRPC status
 		}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vadiminshakov/committer/v2/cmd/committer/internal/cliapi"
+	"github.com/vadiminshakov/committer/v2/core/coordinator"
 	"github.com/vadiminshakov/committer/v2/core/dto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -127,7 +128,7 @@ func invokeCLIOperation(
 
 // hintForCLIError suggests likely causes for common CLI failures.
 func hintForCLIError(command string, err error) string {
-	if errors.Is(err, dto.ErrAborted) {
+	if errors.Is(err, coordinator.ErrAborted) {
 		return "; the transaction was aborted and can be retried"
 	}
 

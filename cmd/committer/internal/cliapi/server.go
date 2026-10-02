@@ -11,7 +11,7 @@ import (
 	"net"
 
 	"github.com/vadiminshakov/committer/v2/cmd/committer/internal/cliapi/pb"
-	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/core/coordinator"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -89,17 +89,17 @@ func (s *Server) Get(_ context.Context, req *pb.GetRequest) (*pb.GetResponse, er
 func commitErrorToStatus(err error) error {
 	switch {
 	// ABORT is durable here even when a deadline caused it: report the outcome.
-	case errors.Is(err, dto.ErrAborted):
+	case errors.Is(err, coordinator.ErrAborted):
 		return status.Error(codes.Aborted, err.Error())
 	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, err.Error())
 	case errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, err.Error())
-	case errors.Is(err, dto.ErrInvalidTransaction):
+	case errors.Is(err, coordinator.ErrInvalidTransaction):
 		return status.Error(codes.InvalidArgument, err.Error())
-	case errors.Is(err, dto.ErrCoordinatorNotReady):
+	case errors.Is(err, coordinator.ErrCoordinatorNotReady):
 		return status.Error(codes.FailedPrecondition, err.Error())
-	case errors.Is(err, dto.ErrPrecommitVote):
+	case errors.Is(err, coordinator.ErrPrecommitVote):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
