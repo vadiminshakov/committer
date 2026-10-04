@@ -51,19 +51,44 @@ type DecisionRequester interface {
 	Decision(ctx context.Context, height uint64) (dto.Outcome, error)
 }
 
+type mode string
+
+const (
+	twophase   mode = "two-phase"
+	threephase mode = "three-phase"
+)
+
+type phase string
+
+const (
+	// proposeStage means that the cohort is ready to accept a transaction at
+	// the current height.
+	proposeStage phase = "propose"
+	// preparedStage is the PREPARED/WAITING state. The cohort has voted YES,
+	// durably stored the payload, and must wait for the coordinator's next
+	// decision. In 3PC this is deliberately distinct from proposeStage.
+	preparedStage phase = "prepared"
+	// precommitStage is committable: the cohort must not choose ABORT locally.
+	precommitStage phase = "precommit"
+	// commitStage means that the final commit is being applied. The cohort
+	// returns to proposeStage only after the WAL and resource operations succeed.
+	commitStage phase = "commit"
+)
+
 // Cohort runs the cohort commit state machine.
 type Cohort struct {
 	resource       Resource
 	wal            wal
-	state          *stateMachine
+	mode           mode
+	phase          phase
 	height         atomic.Uint64
 	timeout        uint64
-	mu             sync.Mutex
+	mu             sync.Mutex        // protects phase, pendingPayload, decisions, and Resource calls
 	pendingPayload []byte            // encoded payload of the current transaction
 	decisions      map[uint64]string // final outcome of each resolved height
 	coordClient    DecisionRequester // coordinator used for decision requests
 	emitter        events.Emitter
-	shutdown func() error
+	shutdown       func() error
 }
 
 // newCohort creates a cohort state machine over resource and wal.
@@ -72,7 +97,8 @@ func newCohort(resource Resource, commitType string, wal wal, timeout uint64) *C
 		resource:  resource,
 		wal:       wal,
 		timeout:   timeout,
-		state:     newStateMachine(mode(commitType)),
+		mode:      mode(commitType),
+		phase:     proposeStage,
 		decisions: make(map[uint64]string),
 		emitter:   events.NoopEmitter{},
 	}
@@ -119,18 +145,17 @@ func (c *Cohort) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.Coh
 	}
 
 	// duplicate proposals are idempotent only when their payload matches.
-	if st := c.state.getCurrentState(); st != proposeStage {
+	if c.phase != proposeStage {
 		if bytes.Equal(payload, c.pendingPayload) {
 			return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
 		}
 
-		slog.Warn("rejecting conflicting proposal for occupied height", "height", req.Height, "state", st)
+		slog.Warn("rejecting conflicting proposal for occupied height", "height", req.Height, "state", c.phase)
 		// NACK prevents retries from replacing the payload at this height.
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: currentHeight}, nil
 	}
 
-	tx := dto.Tx{Height: req.Height, Key: req.Key, Value: req.Value}
-	if err := c.resource.Prepare(ctx, tx); err != nil {
+	if err := c.resource.Prepare(ctx, dto.Tx{Height: req.Height, Key: req.Key, Value: req.Value}); err != nil {
 		slog.Info("resource rejected proposal", "height", req.Height, "err", err)
 
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack, Height: req.Height, Reason: err.Error()}, nil
@@ -143,10 +168,9 @@ func (c *Cohort) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.Coh
 	}
 
 	c.pendingPayload = payload
+	c.phase = preparedStage
 
-	if err := c.enterPrepared(req.Height); err != nil {
-		return nil, status.Errorf(codes.Internal, "state error: %v", err)
-	}
+	go c.awaitDecision(req.Height)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
 }
@@ -156,7 +180,7 @@ func (c *Cohort) Precommit(ctx context.Context, index uint64) (*dto.CohortRespon
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.state.GetMode() != threephase {
+	if c.mode != threephase {
 		return nil, status.Error(codes.FailedPrecondition, "precommit is allowed for 3PC mode only")
 	}
 
@@ -166,15 +190,14 @@ func (c *Cohort) Precommit(ctx context.Context, index uint64) (*dto.CohortRespon
 			"invalid precommit height: expected %d, got %d", currentHeight, index)
 	}
 
-	currentState := c.state.getCurrentState()
-	if currentState == precommitStage && c.pendingPayload != nil {
+	if c.phase == precommitStage && c.pendingPayload != nil {
 		// repeat the ACK without rewriting the durable PRECOMMIT record.
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: index}, nil
 	}
 
-	if currentState != preparedStage {
+	if c.phase != preparedStage {
 		return nil, status.Errorf(codes.FailedPrecondition,
-			"precommit allowed only from prepared/waiting state, current: %s", currentState)
+			"precommit allowed only from prepared/waiting state, current: %s", c.phase)
 	}
 
 	if c.pendingPayload == nil {
@@ -185,9 +208,7 @@ func (c *Cohort) Precommit(ctx context.Context, index uint64) (*dto.CohortRespon
 		return nil, status.Errorf(codes.Internal, "failed to write precommit: %v", err)
 	}
 
-	if err := c.state.Transition(precommitStage); err != nil {
-		return nil, status.Errorf(codes.Internal, "state error: %v", err)
-	}
+	c.phase = precommitStage
 
 	c.emitter.Emit(events.Event{Kind: events.EvCohortPrecommit, Height: index})
 
@@ -235,29 +256,22 @@ func (c *Cohort) staleCommitResponse(height, currentHeight uint64) (*dto.CohortR
 }
 
 func (c *Cohort) commit(ctx context.Context, req *dto.CommitRequest) (*dto.CohortResponse, error) {
-	height := req.Height
 	currentHeight := c.height.Load()
 
-	if resp, handled := c.staleCommitResponse(height, currentHeight); handled {
+	if resp, handled := c.staleCommitResponse(req.Height, currentHeight); handled {
 		return resp, nil
 	}
 
-	currentState := c.state.getCurrentState()
-
 	expectedState := c.getExpectedCommitState()
-	if currentState != expectedState && currentState != commitStage {
+	if c.phase != expectedState && c.phase != commitStage {
 		return nil, status.Errorf(codes.FailedPrecondition,
 			"invalid state for commit: expected %s for %s mode, but current state is %s",
-			expectedState, c.state.GetMode(), currentState)
+			expectedState, c.mode, c.phase)
 	}
 
-	if currentState != commitStage {
-		if err := c.state.Transition(commitStage); err != nil {
-			return nil, status.Errorf(codes.FailedPrecondition, "invalid state transition to commit: %v", err)
-		}
-	}
+	c.phase = commitStage
 
-	c.emitter.Emit(events.Event{Kind: events.EvCohortCommit, Height: height})
+	c.emitter.Emit(events.Event{Kind: events.EvCohortCommit, Height: req.Height})
 
 	if c.pendingPayload == nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "no pending payload")
@@ -268,27 +282,25 @@ func (c *Cohort) commit(ctx context.Context, req *dto.CommitRequest) (*dto.Cohor
 		return nil, status.Errorf(codes.Internal, "decode error: %v", err)
 	}
 
-	if err := c.wal.Write(iowal.CommitKey(height), c.pendingPayload); err != nil {
+	if err := c.wal.Write(iowal.CommitKey(req.Height), c.pendingPayload); err != nil {
 		return &dto.CohortResponse{ResponseType: dto.ResponseTypeNack},
-			fmt.Errorf("write commit record at height %d: %w", height, err)
+			fmt.Errorf("write commit record at height %d: %w", req.Height, err)
 	}
 
 	// COMMIT is durable, so the height stays in commitStage until the resource
 	// applies it: a redelivered COMMIT or a restart retries the call.
-	if err := c.resource.Commit(ctx, dto.Tx{Height: height, Key: walTx.Key, Value: walTx.Value}); err != nil {
+	if err := c.resource.Commit(ctx, dto.Tx{Height: req.Height, Key: walTx.Key, Value: walTx.Value}); err != nil {
 		slog.Error("resource failed to apply committed tx, will retry on redelivery or restart",
-			"height", height, "err", err)
+			"height", req.Height, "err", err)
 
-		return nil, status.Errorf(codes.Unavailable, "apply committed tx at height %d: %v", height, err)
+		return nil, status.Errorf(codes.Unavailable, "apply committed tx at height %d: %v", req.Height, err)
 	}
 
-	c.decisions[height] = iowal.PhaseKeyCommit
+	c.decisions[req.Height] = iowal.PhaseKeyCommit
 	c.height.Store(currentHeight + 1)
 	c.resetPending()
 
-	if terr := c.state.Transition(proposeStage); terr != nil {
-		slog.Error("failed to transition back to propose state after successful commit", "err", terr)
-	}
+	c.phase = proposeStage
 
 	c.emitter.Emit(events.Event{Kind: events.EvCohortCommit, Height: currentHeight, Result: "ok"})
 
@@ -322,13 +334,12 @@ func (c *Cohort) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortR
 }
 
 func (c *Cohort) abortCurrent(ctx context.Context, height uint64, reason string) error {
-	currentState := c.state.getCurrentState()
-	if c.state.GetMode() == threephase && (currentState == precommitStage || currentState == commitStage) {
+	if c.mode == threephase && (c.phase == precommitStage || c.phase == commitStage) {
 		return status.Errorf(codes.FailedPrecondition,
-			"cannot abort 3PC transaction after precommit, current state: %s", currentState)
+			"cannot abort 3PC transaction after precommit, current state: %s", c.phase)
 	}
 
-	if currentState == commitStage {
+	if c.phase == commitStage {
 		return status.Errorf(codes.FailedPrecondition, "cannot abort transaction while commit is in progress")
 	}
 
@@ -350,32 +361,13 @@ func (c *Cohort) abortCurrent(ctx context.Context, height uint64, reason string)
 	c.resetPending()
 
 	c.emitter.Emit(events.Event{Kind: events.EvCohortAbort, Height: height, Message: reason})
-	c.resetToPropose(height, reason)
+	c.phase = proposeStage
 
 	return nil
 }
 
-func (c *Cohort) resetToPropose(height uint64, reason string) {
-	slog.Debug("resetting state to propose", "height", height, "reason", reason)
-
-	currentState := c.state.getCurrentState()
-
-	if c.state.GetMode() == threephase && currentState == precommitStage {
-		// The 3PC state machine reaches propose through commit.
-		if err := c.state.Transition(commitStage); err != nil {
-			slog.Error("failed to transition to commit state during reset", "height", height, "err", err)
-
-			return
-		}
-	}
-
-	if err := c.state.Transition(proposeStage); err != nil {
-		slog.Error("failed to reset to propose state", "height", height, "err", err, "current", c.state.getCurrentState())
-	}
-}
-
-func (c *Cohort) getExpectedCommitState() string {
-	if c.state.GetMode() == twophase {
+func (c *Cohort) getExpectedCommitState() phase {
+	if c.mode == twophase {
 		return preparedStage
 	}
 
@@ -391,13 +383,12 @@ func (c *Cohort) handlePrecommitTimeout(height uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	currentState := c.state.getCurrentState()
 	currentHeight := c.height.Load()
 
-	slog.Debug("precommit timeout handler", "state", currentState, "height", currentHeight, "index", height)
+	slog.Debug("precommit timeout handler", "state", c.phase, "height", currentHeight, "index", height)
 
-	if currentState != precommitStage || currentHeight != height {
-		slog.Debug("skipping autocommit", "height", height, "state", currentState, "current_height", currentHeight)
+	if c.phase != precommitStage || currentHeight != height {
+		slog.Debug("skipping autocommit", "height", height, "state", c.phase, "current_height", currentHeight)
 
 		return
 	}
@@ -467,7 +458,7 @@ func (c *Cohort) stillPrepared(height uint64) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.state.getCurrentState() == preparedStage && c.height.Load() == height
+	return c.phase == preparedStage && c.height.Load() == height
 }
 
 // applyDecision applies the outcome and reports whether the height is resolved.
@@ -475,7 +466,7 @@ func (c *Cohort) applyDecision(height uint64, outcome dto.Outcome) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.state.getCurrentState() != preparedStage || c.height.Load() != height {
+	if c.phase != preparedStage || c.height.Load() != height {
 		return true
 	}
 
@@ -501,19 +492,12 @@ func (c *Cohort) applyDecision(height uint64, outcome dto.Outcome) bool {
 	return true
 }
 
-// enterPrepared enters PREPARED and starts decision polling.
-func (c *Cohort) enterPrepared(height uint64) error {
-	if err := c.state.Transition(preparedStage); err != nil {
-		return err
-	}
-	go c.awaitDecision(height)
-
-	return nil
-}
-
 // Resume restores WAL state, brings the resource in line with it, and resumes
 // termination handling. Call it once before serving requests.
 func (c *Cohort) Resume(ctx context.Context, rec *iowal.RecoveryState) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if rec.Decisions != nil {
 		c.decisions = rec.Decisions
 	}
@@ -535,24 +519,23 @@ func (c *Cohort) Resume(ctx context.Context, rec *iowal.RecoveryState) error {
 		return nil
 	}
 
-	unresolved := rec.Unresolved
-	c.height.Store(unresolved.Height)
-	c.pendingPayload = unresolved.Payload
+	c.height.Store(rec.Unresolved.Height)
+	c.pendingPayload = rec.Unresolved.Payload
 
-	if c.state.mode == twophase {
-		c.resumeTwoPhaseInDoubt(unresolved)
+	if c.mode == twophase {
+		c.restorePreparedAndPollDecision(rec.Unresolved)
 
 		return nil
 	}
 
-	switch unresolved.Phase {
+	switch rec.Unresolved.Phase {
 	case iowal.PhaseKeyPrepared:
-		c.resumeThreePhasePrepared(unresolved)
+		c.restoreThreePhasePreparedAndPollDecision(rec.Unresolved)
 	case iowal.PhaseKeyPrecommit:
-		c.resumeThreePhasePrecommit(unresolved)
+		c.restorePrecommitAndStartCommitTimer(rec.Unresolved)
 	default:
 		return fmt.Errorf("cannot resume transaction at height %d with unexpected WAL phase %q",
-			unresolved.Height, unresolved.Phase)
+			rec.Unresolved.Height, rec.Unresolved.Phase)
 	}
 
 	return nil
@@ -585,41 +568,28 @@ func (c *Cohort) reapplyLastDecision(ctx context.Context, last *iowal.DecidedTra
 	return nil
 }
 
-// resumeTwoPhaseInDoubt restores PREPARED and awaits the coordinator decision.
-func (c *Cohort) resumeTwoPhaseInDoubt(unresolved *iowal.UnresolvedTransaction) {
-	if err := c.enterPrepared(unresolved.Height); err != nil {
-		slog.Error("failed to restore prepared state", "err", err)
-
-		return
-	}
+// restorePreparedAndPollDecision restores PREPARED and starts background
+// polling for the coordinator's decision.
+func (c *Cohort) restorePreparedAndPollDecision(unresolved *iowal.UnresolvedTransaction) {
+	c.phase = preparedStage
+	go c.awaitDecision(unresolved.Height)
 
 	slog.Warn("recovered in-doubt transaction, awaiting coordinator decision", "height", unresolved.Height)
 }
 
-// resumeThreePhasePrepared restores PREPARED and awaits the coordinator decision.
-func (c *Cohort) resumeThreePhasePrepared(unresolved *iowal.UnresolvedTransaction) {
-	if err := c.enterPrepared(unresolved.Height); err != nil {
-		slog.Error("failed to restore prepared state", "err", err)
-
-		return
-	}
+// restoreThreePhasePreparedAndPollDecision restores 3PC PREPARED and starts
+// background polling for the coordinator's decision.
+func (c *Cohort) restoreThreePhasePreparedAndPollDecision(unresolved *iowal.UnresolvedTransaction) {
+	c.phase = preparedStage
+	go c.awaitDecision(unresolved.Height)
 
 	slog.Warn("recovered prepared 3PC transaction, awaiting coordinator decision", "height", unresolved.Height)
 }
 
-// resumeThreePhasePrecommit restores PRECOMMIT and resumes autocommit.
-func (c *Cohort) resumeThreePhasePrecommit(unresolved *iowal.UnresolvedTransaction) {
-	if err := c.state.Transition(preparedStage); err != nil {
-		slog.Error("failed to restore prepared state before precommit", "err", err)
-
-		return
-	}
-
-	if err := c.state.Transition(precommitStage); err != nil {
-		slog.Error("failed to restore precommit state", "err", err)
-
-		return
-	}
+// restorePrecommitAndStartCommitTimer restores PRECOMMIT and starts the
+// background autocommit timer.
+func (c *Cohort) restorePrecommitAndStartCommitTimer(unresolved *iowal.UnresolvedTransaction) {
+	c.phase = precommitStage
 
 	slog.Warn("recovered precommitted 3PC transaction, resuming commit timeout", "height", unresolved.Height)
 	go c.handlePrecommitTimeout(unresolved.Height)
@@ -627,8 +597,4 @@ func (c *Cohort) resumeThreePhasePrecommit(unresolved *iowal.UnresolvedTransacti
 
 func (c *Cohort) resetPending() {
 	c.pendingPayload = nil
-}
-
-func (c *Cohort) getCurrentState() string {
-	return c.state.getCurrentState()
 }
