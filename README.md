@@ -88,8 +88,7 @@ case err != nil:
 ```
 
 `Commit` returns once the COMMIT decision is durable; participants apply it in
-the background and keep retrying until they succeed. Call it in the process that
-runs the coordinator; the library has no client for a remote coordinator.
+the background and keep retrying until they succeed.
 
 ### Resource
 
@@ -244,17 +243,20 @@ Node commands accept these flags:
 | `coordinator` | Coordinator address; required by the `cohort` command | empty |
 | `cohorts` | Comma-separated participant addresses; required by `coordinator` | empty |
 | `committype` | `two-phase` or `three-phase` | `two-phase` |
-| `timeout` | 3PC timeout, e.g. `1s` or `500ms`; bare numbers remain milliseconds | `1s` |
+| `timeout` | Cohort only: 3PC autocommit delay and in-doubt retry interval, e.g. `1s` or `500ms`; bare numbers mean milliseconds | `1s` |
 | `data-dir` | Root for the WAL and a cohort's database | `.data` |
 | `viz-port` | Protocol visualization HTTP port; 0 disables it | `0` |
 
-Timeouts must be positive whole milliseconds. CLI commands use their own
-`--timeout` flag for the request deadline; it requires a duration such as `5s`.
+Node timeouts must be positive whole milliseconds. `-timeout` configures a cohort
+only; a coordinator has no timeout setting.
+
+Addresses must differ: a cohort cannot reuse its `-nodeaddr` as `-coordinator`,
+and a coordinator cannot list its own address in `-cohorts`.
 
 Node startup logs show the selected role, protocol, addresses and storage paths.
 Normal starts never clear data. The WAL lives beneath
 `<data-dir>/wal/<role>/<address>/` and a cohort's database beneath
-`<data-dir>/db/cohort/<address>/`.
+`<data-dir>/db/cohort/<address>/`, with `:` and `/` in an address replaced by `_`.
 Restart with the same working directory, data directory and address to reuse them.
 Use an absolute `-data-dir` when launching from different working directories.
 
