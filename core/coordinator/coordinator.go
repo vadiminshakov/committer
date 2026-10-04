@@ -139,12 +139,6 @@ func (c *Coordinator) Commit(ctx context.Context, key string, value []byte) (uin
 		}
 	}
 
-	return c.commitTransaction(height, key)
-}
-
-// commitTransaction makes COMMIT durable, publishes the outcome, and starts
-// cohort delivery before acknowledging the request.
-func (c *Coordinator) commitTransaction(height uint64, key string) (uint64, error) {
 	decision, err := c.lifecycle.Commit()
 	if err != nil {
 		return height, fmt.Errorf("failed to commit: %w", err)
