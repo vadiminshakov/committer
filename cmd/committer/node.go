@@ -43,9 +43,10 @@ type nodeConfig struct {
 	VizPort     int // 0 disables the visualization
 }
 
-// runNode parses node flags, starts the node and stops it on a signal.
-func runNode(args []string, stderr io.Writer) error {
-	conf, err := parseNodeFlags(args, stderr)
+// runNode parses the flags of a node with the given role, starts the node and
+// stops it on a signal.
+func runNode(role string, args []string, stderr io.Writer) error {
+	conf, err := parseNodeFlags(role, args, stderr)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
 	}
@@ -175,15 +176,9 @@ func withClientAPI(
 	}, nil
 }
 
-// parseNodeFlags parses the arguments of a node command. The first argument
-// may name the role; without it, -cohorts selects the coordinator role.
-func parseNodeFlags(args []string, output io.Writer) (*nodeConfig, error) {
-	role := ""
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		role, args = args[0], args[1:]
-	}
-
-	flagset := flag.NewFlagSet(strings.TrimSpace("committer "+role), flag.ContinueOnError)
+// parseNodeFlags parses the flags of the node command for role.
+func parseNodeFlags(role string, args []string, output io.Writer) (*nodeConfig, error) {
+	flagset := flag.NewFlagSet("committer "+role, flag.ContinueOnError)
 	flagset.SetOutput(output)
 
 	conf := &nodeConfig{Role: role}
@@ -208,13 +203,6 @@ func parseNodeFlags(args []string, output io.Writer) (*nodeConfig, error) {
 	for addr := range strings.SplitSeq(*cohorts, ",") {
 		if addr = strings.TrimSpace(addr); addr != "" {
 			conf.Cohorts = append(conf.Cohorts, addr)
-		}
-	}
-
-	if conf.Role == "" {
-		conf.Role = roleCohort
-		if len(conf.Cohorts) > 0 {
-			conf.Role = roleCoordinator
 		}
 	}
 

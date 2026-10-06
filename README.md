@@ -181,6 +181,21 @@ For 3PC, pass `-committype three-phase -timeout 1s` to **both** nodes.
 Run `./bin/committer --help` or `./bin/committer coordinator -h` for help.
 To install the binary: `go install github.com/vadiminshakov/committer/v2/cmd/committer@latest`.
 
+### Node configuration
+
+Node commands accept these flags:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `nodeaddr` | Node listen address for protocol traffic, `host:port` | `localhost:3050` |
+| `clientaddr` | Client API listen address for `put` (coordinator) and `get` (cohort), `host:port`; empty disables it | empty |
+| `coordinator` | Coordinator address; required by the `cohort` command | empty |
+| `cohorts` | Comma-separated participant addresses; required by `coordinator` | empty |
+| `committype` | `two-phase` or `three-phase` | `two-phase` |
+| `timeout` | Cohort only: 3PC autocommit delay and in-doubt retry interval, e.g. `1s` or `500ms`; bare numbers mean milliseconds | `1s` |
+| `data-dir` | Root for the WAL and a cohort's database | `.data` |
+| `viz-port` | Protocol visualization HTTP port; 0 disables it | `0` |
+
 ## Protocol visualization
 
 The optional web UI animates protocol messages and shows an event log, transaction
@@ -231,38 +246,6 @@ The Three-Phase Commit protocol extends 2PC with an additional phase to reduce b
 #### **Phase 3: Commit Phase**
 1. **Coordinator** sends `COMMIT` to all cohorts
 2. **Cohorts** perform the actual commit operation
-
-## Configuration
-
-Node commands accept these flags:
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `nodeaddr` | Node listen address for protocol traffic, `host:port` | `localhost:3050` |
-| `clientaddr` | Client API listen address for `put` (coordinator) and `get` (cohort), `host:port`; empty disables it | empty |
-| `coordinator` | Coordinator address; required by the `cohort` command | empty |
-| `cohorts` | Comma-separated participant addresses; required by `coordinator` | empty |
-| `committype` | `two-phase` or `three-phase` | `two-phase` |
-| `timeout` | Cohort only: 3PC autocommit delay and in-doubt retry interval, e.g. `1s` or `500ms`; bare numbers mean milliseconds | `1s` |
-| `data-dir` | Root for the WAL and a cohort's database | `.data` |
-| `viz-port` | Protocol visualization HTTP port; 0 disables it | `0` |
-
-Node timeouts must be positive whole milliseconds. `-timeout` configures a cohort
-only; a coordinator has no timeout setting.
-
-Addresses must differ: a cohort cannot reuse its `-nodeaddr` as `-coordinator`,
-and a coordinator cannot list its own address in `-cohorts`.
-
-Node startup logs show the selected role, protocol, addresses and storage paths.
-Normal starts never clear data. The WAL lives beneath
-`<data-dir>/wal/<role>/<address>/` and a cohort's database beneath
-`<data-dir>/db/cohort/<address>/`, with `:` and `/` in an address replaced by `_`.
-Restart with the same working directory, data directory and address to reuse them.
-Use an absolute `-data-dir` when launching from different working directories.
-
-The original flag-only syntax remains supported: `-cohorts` selects the
-coordinator role; otherwise the node is a cohort and needs `-coordinator`.
-Prefer explicit commands for new scripts.
 
 ## Contributions
 

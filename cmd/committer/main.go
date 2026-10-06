@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 )
 
 const usage = `Usage: committer <command> [flags] [arguments]
@@ -30,7 +29,6 @@ CLI commands (flags must precede arguments):
   get    --addr localhost:4001 KEY          (a cohort's -clientaddr)
 
 Use 'committer <command> -h' for command options.
-The original flag-only node syntax is also supported.
 `
 
 func main() {
@@ -51,12 +49,7 @@ func execute(args []string, stdout, stderr io.Writer) error {
 	case cmdPut, cmdGet:
 		return runCLICommand(args[0], args[1:], stdout, stderr)
 	case roleCoordinator, roleCohort:
-		return runNode(args, stderr)
-	}
-
-	// The original flag-only syntax starts a node too.
-	if strings.HasPrefix(args[0], "-") {
-		return runNode(args, stderr)
+		return runNode(args[0], args[1:], stderr)
 	}
 
 	return fmt.Errorf("unknown command %q; run 'committer --help'", args[0])
