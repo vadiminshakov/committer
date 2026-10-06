@@ -98,6 +98,8 @@ func newCoordinator(
 
 // Commit runs one 2PC/3PC transaction and returns its height once COMMIT is
 // durable. Voting is synchronous; cohorts receive the decision asynchronously.
+//
+//nolint:funlen // linear protocol flow reads better in one function
 func (c *Coordinator) Commit(ctx context.Context, key string, value []byte) (uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -54,6 +54,7 @@ func TestHappyPath(t *testing.T) {
 
 func testHappyPath(t *testing.T, protocol dto.Protocol) {
 	canceller := startnodes(protocol)
+
 	t.Cleanup(func() {
 		require.NoError(t, canceller())
 	})
