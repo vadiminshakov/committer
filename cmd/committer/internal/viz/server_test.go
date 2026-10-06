@@ -82,7 +82,7 @@ func TestServerAPICohortsEmpty(t *testing.T) {
 	}
 }
 
-func TestServerCohortsWithNodeAddr(t *testing.T) {
+func TestServerCohortsWithAddr(t *testing.T) {
 	collector := NewCollector(nil)
 	conf := Node{
 		Role:    "cohort",
@@ -139,7 +139,7 @@ func TestServerMuxRouting(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"role":        srv.node.Role,
-			"nodeaddr":    srv.node.Addr,
+			"addr":        srv.node.Addr,
 			"cohorts":     srv.node.Cohorts,
 			"coordinator": srv.node.Coordinator,
 			"commitType":  srv.node.CommitType,

@@ -513,7 +513,7 @@ function processEvent(ev) {
       break;
 
     case 'CohortPropose': {
-      const selfNode = roleConfig.nodeaddr;
+      const selfNode = roleConfig.addr;
       if (selfNode && nodes[selfNode]) {
         updatePhase('propose');
         updateStatus('active');
@@ -525,7 +525,7 @@ function processEvent(ev) {
     }
 
     case 'CohortPrecommit': {
-      const selfNode = roleConfig.nodeaddr;
+      const selfNode = roleConfig.addr;
       if (selfNode && nodes[selfNode]) {
         updatePhase('precommit');
         addAnimation('Coordinator', selfNode, 'PRECOMMIT', COLORS.precommit);
@@ -536,7 +536,7 @@ function processEvent(ev) {
     }
 
     case 'CohortCommit': {
-      const selfNode = roleConfig.nodeaddr;
+      const selfNode = roleConfig.addr;
       if (selfNode && nodes[selfNode]) {
         updatePhase('commit');
         if (!ev.result) {
@@ -552,7 +552,7 @@ function processEvent(ev) {
     }
 
     case 'CohortAbort': {
-      const selfNode = roleConfig.nodeaddr;
+      const selfNode = roleConfig.addr;
       if (selfNode && nodes[selfNode]) {
         updatePhase('abort');
         updateStatus('abort');

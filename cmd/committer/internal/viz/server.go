@@ -63,9 +63,9 @@ func (s *Server) Start() {
 		w.Header().Set("Cache-Control", "no-cache")
 
 		if err := json.NewEncoder(w).Encode(map[string]any{
-			"role":     s.node.Role,
-			"nodeaddr": s.node.Addr,
-			"cohorts":  s.node.Cohorts,
+			"role":    s.node.Role,
+			"addr":    s.node.Addr,
+			"cohorts": s.node.Cohorts,
 			// The key intentionally matches the coordinator role name.
 			roleCoordinator: s.node.Coordinator,
 			"commitType":    s.node.CommitType,
