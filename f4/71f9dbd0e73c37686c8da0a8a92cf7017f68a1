@@ -1,0 +1,43 @@
+cmd/committer/internal/cliapi/server.go
+  s_ccf2396caf6fa4::t_86950d6deaa15d 2-3
+cmd/committer/node.go
+  s_ccf2396caf6fa4::t_88cba729e8910f 224
+  s_ccf2396caf6fa4::t_29161252fc35ae 38,97-98,155,187,226-228,231-234
+  s_ccf2396caf6fa4::t_23d75207944f62 230,276,310-312,317-321,323,328,332
+  s_ccf2396caf6fa4::t_6c21bb5ffbe3bd 37,61,63,71,106,130,139,186,229,275,284,296
+  s_ccf2396caf6fa4::t_1009a7285a2ca7 313-314,322,326-327,329-330,334-336
+  s_ccf2396caf6fa4::t_901d6ff574e3a8 315-316,331
+  s_ccf2396caf6fa4::t_4929721683a86b 10
+  s_ccf2396caf6fa4::t_3f61668e28fb72 188,225,307-308,333
+cmd/committer/e2e_test.go
+  s_ccf2396caf6fa4::t_6c21bb5ffbe3bd 24,27,32-36,88,106
+compose.yaml
+  s_ccf2396caf6fa4::t_23d75207944f62 7,21,27
+  s_ccf2396caf6fa4::t_88cba729e8910f 10,24
+cmd/committer/main.go
+  s_ccf2396caf6fa4::t_d9dd5eec65bfc7 30
+  s_ccf2396caf6fa4::t_23d75207944f62 6-8,24-25,27-29,31
+cmd/committer/cli.go
+  s_ccf2396caf6fa4::t_f1b1dff2095aeb 64,66,97-108
+  s_ccf2396caf6fa4::t_6c21bb5ffbe3bd 33,35,40
+  s_ccf2396caf6fa4::t_23d75207944f62 41,65,77,79,155
+  s_ccf2396caf6fa4::t_743d68a13d053e 109-110
+README.md
+  s_ccf2396caf6fa4::t_23d75207944f62 142-144,160,163,166-167,170-173,192-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f471f9dbd0e73c37686c8da0a8a92cf7017f68a1",
+  "prompts": {},
+  "sessions": {
+    "s_ccf2396caf6fa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "341d9519-e6f1-4d5f-8cdd-02e9e886cebe",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
