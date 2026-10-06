@@ -30,15 +30,15 @@ const (
 // defaultCLITimeout bounds every CLI request unless -timeout overrides it.
 const defaultCLITimeout = 5 * time.Second
 
-// defaultClientAddrs match the README example: put goes to the coordinator,
+// defaultAddrs match the README example: put goes to the coordinator,
 // get to the cohort.
-var defaultClientAddrs = map[string]string{cmdPut: "localhost:4000", cmdGet: "localhost:4001"}
+var defaultAddrs = map[string]string{cmdPut: "localhost:3000", cmdGet: "localhost:3001"}
 
 func runCLICommand(command string, args []string, stdout, stderr io.Writer) error {
 	flagset := flag.NewFlagSet("committer "+command, flag.ContinueOnError)
 	flagset.SetOutput(stderr)
-	addr := flagset.String("addr", defaultClientAddrs[command],
-		"-clientaddr of the target node: a coordinator for put, a cohort for get")
+	addr := flagset.String("addr", defaultAddrs[command],
+		"-addr of the target node, started with -cli: a coordinator for put, a cohort for get")
 	timeout := flagset.Duration("timeout", defaultCLITimeout, "request deadline, e.g. 5s or 500ms")
 
 	flagset.Usage = func() {
@@ -61,8 +61,9 @@ func runCLICommand(command string, args []string, stdout, stderr io.Writer) erro
 		return fmt.Errorf("%s requires %d arguments; place flags before arguments", command, expected)
 	}
 
-	if err := dto.Addr(*addr).Validate(); err != nil {
-		return fmt.Errorf("invalid -addr flag: %w", err)
+	target, err := cliTarget(*addr)
+	if err != nil {
+		return err
 	}
 
 	if *timeout <= 0 {
@@ -73,9 +74,9 @@ func runCLICommand(command string, args []string, stdout, stderr io.Writer) erro
 		return errors.New("key must not be empty")
 	}
 
-	cli, err := cliapi.Dial(*addr)
+	cli, err := cliapi.Dial(target)
 	if err != nil {
-		return fmt.Errorf("connect to %s: %w", *addr, err)
+		return fmt.Errorf("connect to %s: %w", target, err)
 	}
 
 	defer func() {
@@ -91,6 +92,20 @@ func runCLICommand(command string, args []string, stdout, stderr io.Writer) erro
 	}
 
 	return nil
+}
+
+// cliTarget returns the client API address of the node whose -addr is addr.
+func cliTarget(addr string) (string, error) {
+	if err := dto.Addr(addr).Validate(); err != nil {
+		return "", fmt.Errorf("invalid -addr flag: %w", err)
+	}
+
+	target, err := clientAddr(addr)
+	if err != nil {
+		return "", fmt.Errorf("invalid -addr flag: %w", err)
+	}
+
+	return target, nil
 }
 
 // invokeCLIOperation executes one CLI subcommand and prints its result.
@@ -137,9 +152,7 @@ func hintForCLIError(command string, err error) string {
 
 	switch code {
 	case codes.Unavailable:
-		hint = "; check that the node is running with -clientaddr and --addr matches it"
-	case codes.Unimplemented:
-		hint = "; --addr must be the node's -clientaddr, not its -nodeaddr"
+		hint = "; check that the node is running with -cli and --addr matches its -addr"
 	case codes.DeadlineExceeded:
 		hint = "; check node connectivity or increase --timeout"
 	case codes.FailedPrecondition:

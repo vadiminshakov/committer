@@ -139,8 +139,9 @@ docker compose exec cohort committer get greeting
 `put` writes through the coordinator; `get` reads the participant's committed
 data and prints `hello`. Open [the protocol visualization](http://localhost:8080)
 and press **Play**. The coordinator's CLI port is published at `localhost:4000`,
-so a local `./bin/committer put greeting hello` also works; the participant is
-reachable only inside the Compose network. The coordinator starts after the cohort
+so a local `./bin/committer put greeting hello` also works (it connects to the
+default `--addr localhost:3000` + 1000); the participant is reachable only inside
+the Compose network. The coordinator starts after the cohort
 container. Ports 4000 and 8080 must be available.
 
 Use `docker compose logs -f` to see node logs and `docker compose down` to stop
@@ -156,19 +157,20 @@ Requires **Go 1.25 or newer** and `make`. Run commands from the repository root.
 make build
 
 # Terminal 1: participant
-./bin/committer cohort -nodeaddr localhost:3001 -clientaddr localhost:4001 -coordinator localhost:3000
+./bin/committer cohort -addr localhost:3001 -coordinator localhost:3000 -cli
 
 # Terminal 2: coordinator
-./bin/committer coordinator -nodeaddr localhost:3000 -clientaddr localhost:4000 -cohorts localhost:3001 -viz-port 8080
+./bin/committer coordinator -addr localhost:3000 -cohorts localhost:3001 -cli -viz-port 8080
 
 # Terminal 3: CLI
-./bin/committer put --addr localhost:4000 greeting hello
-./bin/committer get --addr localhost:4001 greeting
+./bin/committer put --addr localhost:3000 greeting hello
+./bin/committer get --addr localhost:3001 greeting
 ```
 
-Nodes talk to each other on `-nodeaddr`; the CLI talks to them on `-clientaddr`, a
-separate port. `put` goes to a coordinator (default `localhost:4000`) and
-`get` to a cohort (default `localhost:4001`), so `--addr` can be omitted here.
+`--addr` is the node's `-addr`. `put` goes to a coordinator (default
+`localhost:3000`) and `get` to a cohort (default `localhost:3001`), so `--addr`
+can be omitted here. The nodes must run with `-cli`: it opens a separate CLI port,
+the `-addr` port + 1000, which `put` and `get` connect to.
 
 `get` prints `hello`. Put CLI flags **before** key/value arguments.
 Quote values containing spaces: `./bin/committer put greeting "hello world"`.
@@ -187,8 +189,8 @@ Node commands accept these flags:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `nodeaddr` | Node listen address for protocol traffic, `host:port` | `localhost:3050` |
-| `clientaddr` | Client API listen address for `put` (coordinator) and `get` (cohort), `host:port`; empty disables it | empty |
+| `addr` | Node listen address for protocol traffic, `host:port` | `localhost:3050` |
+| `cli` | Serve `put` (coordinator) or `get` (cohort) on the `addr` port + 1000 | off |
 | `coordinator` | Coordinator address; required by the `cohort` command | empty |
 | `cohorts` | Comma-separated participant addresses; required by `coordinator` | empty |
 | `committype` | `two-phase` or `three-phase` | `two-phase` |

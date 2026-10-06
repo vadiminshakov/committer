@@ -1,6 +1,6 @@
 // Package cliapi is the CLI API of the committer binary: the CLI writes
-// through a coordinator and reads a cohort's committed data. A node started
-// with -clientaddr serves it there, apart from the protocol traffic.
+// through a coordinator and reads a cohort's committed data. A node serves it
+// on its client API address, apart from the protocol traffic.
 package cliapi
 
 import (

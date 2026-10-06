@@ -3,9 +3,9 @@
 //
 // Usage:
 //
-//	# Start a cohort and a coordinator; -clientaddr serves put and get.
-//	./committer cohort -nodeaddr=localhost:3001 -clientaddr=localhost:4001 -coordinator=localhost:3000
-//	./committer coordinator -nodeaddr=localhost:3000 -clientaddr=localhost:4000 -cohorts=localhost:3001
+//	# Start a cohort and a coordinator; -cli lets them serve put and get.
+//	./committer cohort -addr=localhost:3001 -coordinator=localhost:3000 -cli
+//	./committer coordinator -addr=localhost:3000 -cohorts=localhost:3001 -cli
 //
 //	# Write through the coordinator, read from the cohort.
 //	./committer put greeting hello
@@ -21,12 +21,14 @@ import (
 const usage = `Usage: committer <command> [flags] [arguments]
 
 Node commands:
-  coordinator -nodeaddr localhost:3000 -clientaddr localhost:4000 -cohorts localhost:3001
-  cohort -nodeaddr localhost:3001 -clientaddr localhost:4001 -coordinator localhost:3000
+  coordinator -addr localhost:3000 -cohorts localhost:3001 -cli
+  cohort -addr localhost:3001 -coordinator localhost:3000 -cli
 
-CLI commands (flags must precede arguments):
-  put    --addr localhost:4000 KEY VALUE    (a coordinator's -clientaddr)
-  get    --addr localhost:4001 KEY          (a cohort's -clientaddr)
+CLI commands, for nodes started with -cli (flags must precede arguments):
+  put    --addr localhost:3000 KEY VALUE    (a coordinator's -addr)
+  get    --addr localhost:3001 KEY          (a cohort's -addr)
+
+The CLI connects to the node's -addr port + 1000.
 
 Use 'committer <command> -h' for command options.
 `

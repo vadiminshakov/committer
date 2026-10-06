@@ -21,19 +21,19 @@ const (
 var (
 	nodes = map[string][]*nodeConfig{
 		COORDINATOR_TYPE: {
-			{Nodeaddr: "localhost:2938", ClientAddr: "localhost:3938", Role: "coordinator",
+			{Addr: "localhost:2938", ClientAddr: "localhost:3938", Role: "coordinator",
 				Cohorts:  []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
 				Protocol: dto.ProtocolTwoPhase, Timeout: 100 * time.Millisecond},
-			{Nodeaddr: "localhost:5002", ClientAddr: "localhost:6002", Role: "coordinator",
+			{Addr: "localhost:5002", ClientAddr: "localhost:6002", Role: "coordinator",
 				Cohorts:  []string{"localhost:2345", "localhost:2384", "localhost:7532", "localhost:5743", "localhost:4991"},
 				Protocol: dto.ProtocolThreePhase, Timeout: 100 * time.Millisecond},
 		},
 		COHORT_TYPE: {
-			&nodeConfig{Nodeaddr: "localhost:2345", ClientAddr: "localhost:3345", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
-			&nodeConfig{Nodeaddr: "localhost:2384", ClientAddr: "localhost:3384", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
-			&nodeConfig{Nodeaddr: "localhost:7532", ClientAddr: "localhost:8532", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
-			&nodeConfig{Nodeaddr: "localhost:5743", ClientAddr: "localhost:6743", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
-			&nodeConfig{Nodeaddr: "localhost:4991", ClientAddr: "localhost:5991", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
+			&nodeConfig{Addr: "localhost:2345", ClientAddr: "localhost:3345", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
+			&nodeConfig{Addr: "localhost:2384", ClientAddr: "localhost:3384", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
+			&nodeConfig{Addr: "localhost:7532", ClientAddr: "localhost:8532", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
+			&nodeConfig{Addr: "localhost:5743", ClientAddr: "localhost:6743", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
+			&nodeConfig{Addr: "localhost:4991", ClientAddr: "localhost:5991", Role: "cohort", Coordinator: "localhost:2938", Timeout: 800 * time.Millisecond, Protocol: dto.ProtocolThreePhase},
 		},
 	}
 )
@@ -85,7 +85,7 @@ func testHappyPath(t *testing.T, protocol dto.Protocol) {
 				}
 
 				return true
-			}, 3*time.Second, 20*time.Millisecond, "cohort %s did not converge", node.Nodeaddr)
+			}, 3*time.Second, 20*time.Millisecond, "cohort %s did not converge", node.Addr)
 		}
 	}
 }
@@ -103,7 +103,7 @@ func startnodes(protocol dto.Protocol) func() error {
 		conf.Protocol = protocol
 
 		if protocol == dto.ProtocolThreePhase {
-			conf.Coordinator = nodes[COORDINATOR_TYPE][1].Nodeaddr
+			conf.Coordinator = nodes[COORDINATOR_TYPE][1].Addr
 		}
 
 		stop, err := startNode(context.Background(), &conf, events.NoopEmitter{})

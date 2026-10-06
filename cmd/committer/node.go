@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -33,8 +34,8 @@ const (
 // nodeConfig holds the flags of a node command.
 type nodeConfig struct {
 	Role        string // roleCoordinator or roleCohort
-	Nodeaddr    string // protocol traffic
-	ClientAddr  string // serves put and get; empty disables the client API
+	Addr        string // protocol traffic
+	ClientAddr  string // serves put and get with -cli; empty disables the client API
 	Coordinator string // cohort only
 	Cohorts     []string
 	Protocol    dto.Protocol
@@ -57,9 +58,9 @@ func runNode(role string, args []string, stderr io.Writer) error {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(stderr, nil)))
 	slog.Info("Starting node", "role", conf.Role, "protocol", conf.Protocol,
-		"addr", conf.Nodeaddr, "clientaddr", conf.ClientAddr,
+		"addr", conf.Addr, "cli", conf.ClientAddr,
 		"coordinator", conf.Coordinator, "cohorts", conf.Cohorts,
-		"wal", iowal.Dir(conf.DataDir, conf.Role, conf.Nodeaddr))
+		"wal", iowal.Dir(conf.DataDir, conf.Role, conf.Addr))
 
 	var emitter events.Emitter = events.NoopEmitter{}
 
@@ -67,7 +68,7 @@ func runNode(role string, args []string, stderr io.Writer) error {
 		collector := viz.NewCollector(nil)
 		viz.NewServer(collector, viz.Node{
 			Role:        conf.Role,
-			Addr:        conf.Nodeaddr,
+			Addr:        conf.Addr,
 			Coordinator: conf.Coordinator,
 			Cohorts:     conf.Cohorts,
 			CommitType:  conf.Protocol.String(),
@@ -93,8 +94,8 @@ func runNode(role string, args []string, stderr io.Writer) error {
 }
 
 // startNode starts a cluster node. A cohort keeps the data
-// in a Badger store, its resource. With -clientaddr, the coordinator serves put
-// and a cohort serves get on that address. The returned function stops the
+// in a Badger store, its resource. With -cli, the coordinator serves put and a
+// cohort serves get on the client API address. The returned function stops the
 // node.
 func startNode(ctx context.Context, conf *nodeConfig, emitter events.Emitter) (func() error, error) {
 	if conf.Role == roleCohort {
@@ -102,7 +103,7 @@ func startNode(ctx context.Context, conf *nodeConfig, emitter events.Emitter) (f
 	}
 
 	coord, err := coordinator.Start(coordinator.Config{
-		Addr:     dto.Addr(conf.Nodeaddr),
+		Addr:     dto.Addr(conf.Addr),
 		Cohorts:  addrs(conf.Cohorts),
 		Protocol: conf.Protocol,
 		DataDir:  conf.DataDir,
@@ -126,7 +127,7 @@ func addrs(values []string) []dto.Addr {
 }
 
 func startCohort(ctx context.Context, conf *nodeConfig, emitter events.Emitter) (func() error, error) {
-	dbPath := filepath.Join(conf.DataDir, "db", roleCohort, strings.NewReplacer(":", "_", "/", "_").Replace(conf.Nodeaddr))
+	dbPath := filepath.Join(conf.DataDir, "db", roleCohort, strings.NewReplacer(":", "_", "/", "_").Replace(conf.Addr))
 	slog.Info("State store", "db", dbPath)
 
 	stateStore, err := store.Open(dbPath)
@@ -135,7 +136,7 @@ func startCohort(ctx context.Context, conf *nodeConfig, emitter events.Emitter) 
 	}
 
 	participant, err := cohort.Start(ctx, cohort.Config{
-		Addr:        dto.Addr(conf.Nodeaddr),
+		Addr:        dto.Addr(conf.Addr),
 		Coordinator: dto.Addr(conf.Coordinator),
 		Protocol:    conf.Protocol,
 		Timeout:     conf.Timeout,
@@ -151,7 +152,7 @@ func startCohort(ctx context.Context, conf *nodeConfig, emitter events.Emitter) 
 	})
 }
 
-// withClientAPI serves the client API on -clientaddr, if set, for a started node. The
+// withClientAPI serves the client API on conf.ClientAddr, if set, for a started node. The
 // returned function stops the client API, then the node through stop. If the
 // client API cannot start, the node is stopped.
 func withClientAPI(
@@ -182,9 +183,9 @@ func parseNodeFlags(role string, args []string, output io.Writer) (*nodeConfig, 
 	flagset.SetOutput(output)
 
 	conf := &nodeConfig{Role: role}
-	flagset.StringVar(&conf.Nodeaddr, "nodeaddr", "localhost:3050", "node listen address (host:port)")
-	flagset.StringVar(&conf.ClientAddr, "clientaddr", "",
-		"serve put (coordinator) and get (cohort) on this address (host:port); empty disables it")
+	flagset.StringVar(&conf.Addr, "addr", "localhost:3050", "protocol listen address (host:port)")
+	cli := flagset.Bool("cli", false,
+		fmt.Sprintf("serve put (coordinator) and get (cohort) on the protocol port + %d", clientAddrPortOffset))
 	flagset.StringVar(&conf.Coordinator, "coordinator", "", "coordinator address (required for cohort command)")
 	commitType := flagset.String("committype", dto.ProtocolTwoPhase.String(), "two-phase or three-phase")
 	timeout := flagset.String("timeout", "1s", "3PC timeout, e.g. 1s or 500ms (bare numbers mean milliseconds)")
@@ -220,7 +221,17 @@ func parseNodeFlags(role string, args []string, output io.Writer) (*nodeConfig, 
 		return nil, err
 	}
 
-	return conf, conf.validate()
+	if err = conf.validate(); err != nil {
+		return nil, err
+	}
+
+	if *cli {
+		if conf.ClientAddr, err = clientAddr(conf.Addr); err != nil {
+			return nil, fmt.Errorf("-cli: %w", err)
+		}
+	}
+
+	return conf, nil
 }
 
 func (conf *nodeConfig) validate() error {
@@ -261,8 +272,8 @@ func (conf *nodeConfig) validate() error {
 }
 
 func (conf *nodeConfig) validateAddresses() error {
-	if err := dto.Addr(conf.Nodeaddr).Validate(); err != nil {
-		return fmt.Errorf("-nodeaddr: %w", err)
+	if err := dto.Addr(conf.Addr).Validate(); err != nil {
+		return fmt.Errorf("-addr: %w", err)
 	}
 
 	if conf.Coordinator != "" {
@@ -270,7 +281,7 @@ func (conf *nodeConfig) validateAddresses() error {
 			return fmt.Errorf("-coordinator: %w", err)
 		}
 
-		if conf.Coordinator == conf.Nodeaddr {
+		if conf.Coordinator == conf.Addr {
 			return errors.New("cohort and coordinator must use different addresses")
 		}
 	}
@@ -282,7 +293,7 @@ func (conf *nodeConfig) validateAddresses() error {
 			return fmt.Errorf("-cohorts: %w", err)
 		}
 
-		if addr == conf.Nodeaddr {
+		if addr == conf.Addr {
 			return errors.New("coordinator cannot list itself in -cohorts")
 		}
 
@@ -293,17 +304,36 @@ func (conf *nodeConfig) validateAddresses() error {
 		seen[addr] = true
 	}
 
-	if conf.ClientAddr != "" {
-		if err := dto.Addr(conf.ClientAddr).Validate(); err != nil {
-			return fmt.Errorf("-clientaddr: %w", err)
-		}
+	return nil
+}
 
-		if conf.ClientAddr == conf.Nodeaddr {
-			return errors.New("-clientaddr must differ from -nodeaddr")
-		}
+// clientAddrPortOffset separates a node's client API port from its protocol
+// port: a node started with -addr localhost:3000 -cli serves the CLI on 4000.
+// put and get take the protocol address and add the offset themselves.
+const clientAddrPortOffset = 1000
+
+const maxPort = 65535
+
+// clientAddr returns the client API address of the node whose protocol
+// address is addr, validated per dto.Addr: the same host, the port shifted by
+// clientAddrPortOffset.
+func clientAddr(addr string) (string, error) {
+	host, rawPort, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fmt.Errorf("parse address: %w", err)
 	}
 
-	return nil
+	port, err := strconv.Atoi(rawPort)
+	if err != nil {
+		return "", fmt.Errorf("parse port: %w", err)
+	}
+
+	if port+clientAddrPortOffset > maxPort {
+		return "", fmt.Errorf("the CLI is served on the protocol port + %d, but %d + %d exceeds %d",
+			clientAddrPortOffset, port, clientAddrPortOffset, maxPort)
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(port+clientAddrPortOffset)), nil
 }
 
 // parseTimeout parses the -timeout flag: a Go duration string or a bare
