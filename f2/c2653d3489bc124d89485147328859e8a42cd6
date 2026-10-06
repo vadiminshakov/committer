@@ -1,0 +1,24 @@
+cmd/committer/node.go
+  s_e23ad8386da2f6::t_01a002ed377b1e 179-181
+  s_e23ad8386da2f6::t_c7c1ed5f8de38b 46-49
+README.md
+  s_e23ad8386da2f6::t_0cf9f7263c915d 184-198
+cmd/committer/main.go
+  s_e23ad8386da2f6::t_babb5bef775874 52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f2c2653d3489bc124d89485147328859e8a42cd6",
+  "prompts": {},
+  "sessions": {
+    "s_e23ad8386da2f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4c5e53f4-6c6b-42f1-869f-0802990a9133",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
