@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/events"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/events"
 )
 
 const (
@@ -206,6 +206,11 @@ func (d *cohortDelivery) voteProposal(ctx context.Context, cohort Cohort, propos
 		d.emitVote(events.EvCoordPropose, cohort.Addr(), proposal.Height, "nack")
 
 		if reply.Height >= proposal.Height {
+			if reply.Reason != "" {
+				return fmt.Errorf("cohort %s rejected proposal at height %d: %s",
+					cohort.Addr(), proposal.Height, reply.Reason)
+			}
+
 			return fmt.Errorf("cohort %s rejected proposal at height %d", cohort.Addr(), proposal.Height)
 		}
 

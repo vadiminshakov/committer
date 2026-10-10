@@ -1,4 +1,4 @@
-module github.com/vadiminshakov/committer
+module github.com/vadiminshakov/committer/v2
 
 go 1.25.0
 

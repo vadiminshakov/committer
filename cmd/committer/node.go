@@ -1,0 +1,356 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/vadiminshakov/committer/v2/cmd/committer/internal/cliapi"
+	"github.com/vadiminshakov/committer/v2/cmd/committer/internal/viz"
+	"github.com/vadiminshakov/committer/v2/core/cohort"
+	"github.com/vadiminshakov/committer/v2/core/coordinator"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/events"
+	"github.com/vadiminshakov/committer/v2/io/store"
+	iowal "github.com/vadiminshakov/committer/v2/io/wal"
+)
+
+const (
+	roleCoordinator = "coordinator"
+	roleCohort      = "cohort"
+)
+
+// nodeConfig holds the flags of a node command.
+type nodeConfig struct {
+	Role        string // roleCoordinator or roleCohort
+	Addr        string // protocol traffic
+	ClientAddr  string // serves put and get with -cli; empty disables the client API
+	Coordinator string // cohort only
+	Cohorts     []string
+	Protocol    dto.Protocol
+	Timeout     time.Duration // 3PC autocommit delay
+	DataDir     string
+	VizPort     int // 0 disables the visualization
+}
+
+// runNode parses the flags of a node with the given role, starts the node and
+// stops it on a signal.
+func runNode(role string, args []string, stderr io.Writer) error {
+	conf, err := parseNodeFlags(role, args, stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(stderr, nil)))
+	slog.Info("Starting node", "role", conf.Role, "protocol", conf.Protocol,
+		"addr", conf.Addr, "cli", conf.ClientAddr,
+		"coordinator", conf.Coordinator, "cohorts", conf.Cohorts,
+		"wal", iowal.Dir(conf.DataDir, conf.Role, conf.Addr))
+
+	var emitter events.Emitter = events.NoopEmitter{}
+
+	if conf.VizPort > 0 {
+		collector := viz.NewCollector(nil)
+		viz.NewServer(collector, viz.Node{
+			Role:        conf.Role,
+			Addr:        conf.Addr,
+			Coordinator: conf.Coordinator,
+			Cohorts:     conf.Cohorts,
+			CommitType:  conf.Protocol.String(),
+		}, conf.VizPort).Start()
+		slog.Info("Protocol visualization", "url", fmt.Sprintf("http://localhost:%d", conf.VizPort))
+
+		emitter = collector
+	}
+
+	signals := make(chan os.Signal, 1)
+
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(signals)
+
+	stop, err := startNode(context.Background(), conf, emitter)
+	if err != nil {
+		return err
+	}
+
+	<-signals
+
+	return stop()
+}
+
+// startNode starts a cluster node. A cohort keeps the data
+// in a Badger store, its resource. With -cli, the coordinator serves put and a
+// cohort serves get on the client API address. The returned function stops the
+// node.
+func startNode(ctx context.Context, conf *nodeConfig, emitter events.Emitter) (func() error, error) {
+	if conf.Role == roleCohort {
+		return startCohort(ctx, conf, emitter)
+	}
+
+	coord, err := coordinator.Start(coordinator.Config{
+		Addr:     dto.Addr(conf.Addr),
+		Cohorts:  addrs(conf.Cohorts),
+		Protocol: conf.Protocol,
+		DataDir:  conf.DataDir,
+		Emitter:  emitter,
+	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // already describes the failure
+	}
+
+	return withClientAPI(conf, coord, nil, coord.Close)
+}
+
+// addrs converts flag values checked by validateAddresses.
+func addrs(values []string) []dto.Addr {
+	out := make([]dto.Addr, len(values))
+	for i, v := range values {
+		out[i] = dto.Addr(v)
+	}
+
+	return out
+}
+
+func startCohort(ctx context.Context, conf *nodeConfig, emitter events.Emitter) (func() error, error) {
+	dbPath := filepath.Join(conf.DataDir, "db", roleCohort, strings.NewReplacer(":", "_", "/", "_").Replace(conf.Addr))
+	slog.Info("State store", "db", dbPath)
+
+	stateStore, err := store.Open(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open state store: %w", err)
+	}
+
+	participant, err := cohort.Start(ctx, cohort.Config{
+		Addr:        dto.Addr(conf.Addr),
+		Coordinator: dto.Addr(conf.Coordinator),
+		Protocol:    conf.Protocol,
+		Timeout:     conf.Timeout,
+		DataDir:     conf.DataDir,
+		Emitter:     emitter,
+	}, stateStore)
+	if err != nil {
+		return nil, errors.Join(err, stateStore.Close())
+	}
+
+	return withClientAPI(conf, nil, stateStore, func() error {
+		return errors.Join(participant.Close(), stateStore.Close())
+	})
+}
+
+// withClientAPI serves the client API on conf.ClientAddr, if set, for a started node. The
+// returned function stops the client API, then the node through stop. If the
+// client API cannot start, the node is stopped.
+func withClientAPI(
+	conf *nodeConfig,
+	committer cliapi.Committer,
+	reader cliapi.Reader,
+	stop func() error,
+) (func() error, error) {
+	if conf.ClientAddr == "" {
+		return stop, nil
+	}
+
+	stopClientAPI, err := cliapi.Serve(conf.ClientAddr, committer, reader)
+	if err != nil {
+		return nil, errors.Join(err, stop())
+	}
+
+	return func() error {
+		stopClientAPI()
+
+		return stop()
+	}, nil
+}
+
+// parseNodeFlags parses the flags of the node command for role.
+func parseNodeFlags(role string, args []string, output io.Writer) (*nodeConfig, error) {
+	flagset := flag.NewFlagSet("committer "+role, flag.ContinueOnError)
+	flagset.SetOutput(output)
+
+	conf := &nodeConfig{Role: role}
+	flagset.StringVar(&conf.Addr, "addr", "localhost:3050", "protocol listen address (host:port)")
+	cli := flagset.Bool("cli", false,
+		fmt.Sprintf("serve put (coordinator) and get (cohort) on the protocol port + %d", clientAddrPortOffset))
+	flagset.StringVar(&conf.Coordinator, "coordinator", "", "coordinator address (required for cohort command)")
+	commitType := flagset.String("committype", dto.ProtocolTwoPhase.String(), "two-phase or three-phase")
+	timeout := flagset.String("timeout", "1s", "3PC timeout, e.g. 1s or 500ms (bare numbers mean milliseconds)")
+	cohorts := flagset.String("cohorts", "", "comma-separated participant addresses (required for coordinator command)")
+	flagset.IntVar(&conf.VizPort, "viz-port", 0, "protocol visualization port (0 disables it)")
+	flagset.StringVar(&conf.DataDir, "data-dir", ".data", "persistent data root; keep the same path when restarting")
+
+	if err := flagset.Parse(args); err != nil {
+		return nil, err //nolint:wrapcheck // flag already printed the problem
+	}
+
+	if flagset.NArg() != 0 {
+		return nil, fmt.Errorf("unexpected argument %q; node commands accept flags only", flagset.Arg(0))
+	}
+
+	for addr := range strings.SplitSeq(*cohorts, ",") {
+		if addr = strings.TrimSpace(addr); addr != "" {
+			conf.Cohorts = append(conf.Cohorts, addr)
+		}
+	}
+
+	switch *commitType {
+	case dto.ProtocolTwoPhase.String():
+		conf.Protocol = dto.ProtocolTwoPhase
+	case dto.ProtocolThreePhase.String():
+		conf.Protocol = dto.ProtocolThreePhase
+	default:
+		return nil, fmt.Errorf("invalid -committype %q: use two-phase or three-phase", *commitType)
+	}
+
+	var err error
+	if conf.Timeout, err = parseTimeout(*timeout); err != nil {
+		return nil, err
+	}
+
+	if err = conf.validate(); err != nil {
+		return nil, err
+	}
+
+	if *cli {
+		if conf.ClientAddr, err = clientAddr(conf.Addr); err != nil {
+			return nil, fmt.Errorf("-cli: %w", err)
+		}
+	}
+
+	return conf, nil
+}
+
+func (conf *nodeConfig) validate() error {
+	switch conf.Role {
+	case roleCoordinator:
+		if len(conf.Cohorts) == 0 {
+			return errors.New("coordinator requires -cohorts=host:port[,host:port]")
+		}
+
+		if conf.Coordinator != "" {
+			return errors.New("-coordinator is only valid for a cohort")
+		}
+	case roleCohort:
+		if len(conf.Cohorts) > 0 {
+			return errors.New("cohort cannot use -cohorts; use -coordinator=host:port")
+		}
+
+		if conf.Coordinator == "" {
+			return errors.New("cohort requires -coordinator=host:port")
+		}
+	default:
+		return fmt.Errorf("unknown node command %q", conf.Role)
+	}
+
+	if err := conf.validateAddresses(); err != nil {
+		return err
+	}
+
+	if conf.VizPort < 0 || conf.VizPort > 65535 {
+		return errors.New("-viz-port must be between 0 and 65535")
+	}
+
+	if strings.TrimSpace(conf.DataDir) == "" {
+		return errors.New("-data-dir must not be empty")
+	}
+
+	return nil
+}
+
+func (conf *nodeConfig) validateAddresses() error {
+	if err := dto.Addr(conf.Addr).Validate(); err != nil {
+		return fmt.Errorf("-addr: %w", err)
+	}
+
+	if conf.Coordinator != "" {
+		if err := dto.Addr(conf.Coordinator).Validate(); err != nil {
+			return fmt.Errorf("-coordinator: %w", err)
+		}
+
+		if conf.Coordinator == conf.Addr {
+			return errors.New("cohort and coordinator must use different addresses")
+		}
+	}
+
+	seen := map[string]bool{}
+
+	for _, addr := range conf.Cohorts {
+		if err := dto.Addr(addr).Validate(); err != nil {
+			return fmt.Errorf("-cohorts: %w", err)
+		}
+
+		if addr == conf.Addr {
+			return errors.New("coordinator cannot list itself in -cohorts")
+		}
+
+		if seen[addr] {
+			return fmt.Errorf("duplicate cohort address %q", addr)
+		}
+
+		seen[addr] = true
+	}
+
+	return nil
+}
+
+// clientAddrPortOffset separates a node's client API port from its protocol
+// port: a node started with -addr localhost:3000 -cli serves the CLI on 4000.
+// put and get take the protocol address and add the offset themselves.
+const clientAddrPortOffset = 1000
+
+const maxPort = 65535
+
+// clientAddr returns the client API address of the node whose protocol
+// address is addr, validated per dto.Addr: the same host, the port shifted by
+// clientAddrPortOffset.
+func clientAddr(addr string) (string, error) {
+	host, rawPort, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fmt.Errorf("parse address: %w", err)
+	}
+
+	port, err := strconv.Atoi(rawPort)
+	if err != nil {
+		return "", fmt.Errorf("parse port: %w", err)
+	}
+
+	if port+clientAddrPortOffset > maxPort {
+		return "", fmt.Errorf("the CLI is served on the protocol port + %d, but %d + %d exceeds %d",
+			clientAddrPortOffset, port, clientAddrPortOffset, maxPort)
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(port+clientAddrPortOffset)), nil
+}
+
+// parseTimeout parses the -timeout flag: a Go duration string or a bare
+// number of milliseconds.
+func parseTimeout(raw string) (time.Duration, error) {
+	duration, err := time.ParseDuration(raw)
+	if ms, parseErr := strconv.ParseUint(raw, 10, 64); parseErr == nil {
+		if ms > uint64((1<<63-1)/int64(time.Millisecond)) {
+			return 0, errors.New("-timeout is too large")
+		}
+
+		duration, err = time.Duration(ms)*time.Millisecond, nil
+	}
+
+	if err != nil || duration < time.Millisecond || duration%time.Millisecond != 0 {
+		return 0, errors.New("-timeout must be a positive whole number of milliseconds, e.g. 500ms or 1s")
+	}
+
+	return duration, nil
+}

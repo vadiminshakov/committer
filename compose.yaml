@@ -1,37 +1,52 @@
+# Both participants run the same command and differ only in their service
+# name, which is the address the coordinator dials them at.
+x-cohort: &cohort
+  build: .
+  image: committer:local
+  command:
+    - cohort
+    - -addr=0.0.0.0:3001
+    - -coordinator=coordinator:3000
+    - -data-dir=/data
+    - -cli
+  restart: unless-stopped
+  stop_grace_period: 30s
+
 services:
   cohort:
-    build: .
-    image: committer:local
-    command:
-      - cohort
-      - -nodeaddr=0.0.0.0:3001
-      - -coordinator=coordinator:3000
-      - -data-dir=/data
+    <<: *cohort
     volumes:
       - cohort_data:/data
-    restart: unless-stopped
-    stop_grace_period: 30s
+
+  cohort2:
+    <<: *cohort
+    volumes:
+      - cohort2_data:/data
 
   coordinator:
     build: .
     image: committer:local
     command:
       - coordinator
-      - -nodeaddr=0.0.0.0:3000
-      - -cohorts=cohort:3001
+      - -addr=0.0.0.0:3000
+      - -cohorts=cohort:3001,cohort2:3001
       - -data-dir=/data
+      - -cli
       - -viz-port=8080
     ports:
-      - "127.0.0.1:${COMMITTER_RPC_PORT:-3000}:3000"
+      - "127.0.0.1:4000:4000"
       - "127.0.0.1:${COMMITTER_VIZ_PORT:-8080}:8080"
     volumes:
       - coordinator_data:/data
     depends_on:
       cohort:
         condition: service_started
+      cohort2:
+        condition: service_started
     restart: unless-stopped
     stop_grace_period: 30s
 
 volumes:
   cohort_data:
+  cohort2_data:
   coordinator_data:

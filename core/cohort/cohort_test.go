@@ -3,220 +3,1146 @@ package cohort
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/mocks"
 	"go.uber.org/mock/gomock"
+
+	"github.com/vadiminshakov/committer/v2/core/dto"
+
+	"github.com/vadiminshakov/committer/v2/io/store"
+	iowal "github.com/vadiminshakov/committer/v2/io/wal"
+	"github.com/vadiminshakov/committer/v2/mocks"
+	"github.com/vadiminshakov/gowal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-func TestNewCohort(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+// testResource wraps a store and fails the calls a test selects.
+type testResource struct {
+	*store.Store
 
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-
-	// test creating 2PC cohort
-	cohort := NewCohort(mockCommitter, "two-phase")
-	require.NotNil(t, cohort)
-	require.Equal(t, Mode("two-phase"), cohort.commitType)
-
-	// test creating 3PC cohort
-	cohort3PC := NewCohort(mockCommitter, THREE_PHASE)
-	require.NotNil(t, cohort3PC)
-	require.Equal(t, THREE_PHASE, cohort3PC.commitType)
+	prepareErr error
+	commitErr  error
 }
 
-func TestCohort_Propose(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, "two-phase")
-
-	ctx := context.Background()
-	proposeReq := &dto.ProposeRequest{
-		Height: 0,
-		Key:    "test-key",
-		Value:  []byte("test-value"),
+func (r *testResource) Prepare(ctx context.Context, tx dto.Tx) error {
+	if r.prepareErr != nil {
+		return r.prepareErr
 	}
 
-	expectedResp := &dto.CohortResponse{
-		ResponseType: dto.ResponseTypeAck,
-		Height:       0,
+	return r.Store.Prepare(ctx, tx) //nolint:wrapcheck
+}
+
+func (r *testResource) Commit(ctx context.Context, tx dto.Tx) error {
+	if r.commitErr != nil {
+		return r.commitErr
 	}
 
-	// expect Propose to be called and return success
-	mockCommitter.EXPECT().Propose(ctx, proposeReq).Return(expectedResp, nil)
+	return r.Store.Commit(ctx, tx) //nolint:wrapcheck
+}
 
-	resp, err := cohort.Propose(ctx, proposeReq)
+func (c *Cohort) getCurrentState() phase {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.phase
+}
+
+func setPhaseForTest(c *Cohort, next phase) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.phase = next
+}
+
+// findWalRecord scans the WAL and returns the first record with the given key.
+func findWalRecord(wal *gowal.Wal, key string) (gowal.Record, bool) {
+	for rec := range wal.Iterator() {
+		if rec.Key == key {
+			return rec, true
+		}
+	}
+
+	return gowal.Record{}, false
+}
+
+func openTestWAL(t *testing.T, walPath string) *gowal.Wal {
+	walConfig := gowal.Config{
+		Dir:              walPath,
+		Prefix:           "test",
+		SegmentThreshold: 1024,
+		MaxSegments:      10,
+		IsInSyncDiskMode: false,
+	}
+
+	wal, err := gowal.NewWAL(walConfig)
 	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
-	require.Equal(t, uint64(0), resp.Height)
+	t.Cleanup(func() { wal.Close() })
+
+	return wal
 }
 
-func TestCohort_Propose_Error(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, "two-phase")
-
-	ctx := context.Background()
-	proposeReq := &dto.ProposeRequest{
-		Height: 0,
-		Key:    "test-key",
-		Value:  []byte("test-value"),
-	}
-
-	expectedErr := errors.New("propose failed")
-
-	// expect Propose to be called and return error
-	mockCommitter.EXPECT().Propose(ctx, proposeReq).Return(nil, expectedErr)
-
-	resp, err := cohort.Propose(ctx, proposeReq)
-	require.Error(t, err)
-	require.Nil(t, resp)
-	require.Equal(t, expectedErr, err)
-}
-
-func TestCohort_Precommit_TwoPhase(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, "two-phase")
-
-	ctx := context.Background()
-
-	// test precommit in 2PC mode (should fail)
-	_, err := cohort.Precommit(ctx, 0)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "precommit is allowed for 3PC mode only")
-}
-
-func TestCohort_Precommit_ThreePhase(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, THREE_PHASE)
-
-	ctx := context.Background()
-
-	expectedResp := &dto.CohortResponse{
-		ResponseType: dto.ResponseTypeAck,
-	}
-
-	// expect Precommit to be called and return success
-	mockCommitter.EXPECT().Precommit(ctx, uint64(0)).Return(expectedResp, nil)
-
-	// test precommit in 3PC mode (should succeed)
-	resp, err := cohort.Precommit(ctx, 0)
+func newStateStore(t *testing.T, w *gowal.Wal) (*store.Store, *iowal.RecoveryState) {
+	dbPath := filepath.Join(t.TempDir(), "badger")
+	stateStore, err := store.Open(dbPath)
 	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
-}
+	t.Cleanup(func() { stateStore.Close() })
 
-func TestCohort_Precommit_ThreePhase_Error(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, THREE_PHASE)
-
-	ctx := context.Background()
-	expectedErr := errors.New("precommit failed")
-
-	// expect Precommit to be called and return error
-	mockCommitter.EXPECT().Precommit(ctx, uint64(0)).Return(nil, expectedErr)
-
-	resp, err := cohort.Precommit(ctx, 0)
-	require.Error(t, err)
-	require.Nil(t, resp)
-	require.Equal(t, expectedErr, err)
-}
-
-func TestCohort_Commit(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, "two-phase")
-
-	ctx := context.Background()
-	commitReq := &dto.CommitRequest{Height: 0}
-
-	expectedResp := &dto.CohortResponse{
-		ResponseType: dto.ResponseTypeAck,
-	}
-
-	// expect Commit to be called and return success
-	mockCommitter.EXPECT().Commit(ctx, commitReq).Return(expectedResp, nil)
-
-	resp, err := cohort.Commit(ctx, commitReq)
+	recovery, err := iowal.New(w).Recover(stateStore.Put)
 	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+
+	return stateStore, recovery
 }
 
-func TestCohort_Commit_Error(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+func prepareCommitter(t *testing.T, walPath, commitType string, timeout uint64) (*Cohort, *store.Store, *gowal.Wal, *iowal.RecoveryState) {
+	w := openTestWAL(t, walPath)
+	stateStore, recovery := newStateStore(t, w)
 
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, "two-phase")
+	committer := newCohort(stateStore, commitType, iowal.New(w), timeout)
+	committer.SetHeight(recovery.NextHeight)
 
-	ctx := context.Background()
-	commitReq := &dto.CommitRequest{Height: 0}
-	expectedErr := errors.New("commit failed")
-
-	// expect Commit to be called and return error
-	mockCommitter.EXPECT().Commit(ctx, commitReq).Return(nil, expectedErr)
-
-	resp, err := cohort.Commit(ctx, commitReq)
-	require.Error(t, err)
-	require.Nil(t, resp)
-	require.Equal(t, expectedErr, err)
+	return committer, stateStore, w, recovery
 }
 
-func TestCohort_Commit_Nack(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+func TestPropose_ResourceRejectionIsNackWithReason(t *testing.T) {
+	tempDir := t.TempDir()
+	w := openTestWAL(t, filepath.Join(tempDir, "wal"))
+	stateStore, recovery := newStateStore(t, w)
 
-	mockCommitter := mocks.NewMockCommitter(ctrl)
-	cohort := NewCohort(mockCommitter, "two-phase")
+	resource := &testResource{Store: stateStore, prepareErr: errors.New("insufficient funds")}
+	committer := newCohort(resource, "two-phase", iowal.New(w), 5000)
+	committer.SetHeight(recovery.NextHeight)
 
-	ctx := context.Background()
-	commitReq := &dto.CommitRequest{Height: 0}
-
-	expectedResp := &dto.CohortResponse{
-		ResponseType: dto.ResponseTypeNack,
-	}
-
-	// expect Commit to be called and return NACK
-	mockCommitter.EXPECT().Commit(ctx, commitReq).Return(expectedResp, nil)
-
-	resp, err := cohort.Commit(ctx, commitReq)
+	resp, err := committer.Propose(context.Background(), &dto.ProposeRequest{Height: 0, Key: "k", Value: []byte("v")})
 	require.NoError(t, err)
-	require.NotNil(t, resp)
 	require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
+	require.Equal(t, "insufficient funds", resp.Reason)
+	require.Equal(t, proposeStage, committer.getCurrentState())
+
+	_, logged := findWalRecord(w, iowal.PreparedKey(0))
+	require.False(t, logged, "a NO vote must not be journaled as prepared")
 }
 
-func TestCohort_ModeValidation(t *testing.T) {
+func TestCommit_ValidatesExternalRequest(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, _, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 5000)
+
+	t.Run("nil request", func(t *testing.T) {
+		resp, err := committer.Commit(context.Background(), nil)
+
+		require.Nil(t, resp)
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+		require.Equal(t, uint64(0), committer.Height())
+	})
+
+	t.Run("cancelled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		resp, err := committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+
+		require.Nil(t, resp)
+		require.Equal(t, codes.Canceled, status.Code(err))
+		require.Equal(t, uint64(0), committer.Height())
+	})
+}
+
+func TestCommit_StateValidation_2PC(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 2PC committer
+	committer := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+	committer.SetHeight(recovery.NextHeight)
+
+	require.Equal(t, proposeStage, committer.getCurrentState())
+
+	// first, propose a transaction
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+
+	_, err := committer.Propose(context.Background(), proposeReq)
+	require.NoError(t, err)
+
+	// a 2PC cohort that voted YES enters the prepared state
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	// commit should work from prepared state
+	commitReq := &dto.CommitRequest{Height: 0}
+	resp, err := committer.Commit(context.Background(), commitReq)
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+
+	// should return to propose state after commit
+	require.Equal(t, proposeStage, committer.getCurrentState())
+}
+
+func TestCommit_StateValidation_3PC(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+
+	wal := openTestWAL(t, walPath)
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 3PC committer
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+	committer.SetHeight(recovery.NextHeight)
+
+	require.Equal(t, proposeStage, committer.getCurrentState())
+
+	// first, propose a transaction
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+
+	_, err := committer.Propose(context.Background(), proposeReq)
+	require.NoError(t, err)
+
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	// normal commit must fail before PRECOMMIT in 3PC mode
+	commitReq := &dto.CommitRequest{Height: 0}
+	_, err = committer.Commit(context.Background(), commitReq)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid state for commit: expected precommit for three-phase mode, but current state is prepared")
+
+	// state should remain waiting after failed commit
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	// now go through proper 3PC flow: propose -> precommit -> commit
+	_, err = committer.Precommit(context.Background(), 0)
+	require.NoError(t, err)
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	// now commit should work from precommit state
+	resp, err := committer.Commit(context.Background(), commitReq)
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+
+	// should return to propose state after successful commit
+	require.Equal(t, proposeStage, committer.getCurrentState())
+}
+
+func TestCommit_StateRestoration_OnErrors(t *testing.T) {
+	t.Run("Resource commit failure", func(t *testing.T) {
+		tempDir := t.TempDir()
+		walPath := filepath.Join(tempDir, "wal")
+		wal := openTestWAL(t, walPath)
+
+		stateStore, recovery := newStateStore(t, wal)
+
+		// create 3PC committer whose resource fails to commit
+		resource := &testResource{Store: stateStore, commitErr: errors.New("disk full")}
+		committer := newCohort(resource, "three-phase", iowal.New(wal), 5000)
+		committer.SetHeight(recovery.NextHeight)
+
+		// go through proper 3PC flow: propose -> precommit
+		proposeReq := &dto.ProposeRequest{
+			Height: 0,
+			Key:    "test-key",
+			Value:  []byte("test-value"),
+		}
+
+		_, err := committer.Propose(context.Background(), proposeReq)
+		require.NoError(t, err)
+
+		_, err = committer.Precommit(context.Background(), 0)
+		require.NoError(t, err)
+		require.Equal(t, precommitStage, committer.getCurrentState())
+
+		// the decision is durable, so a resource failure is a retryable error
+		commitReq := &dto.CommitRequest{Height: 0}
+		_, err = committer.Commit(context.Background(), commitReq)
+		require.Equal(t, codes.Unavailable, status.Code(err))
+		require.ErrorContains(t, err, "disk full")
+
+		// the height stays fenced in COMMIT until the resource applies it
+		require.Equal(t, commitStage, committer.getCurrentState())
+		require.Equal(t, uint64(0), committer.Height())
+
+		resource.commitErr = nil
+		resp, err := committer.Commit(context.Background(), commitReq)
+		require.NoError(t, err)
+		require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+		require.Equal(t, uint64(1), committer.Height())
+	})
+
+	t.Run("Redelivered commit for already-aborted height is rejected", func(t *testing.T) {
+		tempDir := t.TempDir()
+		walPath := filepath.Join(tempDir, "wal")
+		wal := openTestWAL(t, walPath)
+
+		stateStore, recovery := newStateStore(t, wal)
+
+		// create 3PC committer
+		committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+		committer.SetHeight(recovery.NextHeight)
+
+		// first propose a normal transaction
+		proposeReq := &dto.ProposeRequest{
+			Height: 0,
+			Key:    "test-key",
+			Value:  []byte("test-value"),
+		}
+
+		_, err := committer.Propose(context.Background(), proposeReq)
+		require.NoError(t, err)
+
+		require.Equal(t, preparedStage, committer.getCurrentState())
+
+		// abort before PRECOMMIT resolves the height: the abort is journaled and
+		// the height is consumed
+		abortResp, aerr := committer.Abort(context.Background(), &dto.AbortRequest{Height: 0, Reason: "test"})
+		require.NoError(t, aerr)
+		require.Equal(t, dto.ResponseTypeAck, abortResp.ResponseType)
+		require.Equal(t, uint64(1), committer.Height())
+
+		// a re-delivered commit for the aborted height must repeat the abort answer (NACK)
+		commitReq := &dto.CommitRequest{Height: 0}
+		resp, err := committer.Commit(context.Background(), commitReq)
+		require.NoError(t, err)
+		require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
+
+		// state stays in propose, ready for the next height
+		require.Equal(t, proposeStage, committer.getCurrentState())
+		require.Equal(t, uint64(1), committer.Height())
+
+		// data should not be in database (commit was skipped)
+		value, err := stateStore.Get("test-key")
+		require.Error(t, err) // should not exist
+		require.Nil(t, value)
+	})
+}
+
+func TestGetExpectedCommitState(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, _ := newStateStore(t, wal)
+
+	// test 2PC mode
+	committer2PC := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+	require.Equal(t, preparedStage, committer2PC.getExpectedCommitState())
+
+	// test 3PC mode
+	committer3PC := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+	require.Equal(t, precommitStage, committer3PC.getExpectedCommitState())
+}
+func TestPrecommitTimeout_StateValidation(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// сreate 3PC committer with short timeout for testing
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 50) // 50ms timeout
+	committer.SetHeight(recovery.NextHeight)
+
+	// test case 1: should skip autocommit when in commit state
+	setPhaseForTest(committer, commitStage)
+	committer.handlePrecommitTimeout(0)
+	require.Equal(t, commitStage, committer.getCurrentState()) // state unchanged
+
+	// test case 2: should skip autocommit when in propose state
+	setPhaseForTest(committer, proposeStage)
+	committer.handlePrecommitTimeout(0)
+	require.Equal(t, proposeStage, committer.getCurrentState()) // state unchanged
+
+	// test case 3: should skip autocommit when height doesn't match
+	setPhaseForTest(committer, precommitStage)
+	committer.handlePrecommitTimeout(999)                         // wrong height
+	require.Equal(t, precommitStage, committer.getCurrentState()) // state unchanged
+}
+
+func TestPrecommitTimeout_AutocommitSuccess(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 3PC committer
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 50)
+	committer.SetHeight(recovery.NextHeight)
+
+	ctx := context.Background()
+
+	// first propose to get data in WAL
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+	_, err := committer.Propose(ctx, proposeReq)
+	require.NoError(t, err)
+
+	// move to precommit state
+	_, err = committer.Precommit(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	// test successful autocommit
+	committer.handlePrecommitTimeout(0)
+
+	// should be back in propose state after successful autocommit
+	require.Equal(t, proposeStage, committer.getCurrentState())
+	require.Equal(t, uint64(1), committer.Height()) // height should be incremented
+}
+
+func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 3PC committer
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 50)
+	committer.SetHeight(recovery.NextHeight)
+
+	// abort fully resolves height 0: journals the abort and consumes the height
+	abortResp, err := committer.Abort(context.Background(), &dto.AbortRequest{Height: 0, Reason: "test"})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, abortResp.ResponseType)
+	require.Equal(t, uint64(1), committer.Height())
+
+	// a late precommit timeout for the aborted height is a no-op
+	setPhaseForTest(committer, precommitStage)
+	committer.handlePrecommitTimeout(0)
+
+	// height mismatch prevents autocommit of the aborted transaction
+	require.Equal(t, precommitStage, committer.getCurrentState())
+	require.Equal(t, uint64(1), committer.Height())
+}
+
+func TestPrecommitTimeout_AutocommitFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 3PC committer whose resource fails to commit
+	resource := &testResource{Store: stateStore, commitErr: errors.New("disk full")}
+	committer := newCohort(resource, "three-phase", iowal.New(wal), 50)
+	committer.SetHeight(recovery.NextHeight)
+
+	ctx := context.Background()
+
+	// first propose to get data in WAL
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+	_, err := committer.Propose(ctx, proposeReq)
+	require.NoError(t, err)
+
+	// move to precommit state
+	_, err = committer.Precommit(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	// test autocommit failure
+	committer.handlePrecommitTimeout(0)
+
+	require.Equal(t, commitStage, committer.getCurrentState())
+	require.Equal(t, uint64(0), committer.Height()) // height should not be incremented on failure
+}
+
+func TestPrecommitTimeout_NoDataInWAL(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 3PC committer
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 50)
+	committer.SetHeight(recovery.NextHeight)
+
+	// set up state without data in WAL
+
+	// move to precommit state without proposing first
+	setPhaseForTest(committer, precommitStage)
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	// test autocommit with no data in WAL - it remains fenced
+	committer.handlePrecommitTimeout(0)
+
+	// no abort or state rollback is allowed
+	require.Equal(t, precommitStage, committer.getCurrentState())
+	require.Equal(t, uint64(0), committer.Height()) // height should not be incremented
+}
+
+func TestAbort_CurrentHeight(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 3PC committer
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+	committer.SetHeight(recovery.NextHeight)
+
+	// set up a transaction at current height
+	ctx := context.Background()
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+
+	_, err := committer.Propose(ctx, proposeReq)
+	require.NoError(t, err)
+
+	// move to precommit state
+	_, err = committer.Precommit(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	// ABORT is rejected after PRECOMMIT
+	abortReq := &dto.AbortRequest{
+		Height: 0,
+		Reason: "Test abort",
+	}
+
+	resp, err := committer.Abort(ctx, abortReq)
+	require.Error(t, err)
+	require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
+
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	// should have the original data in WAL (Prepared)
+	prepRec, ok := findWalRecord(wal, iowal.PreparedKey(0))
+	require.True(t, ok, "PREPARED record should be in WAL")
+
+	// verify payload
+	walTx, err := iowal.Decode(prepRec.Value)
+	require.NoError(t, err)
+	require.Equal(t, "test-key", walTx.Key)
+
+	// verify no Abort was written after PRECOMMIT
+	_, ok = findWalRecord(wal, iowal.AbortKey(0))
+	require.False(t, ok, "ABORT record must not be in WAL")
+
+	value, err := stateStore.Get("test-key")
+	require.Error(t, err, "Original value should not exist in database after abort")
+	require.Nil(t, value)
+}
+
+func TestAbort_FutureHeight(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create committer
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+	committer.SetHeight(recovery.NextHeight)
+
+	// test abort for future height (should be ignored)
+	ctx := context.Background()
+	abortReq := &dto.AbortRequest{
+		Height: 10, // future height
+		Reason: "Test abort future",
+	}
+
+	resp, err := committer.Abort(ctx, abortReq)
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+
+	// state should remain unchanged
+	require.Equal(t, proposeStage, committer.getCurrentState())
+	require.Equal(t, uint64(0), committer.Height())
+
+	require.Equal(t, uint64(0), wal.CurrentIndex(), "WAL should be empty when abort was for future height")
+}
+
+func TestAbort_PastHeight(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create committer and advance height
+	committer := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+	committer.SetHeight(recovery.NextHeight)
+
+	// complete a transaction to advance height
+	ctx := context.Background()
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+
+	_, err := committer.Propose(ctx, proposeReq)
+	require.NoError(t, err)
+
+	commitReq := &dto.CommitRequest{Height: 0}
+	_, err = committer.Commit(ctx, commitReq)
+	require.NoError(t, err)
+
+	// height should now be 1
+	require.Equal(t, uint64(1), committer.Height())
+
+	// test abort for past height (should be ignored)
+	abortReq := &dto.AbortRequest{
+		Height: 0, // Past height
+		Reason: "Test abort past",
+	}
+
+	resp, err := committer.Abort(ctx, abortReq)
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+
+	// state should remain unchanged
+	require.Equal(t, proposeStage, committer.getCurrentState())
+	require.Equal(t, uint64(1), committer.Height())
+
+	// check wal unchanged
+	_, ok := findWalRecord(wal, iowal.PreparedKey(0))
+	require.True(t, ok, "PREPARED record should be in WAL")
+	_, ok = findWalRecord(wal, iowal.CommitKey(0))
+	require.True(t, ok, "COMMIT record should be in WAL")
+
+	// check normal data is in db
+	value, err := stateStore.Get("test-key")
+	require.NoError(t, err, "Data should exist in database for past committed transaction")
+	require.Equal(t, "test-value", string(value))
+}
+
+func TestAbort_StateRecovery_3PC(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 3PC committer
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+	committer.SetHeight(recovery.NextHeight)
+
+	// set up transaction and move to precommit state
+	ctx := context.Background()
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+
+	_, err := committer.Propose(ctx, proposeReq)
+	require.NoError(t, err)
+
+	_, err = committer.Precommit(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	// test abort from precommit state
+	abortReq := &dto.AbortRequest{
+		Height: 0,
+		Reason: "Test 3PC abort",
+	}
+
+	resp, err := committer.Abort(ctx, abortReq)
+	require.Error(t, err)
+	require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
+
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	// check wal: no abort may follow precommit
+	_, ok := findWalRecord(wal, iowal.AbortKey(0))
+	require.False(t, ok, "ABORT record must not be in WAL")
+}
+
+func TestAbort_StateRecovery_2PC(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+
+	stateStore, recovery := newStateStore(t, wal)
+
+	// create 2PC committer
+	committer := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+	committer.SetHeight(recovery.NextHeight)
+
+	// set up transaction (in 2PC, we stay in propose state)
+	ctx := context.Background()
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+
+	_, err := committer.Propose(ctx, proposeReq)
+	require.NoError(t, err)
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	// test abort from prepared state in 2PC
+	abortReq := &dto.AbortRequest{
+		Height: 0,
+		Reason: "Test 2PC abort",
+	}
+
+	resp, err := committer.Abort(ctx, abortReq)
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+
+	// abort resolves the height and returns the cohort to propose
+	require.Equal(t, proposeStage, committer.getCurrentState())
+	require.Equal(t, uint64(1), committer.Height())
+
+	// check wal
+	_, ok := findWalRecord(wal, iowal.AbortKey(0))
+	require.True(t, ok, "ABORT record should be in WAL")
+}
+
+func TestPropose_HeightMismatch(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, _, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 5000)
+
+	// a proposal for a non-current height must be NACKed with our height
+	resp, err := committer.Propose(context.Background(), &dto.ProposeRequest{
+		Height: 5,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
+	require.Equal(t, uint64(0), resp.Height)
+	require.Equal(t, proposeStage, committer.getCurrentState())
+}
+
+func TestPropose_RedeliveryWhilePrepared(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, stateStore, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 5000)
+
+	ctx := context.Background()
+	proposeReq := &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	}
+
+	_, err := committer.Propose(ctx, proposeReq)
+	require.NoError(t, err)
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	// re-delivered identical proposal: repeat the YES vote
+	resp, err := committer.Propose(ctx, proposeReq)
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	// conflicting proposal for the same height: the vote must not change
+	resp, err = committer.Propose(ctx, &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("other-value"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
+
+	// original vote is intact: commit applies the original payload
+	_, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+
+	value, err := stateStore.Get("test-key")
+	require.NoError(t, err)
+	require.Equal(t, "test-value", string(value))
+}
+
+func TestAbort_NextTransactionSucceeds(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, stateStore, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 5000)
+
+	ctx := context.Background()
+
+	// transaction at height 0 gets aborted
+	_, err := committer.Propose(ctx, &dto.ProposeRequest{Height: 0, Key: "k1", Value: []byte("v1")})
+	require.NoError(t, err)
+
+	_, err = committer.Abort(ctx, &dto.AbortRequest{Height: 0, Reason: "test"})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), committer.Height())
+
+	// the next transaction (at the next height) must commit normally:
+	// the abort of height 0 must not poison it
+	_, err = committer.Propose(ctx, &dto.ProposeRequest{Height: 1, Key: "k2", Value: []byte("v2")})
+	require.NoError(t, err)
+
+	resp, err := committer.Commit(ctx, &dto.CommitRequest{Height: 1})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, uint64(2), committer.Height())
+
+	value, err := stateStore.Get("k2")
+	require.NoError(t, err)
+	require.Equal(t, "v2", string(value))
+
+	_, err = stateStore.Get("k1")
+	require.Error(t, err, "aborted transaction data must not be applied")
+}
+
+func TestCommit_RedeliveredDecision(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, _, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 5000)
+
+	ctx := context.Background()
+
+	// height 0: committed
+	_, err := committer.Propose(ctx, &dto.ProposeRequest{Height: 0, Key: "k1", Value: []byte("v1")})
+	require.NoError(t, err)
+	_, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+
+	// height 1: aborted
+	_, err = committer.Propose(ctx, &dto.ProposeRequest{Height: 1, Key: "k2", Value: []byte("v2")})
+	require.NoError(t, err)
+	_, err = committer.Abort(ctx, &dto.AbortRequest{Height: 1, Reason: "test"})
+	require.NoError(t, err)
+
+	// re-delivered commit repeats the recorded answer, not a blanket ACK
+	resp, err := committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType, "committed height must re-ACK")
+
+	resp, err = committer.Commit(ctx, &dto.CommitRequest{Height: 1})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeNack, resp.ResponseType, "aborted height must NACK a commit")
+}
+
+func TestResume_InDoubtTransaction2PC(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+	stateStore, _ := newStateStore(t, wal)
+
+	payload, err := iowal.Encode(iowal.Tx{Key: "test-key", Value: []byte("test-value")})
+	require.NoError(t, err)
+
+	// simulate a restart of a cohort that crashed while prepared at height 3
+	committer := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+	require.NoError(t, committer.Resume(context.Background(), &iowal.RecoveryState{
+		NextHeight: 4,
+		Unresolved: &iowal.UnresolvedTransaction{
+			Height:  3,
+			Phase:   iowal.PhaseKeyPrepared,
+			Payload: payload,
+		},
+		Decisions: map[uint64]string{2: iowal.PhaseKeyCommit},
+	}))
+
+	require.Equal(t, uint64(3), committer.Height())
+	require.Equal(t, preparedStage, committer.getCurrentState(), "cohort must re-enter prepared state")
+
+	// the coordinator's re-delivered commit resolves the in-doubt transaction
+	resp, err := committer.Commit(context.Background(), &dto.CommitRequest{Height: 3})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, uint64(4), committer.Height())
+
+	value, err := stateStore.Get("test-key")
+	require.NoError(t, err)
+	require.Equal(t, "test-value", string(value))
+}
+
+func TestResume_PrecommittedTransaction3PC(t *testing.T) {
+	tempDir := t.TempDir()
+	walPath := filepath.Join(tempDir, "wal")
+	wal := openTestWAL(t, walPath)
+	stateStore, _ := newStateStore(t, wal)
+
+	payload, err := iowal.Encode(iowal.Tx{Key: "test-key", Value: []byte("test-value")})
+	require.NoError(t, err)
+
+	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 60_000)
+	require.NoError(t, committer.Resume(context.Background(), &iowal.RecoveryState{
+		NextHeight: 4,
+		Unresolved: &iowal.UnresolvedTransaction{
+			Height:  3,
+			Phase:   iowal.PhaseKeyPrecommit,
+			Payload: payload,
+		},
+	}))
+
+	require.Equal(t, uint64(3), committer.Height())
+	require.Equal(t, precommitStage, committer.getCurrentState())
+	require.Equal(t, payload, committer.pendingPayload)
+}
+
+func TestTerminationProtocol_CommitDecision(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, stateStore, _, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 50)
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockCommitter := mocks.NewMockCommitter(ctrl)
+	decisionRequester := mocks.NewMockDecisionRequester(ctrl)
+	decisionRequester.EXPECT().Decision(gomock.Any(), uint64(0)).Return(dto.OutcomeCommit, nil).AnyTimes()
+	committer.SetDecisionRequester(decisionRequester)
 
-	// test different modes
-	modes := []Mode{"two-phase", THREE_PHASE, "custom-mode"}
+	_, err := committer.Propose(context.Background(), &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, preparedStage, committer.getCurrentState())
 
-	for _, mode := range modes {
-		cohort := NewCohort(mockCommitter, mode)
-		require.NotNil(t, cohort)
-		require.Equal(t, mode, cohort.commitType)
+	// no commit arrives from the coordinator; the cohort must resolve the
+	// in-doubt transaction itself by asking for the decision
+	require.Eventually(t, func() bool {
+		return committer.Height() == 1
+	}, 3*time.Second, 20*time.Millisecond, "cohort must commit via termination protocol")
+
+	require.Equal(t, proposeStage, committer.getCurrentState())
+
+	value, err := stateStore.Get("test-key")
+	require.NoError(t, err)
+	require.Equal(t, "test-value", string(value))
+}
+
+func TestTerminationProtocol_AbortDecision(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, stateStore, wal, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 50)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	decisionRequester := mocks.NewMockDecisionRequester(ctrl)
+	decisionRequester.EXPECT().Decision(gomock.Any(), uint64(0)).Return(dto.OutcomeAbort, nil).AnyTimes()
+	committer.SetDecisionRequester(decisionRequester)
+
+	_, err := committer.Propose(context.Background(), &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return committer.Height() == 1
+	}, 3*time.Second, 20*time.Millisecond, "cohort must abort via termination protocol")
+
+	require.Equal(t, proposeStage, committer.getCurrentState())
+
+	_, err = stateStore.Get("test-key")
+	require.Error(t, err, "aborted transaction data must not be applied")
+
+	_, ok := findWalRecord(wal, iowal.AbortKey(0))
+	require.True(t, ok, "ABORT record should be in WAL")
+}
+
+func TestPreparedThreePhaseRecoveryUsesNormalPrecommitAndCommit(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, stateStore, wal, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "three-phase", 5_000)
+	payload, err := iowal.Encode(iowal.Tx{Key: "test-key", Value: []byte("test-value")})
+	require.NoError(t, err)
+	require.NoError(t, committer.Resume(context.Background(), &iowal.RecoveryState{
+		NextHeight: 1,
+		Unresolved: &iowal.UnresolvedTransaction{
+			Height:  0,
+			Phase:   iowal.PhaseKeyPrepared,
+			Payload: payload,
+		},
+	}))
+
+	ctx := context.Background()
+
+	require.Equal(t, preparedStage, committer.getCurrentState())
+	_, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.Error(t, err, "recovered 3PC PREPARED must not commit directly")
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	resp, err := committer.Precommit(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, precommitStage, committer.getCurrentState())
+
+	resp, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, uint64(1), committer.Height())
+
+	value, err := stateStore.Get("test-key")
+	require.NoError(t, err)
+	require.Equal(t, "test-value", string(value))
+
+	// The final decision is idempotent after the normal legal phase sequence.
+	resp, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+
+	_, ok := findWalRecord(wal, iowal.CommitKey(0))
+	require.True(t, ok, "commit must be journaled")
+}
+
+func TestCommitRetriesFromCommitStageAfterStoreFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	w := openTestWAL(t, filepath.Join(tempDir, "wal"))
+
+	ctrl := gomock.NewController(t)
+	resource := mocks.NewMockResource(ctrl)
+	tx := dto.Tx{Height: 0, Key: "test-key", Value: []byte("test-value")}
+	applyErr := errors.New("store unavailable")
+
+	resource.EXPECT().Prepare(gomock.Any(), tx).Return(nil)
+	resource.EXPECT().Commit(gomock.Any(), tx).Return(applyErr)
+	resource.EXPECT().Commit(gomock.Any(), tx).Return(nil)
+
+	committer := newCohort(resource, "three-phase", iowal.New(w), 5_000)
+	ctx := context.Background()
+	_, err := committer.Propose(ctx, &dto.ProposeRequest{
+		Height: 0,
+		Key:    "test-key",
+		Value:  []byte("test-value"),
+	})
+	require.NoError(t, err)
+	_, err = committer.Precommit(ctx, 0)
+	require.NoError(t, err)
+
+	_, err = committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	require.ErrorContains(t, err, applyErr.Error())
+	require.Equal(t, commitStage, committer.getCurrentState())
+	require.Equal(t, uint64(0), committer.Height())
+	require.NotNil(t, committer.pendingPayload)
+
+	resp, err := committer.Commit(ctx, &dto.CommitRequest{Height: 0})
+	require.NoError(t, err)
+	require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+	require.Equal(t, proposeStage, committer.getCurrentState())
+	require.Equal(t, uint64(1), committer.Height())
+}
+
+func TestResume_ReappliesLastCommitAndReleasesUnloggedPrepare(t *testing.T) {
+	tempDir := t.TempDir()
+	w := openTestWAL(t, filepath.Join(tempDir, "wal"))
+
+	payload, err := iowal.Encode(iowal.Tx{Key: "test-key", Value: []byte("test-value")})
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	resource := mocks.NewMockResource(ctrl)
+	gomock.InOrder(
+		resource.EXPECT().Commit(gomock.Any(), dto.Tx{Height: 4, Key: "test-key", Value: []byte("test-value")}),
+		resource.EXPECT().Abort(gomock.Any(), uint64(5)),
+	)
+
+	committer := newCohort(resource, "two-phase", iowal.New(w), 5_000)
+	require.NoError(t, committer.Resume(context.Background(), &iowal.RecoveryState{
+		NextHeight:  5,
+		Decisions:   map[uint64]string{4: iowal.PhaseKeyCommit},
+		LastDecided: &iowal.DecidedTransaction{Height: 4, Phase: iowal.PhaseKeyCommit, Payload: payload},
+	}))
+	require.Equal(t, uint64(5), committer.Height())
+}
+
+func TestResume_FailsWhenResourceCannotReapply(t *testing.T) {
+	tempDir := t.TempDir()
+	w := openTestWAL(t, filepath.Join(tempDir, "wal"))
+
+	ctrl := gomock.NewController(t)
+	resource := mocks.NewMockResource(ctrl)
+	resource.EXPECT().Abort(gomock.Any(), uint64(2)).Return(errors.New("db down"))
+
+	committer := newCohort(resource, "two-phase", iowal.New(w), 5_000)
+	err := committer.Resume(context.Background(), &iowal.RecoveryState{
+		NextHeight:  3,
+		LastDecided: &iowal.DecidedTransaction{Height: 2, Phase: iowal.PhaseKeyAbort},
+	})
+	require.ErrorContains(t, err, "db down")
+}
+
+func TestPrecommit_RejectedInTwoPhase(t *testing.T) {
+	tempDir := t.TempDir()
+	committer, _, w, _ := prepareCommitter(t, filepath.Join(tempDir, "wal"), "two-phase", 5000)
+
+	_, err := committer.Propose(context.Background(), &dto.ProposeRequest{Height: 0, Key: "k", Value: []byte("v")})
+	require.NoError(t, err)
+
+	_, err = committer.Precommit(context.Background(), 0)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, preparedStage, committer.getCurrentState())
+
+	_, logged := findWalRecord(w, iowal.PrecommitKey(0))
+	require.False(t, logged, "a rejected precommit must not be journaled")
+}
+
+func TestCommit_RejectsUnpreparedTransaction(t *testing.T) {
+	for _, commitType := range []string{"two-phase", "three-phase"} {
+		t.Run(commitType, func(t *testing.T) {
+			w := openTestWAL(t, filepath.Join(t.TempDir(), "wal"))
+			resource := mocks.NewMockResource(gomock.NewController(t))
+			committer := newCohort(resource, commitType, iowal.New(w), 60_000)
+
+			resp, err := committer.Commit(context.Background(), &dto.CommitRequest{Height: 0})
+
+			require.Nil(t, resp)
+			require.Equal(t, codes.FailedPrecondition, status.Code(err))
+			require.Equal(t, uint64(0), committer.Height())
+
+			_, logged := findWalRecord(w, iowal.CommitKey(0))
+			require.False(t, logged, "an unprepared transaction must not be committed")
+		})
+	}
+}
+
+func TestAbort_RejectsCommitInProgress(t *testing.T) {
+	for _, commitType := range []string{"two-phase", "three-phase"} {
+		t.Run(commitType, func(t *testing.T) {
+			w := openTestWAL(t, filepath.Join(t.TempDir(), "wal"))
+			resource := mocks.NewMockResource(gomock.NewController(t))
+			tx := dto.Tx{Height: 0, Key: "key", Value: []byte("value")}
+			gomock.InOrder(
+				resource.EXPECT().Prepare(gomock.Any(), tx).Return(nil),
+				resource.EXPECT().Commit(gomock.Any(), tx).Return(errors.New("resource unavailable")),
+				resource.EXPECT().Commit(gomock.Any(), tx).Return(nil),
+			)
+			committer := newCohort(resource, commitType, iowal.New(w), 60_000)
+			ctx := context.Background()
+
+			_, err := committer.Propose(ctx, &dto.ProposeRequest{Height: tx.Height, Key: tx.Key, Value: tx.Value})
+			require.NoError(t, err)
+
+			if commitType == "three-phase" {
+				_, err = committer.Precommit(ctx, tx.Height)
+				require.NoError(t, err)
+			}
+
+			_, err = committer.Commit(ctx, &dto.CommitRequest{Height: tx.Height})
+			require.Equal(t, codes.Unavailable, status.Code(err))
+
+			resp, err := committer.Abort(ctx, &dto.AbortRequest{Height: tx.Height, Reason: "late abort"})
+			require.Equal(t, codes.FailedPrecondition, status.Code(err))
+			require.Equal(t, dto.ResponseTypeNack, resp.ResponseType)
+			require.Equal(t, uint64(0), committer.Height())
+
+			_, logged := findWalRecord(w, iowal.AbortKey(tx.Height))
+			require.False(t, logged, "ABORT must not replace a commit in progress")
+
+			resp, err = committer.Commit(ctx, &dto.CommitRequest{Height: tx.Height})
+			require.NoError(t, err)
+			require.Equal(t, dto.ResponseTypeAck, resp.ResponseType)
+			require.Equal(t, uint64(1), committer.Height())
+		})
 	}
 }

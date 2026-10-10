@@ -1,13 +1,16 @@
 package store
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/io/wal"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/io/wal"
 	"github.com/vadiminshakov/gowal"
 )
 
@@ -57,13 +60,17 @@ func TestStore_Recovery_Commit(t *testing.T) {
 	defer w2.Close()
 
 	// 3. recover
-	s, state, err := New(wal.New(w2), dbDir)
+	s, state, err := openRecovered(wal.New(w2), dbDir)
 	require.NoError(t, err)
 
 	defer s.Close()
 
 	// 4. verify
 	assert.Equal(t, height+1, state.NextHeight)
+	require.NotNil(t, state.LastDecided)
+	assert.Equal(t, height, state.LastDecided.Height)
+	assert.Equal(t, wal.PhaseKeyCommit, state.LastDecided.Phase)
+	assert.Equal(t, encoded, state.LastDecided.Payload)
 
 	val, err := s.Get("key1")
 	assert.NoError(t, err)
@@ -98,7 +105,7 @@ func TestStore_Recovery_PreparedOnly(t *testing.T) {
 
 	defer w2.Close()
 
-	s, state, err := New(wal.New(w2), dbDir)
+	s, state, err := openRecovered(wal.New(w2), dbDir)
 	require.NoError(t, err)
 
 	defer s.Close()
@@ -140,11 +147,50 @@ func TestStore_Recovery_Abort(t *testing.T) {
 
 	defer w2.Close()
 
-	s, state, err := New(wal.New(w2), dbDir)
+	s, state, err := openRecovered(wal.New(w2), dbDir)
 	require.NoError(t, err)
 
 	defer s.Close()
 
 	// height should be 20+1 because it was resolved (Aborted)
 	assert.Equal(t, height+1, state.NextHeight)
+	require.NotNil(t, state.LastDecided)
+	assert.Equal(t, wal.PhaseKeyAbort, state.LastDecided.Phase)
+	assert.Nil(t, state.LastDecided.Payload)
+}
+
+func TestStoreAsResource(t *testing.T) {
+	s, err := Open(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	ctx := context.Background()
+	tx := dto.Tx{Key: "k", Value: []byte("v")}
+
+	require.Error(t, s.Prepare(ctx, dto.Tx{}))
+	require.NoError(t, s.Prepare(ctx, tx))
+	require.NoError(t, s.Commit(ctx, tx))
+	require.NoError(t, s.Commit(ctx, tx), "commit must be idempotent")
+	require.NoError(t, s.Abort(ctx, 42), "abort of an unknown height is a no-op")
+
+	value, err := s.Get("k")
+	require.NoError(t, err)
+	require.Equal(t, []byte("v"), value)
+}
+
+// openRecovered opens a store and replays every committed WAL record into it.
+func openRecovered(journal *wal.Wal, dbPath string) (*Store, *wal.RecoveryState, error) {
+	s, err := Open(dbPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	state, err := journal.Recover(s.Put)
+	if err != nil {
+		_ = s.Close()
+
+		return nil, nil, fmt.Errorf("recover: %w", err)
+	}
+
+	return s, state, nil
 }

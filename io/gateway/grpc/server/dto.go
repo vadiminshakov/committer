@@ -1,8 +1,8 @@
 package server
 
 import (
-	"github.com/vadiminshakov/committer/core/dto"
-	"github.com/vadiminshakov/committer/io/gateway/grpc/proto"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	"github.com/vadiminshakov/committer/v2/io/gateway/grpc/proto"
 )
 
 func proposeRequestPbToEntity(request *proto.ProposeRequest) *dto.ProposeRequest {
@@ -34,7 +34,8 @@ func cohortResponseToProto(response *dto.CohortResponse) *proto.Response {
 	}
 
 	return &proto.Response{
-		Type:  proto.Type(response.ResponseType),
-		Index: response.Height,
+		Type:   proto.Type(response.ResponseType),
+		Index:  response.Height,
+		Reason: response.Reason,
 	}
 }
