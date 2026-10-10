@@ -134,20 +134,22 @@ cd committer
 docker compose up --build --wait
 docker compose exec coordinator committer put greeting hello
 docker compose exec cohort committer get greeting
+docker compose exec cohort2 committer get greeting
 ```
 
-`put` writes through the coordinator; `get` reads the participant's committed
-data and prints `hello`. Open [the protocol visualization](http://localhost:8080)
+The cluster runs one coordinator and two participants (`cohort` and `cohort2`),
+so `put` commits across both and `get` prints `hello` from either one of them.
+Open [the protocol visualization](http://localhost:8080)
 and press **Play**. The coordinator's CLI port is published at `localhost:4000`,
 so a local `./bin/committer put greeting hello` also works (it connects to the
-default `--addr localhost:3000` + 1000); the participant is reachable only inside
-the Compose network. The coordinator starts after the cohort
-container. Ports 4000 and 8080 must be available.
+default `--addr localhost:3000` + 1000); the participants are reachable only
+inside the Compose network. The coordinator starts after both participant
+containers. Ports 4000 and 8080 must be available.
 
 Use `docker compose logs -f` to see node logs and `docker compose down` to stop
 the nodes. Named volumes preserve their databases and WAL across restarts. To
 delete the data, run `docker compose down --volumes` (this permanently removes
-both nodes' data). This Compose setup is intended for local use.
+all nodes' data). This Compose setup is intended for local use.
 
 ## Run with the CLI
 
