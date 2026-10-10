@@ -1,0 +1,89 @@
+examples/transfer/main.go
+  s_5e3ac957de17b3::t_5338c92bed1eec 19-21,61,79,162-163,174-177,182,185,198,204
+  s_721eef92af4050::t_6996dc181f93a4 207
+io/gateway/grpc/server/interceptors.go
+  s_2b53e26d9d6843::t_61e3bf252a6c52 22-23,26-27,42,44
+  s_f392a23bb68bc7::t_65d8f890ca5697 9,16-21,28
+core/dto/dto.go
+  s_4a681ae2485148::t_cb28f7d56372f8 16-22
+  s_4a681ae2485148::t_26af8a988b005c 8
+  s_4a681ae2485148::t_a674236ff4e937 7
+  s_4a681ae2485148::t_298875e19e59d6 23-25
+io/gateway/grpc/server/server.go
+  s_f392a23bb68bc7::t_65d8f890ca5697 112-113
+  s_4a681ae2485148::t_e6a7c0f64406e7 13
+  s_2b53e26d9d6843::t_ff3ed9909f3f2d 3-4
+  s_2b53e26d9d6843::t_61e3bf252a6c52 35,38-39,121-122,124,127-128,130,133,143
+  s_97010832549283::t_02f5e0e128954d 111
+  s_4a681ae2485148::t_bfd2f1fcd3376a 14
+  s_2b53e26d9d6843::t_f133e5a1914bfb 40-42
+  s_f392a23bb68bc7::t_d9d551535eba22 114-116
+core/coordinator/lifecycle.go
+  s_721eef92af4050::t_9adbb81c3a0833 210,214
+core/coordinator/lifecycle_test.go
+  s_721eef92af4050::t_95d3ede9c79045 106,121
+core/coordinator/start_test.go
+  s_721eef92af4050::t_eed6b4ceac87ba 152,172
+io/gateway/grpc/proto/schema.pb.go
+  s_2b53e26d9d6843::t_6fdd60a7342c9e 413,426,439,467,480,493,514,527,540,575-602,604-612,614-618,634,643-645,648-665,734,746,765,767
+io/gateway/grpc/proto/schema.proto
+  s_2b53e26d9d6843::t_211f0e7db01503 3
+io/gateway/grpc/server/dto.go
+  s_4a681ae2485148::t_3ccefe965eecae 4-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7e4d60b6e76c31a033c6578141963100b6179079",
+  "prompts": {},
+  "sessions": {
+    "s_2b53e26d9d6843": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f60372ce-d1b6-445f-a30d-8b2ab67f7ffc",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_4a681ae2485148": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d41c6b4-f521-4074-b18f-56b642272847",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_5e3ac957de17b3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33ff7094-65d8-44f1-b367-532cb38507c8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_721eef92af4050": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f470-b890-7052-ade7-49c731bec12d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_97010832549283": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bf26fba-0d17-40fd-a424-78368849a788",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_f392a23bb68bc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9a9a4836-8783-4aaa-8a7d-ede76c0f7794",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

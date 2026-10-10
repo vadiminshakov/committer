@@ -1,0 +1,66 @@
+core/cohort/cohort_test.go
+  s_4a681ae2485148::t_2c0a0f70720951 1098-1111
+  s_4a681ae2485148::t_91cf892273cf85 1,13,15-17,31,36,39,44,86,90,102,147,183,233,275,322,326,337,369,404,432,466,492,523,580,609,664,707,866,900,1028,1031-1033,1035,1070,1074,1091,1112
+core/cohort/cohort.go
+  s_4a681ae2485148::t_787ef2cd7fcc8b 66-68
+  s_4a681ae2485148::t_2c0a0f70720951 28,85,95,100,104-105,110,135-136,158,162-165,203,220,240,281,302,327,361,380,388,433,469,477,508,519,567,579,592,603,614,631,635
+  s_4a681ae2485148::t_677ae5ccf2310b 1-2,13-15,26-27,30,32-43,49,54-55,71-74
+core/cohort/start.go
+  s_5e3ac957de17b3::t_03e39315ca4323 118,122
+  s_4a681ae2485148::t_787ef2cd7fcc8b 1-22,28-29,32,35-40,43-47,49-52,54-62,64-69,71-79,82-93,95-102,105,107-114,116-117,120-121,124-125,127
+  s_5e3ac957de17b3::t_d49f2a33492e16 24,27,53,63
+  s_b68e318acf087f::t_e026e74eaa9b97 41-42
+  s_b68e318acf087f::t_36aa9677d03b5c 23,25-26,30-31,33-34,94
+  s_2b53e26d9d6843::t_8ae5983f0fe2cf 48,70,81,103-104,106,115,119,123,126
+  s_97010832549283::t_02f5e0e128954d 80
+core/cohort/fsm.go
+  s_4a681ae2485148::t_fd026c02e40020 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6f02535e3771f641c6a10b17c36055840051140c",
+  "prompts": {},
+  "sessions": {
+    "s_2b53e26d9d6843": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f60372ce-d1b6-445f-a30d-8b2ab67f7ffc",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_4a681ae2485148": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d41c6b4-f521-4074-b18f-56b642272847",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_5e3ac957de17b3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33ff7094-65d8-44f1-b367-532cb38507c8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_97010832549283": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bf26fba-0d17-40fd-a424-78368849a788",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_b68e318acf087f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "506543cd-9167-46b3-b961-7340c0397250",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

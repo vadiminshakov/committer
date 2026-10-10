@@ -1,0 +1,32 @@
+main_test.go
+  s_ce36851010997b::t_97902cf4fa4cb2 103-104
+scripts/demo.sh
+  s_ce36851010997b::t_937b68a21cdf0a 31
+cli.go
+  s_ce36851010997b::t_df877963f79ed4 35-36,41-42,56,89,101,116,132
+io/gateway/grpc/server/interceptors.go
+  s_ce36851010997b::t_2205832c36d0e7 16
+README.md
+  s_ce36851010997b::t_45d9855181b3d3 84
+  s_ce36851010997b::t_1fc62bd27ebce9 33-34
+compose.yaml
+  s_ce36851010997b::t_bcceca19902922 31
+io/gateway/grpc/proto/schema.pb.go
+  s_ce36851010997b::t_30bd769bd75428 553,566,579,607,620,633,654,667,680,694-721,723-747,749-764,784,796-798,807-808,811-819,927,939,958
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8cdba9f473039ff5541665853274d0525810b5bf",
+  "prompts": {},
+  "sessions": {
+    "s_ce36851010997b": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1790282961842_m6icc4w",
+        "model": "unknown"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

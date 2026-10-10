@@ -1,0 +1,48 @@
+core/cohort/cohort.go
+  s_7a46a0331d723d::t_d88a002a1fd298 69-70
+core/cohort/start.go
+  s_7a46a0331d723d::t_d88a002a1fd298 70,94-95
+core/cohort/cohort_test.go
+  s_7a46a0331d723d::t_d88a002a1fd298 90,102,147,183,233,275,322,326,337,369,404,432,466,492,523,580,609,664,707,866,900,1035,1074,1091
+core/coordinator/coordinator.go
+  s_4a681ae2485148::t_c01113b5a79b16 84-86,90,94,99,108,113,118,127,132,135,153,158,161,165
+  s_2b53e26d9d6843::t_56719fa83b7f06 20,130-131
+  s_4a681ae2485148::t_26af8a988b005c 123,185
+  s_7a46a0331d723d::t_653af5ebdcf942 15-17,31,36,198-200,207-210,212
+core/coordinator/coordinator_test.go
+  s_4a681ae2485148::t_fbe561373d2cac 157
+  s_4a681ae2485148::t_26af8a988b005c 158-159,177,194,203,205-206,210,216,231,240-241,244
+  s_7a46a0331d723d::t_960731c4cc8c24 13-15,55,57,61,65,67,71,73,78,102,111,113,129,147,156,270,272,282-283,289-290,302,310,320,342,344,356,359,365,371,390,407
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cfebfb746aafd0656906adc3416a01a8f06d7bdf",
+  "prompts": {},
+  "sessions": {
+    "s_2b53e26d9d6843": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f60372ce-d1b6-445f-a30d-8b2ab67f7ffc",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_4a681ae2485148": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d41c6b4-f521-4074-b18f-56b642272847",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_7a46a0331d723d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f3c4-6584-7e91-aef6-19290f7f1e31",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

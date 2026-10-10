@@ -1,0 +1,19 @@
+Makefile
+  s_b206d02f8e438d::t_2cb416c77a7004 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f34933e5dc809c0b8c35a91dc3c9267d5ed3ec08",
+  "prompts": {},
+  "sessions": {
+    "s_b206d02f8e438d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d2afc9b-7af8-416a-aa21-be2423ab7d3c",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
