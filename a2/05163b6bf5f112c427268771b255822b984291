@@ -1,0 +1,25 @@
+README.md
+  s_2eaa87571eaecc::t_2e085bb5a79fe3 67,71,73-75,78-87,91,93-95,101-104,144-148,168-172,192,195,198-199,202-205,211,218-219,229,238-249
+cmd/committer/cli.go
+  s_2eaa87571eaecc::t_6db437f725b240 35,129
+cmd/committer/node.go
+  s_2eaa87571eaecc::t_f134742ad27e43 32-34,189-195
+core/cohort/cohort.go
+  s_2eaa87571eaecc::t_09c755867012b0 184,230,616,625,636
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a205163b6bf5f112c427268771b255822b984291",
+  "prompts": {},
+  "sessions": {
+    "s_2eaa87571eaecc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148da-3d97-75f1-9f48-2e13ae855721",
+        "model": "unknown"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
