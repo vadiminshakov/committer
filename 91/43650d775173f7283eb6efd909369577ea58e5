@@ -1,0 +1,20 @@
+README.md
+  s_b69cfdd504e88b::t_b5760ecff72f15 141,143-144,151,181,204
+  s_b69cfdd504e88b::t_01120b32eded05 205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9143650d775173f7283eb6efd909369577ea58e5",
+  "prompts": {},
+  "sessions": {
+    "s_b69cfdd504e88b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14ab9-74d9-7ff1-8cf0-a515bf7d517d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
