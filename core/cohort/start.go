@@ -72,14 +72,14 @@ func Start(ctx context.Context, cfg Config, resource Resource) (*Cohort, error) 
 	cohort.SetDecisionRequester(coordinatorClient)
 
 	if err := cohort.Resume(ctx, recovery); err != nil {
-		return nil, errors.Join(fmt.Errorf("resume cohort: %w", err), release())
+		return nil, errors.Join(fmt.Errorf("resume cohort: %w", err), cohort.Close(), release())
 	}
 
 	slog.Info("Recovered cohort from WAL", "next_height", cohort.Height())
 
 	srv := server.New(cfg.Addr.String(), cfg.Coordinator.String(), cohort, nil)
 	if err := srv.Run(); err != nil {
-		return nil, errors.Join(fmt.Errorf("serve: %w", err), release())
+		return nil, errors.Join(fmt.Errorf("serve: %w", err), cohort.Close(), release())
 	}
 
 	cohort.shutdown = sync.OnceValue(func() error {
@@ -91,9 +91,12 @@ func Start(ctx context.Context, cfg Config, resource Resource) (*Cohort, error) 
 	return cohort, nil
 }
 
-// Close stops the server and closes the coordinator client and WAL.
-// The caller remains responsible for the Resource.
+// Close cancels background work, stops the server, and closes the coordinator
+// client and WAL. Finish Resource operations before calling Close; in-flight
+// calls may be interrupted. The caller remains responsible for the Resource.
 func (c *Cohort) Close() error {
+	c.cancel()
+
 	if c.shutdown == nil {
 		return nil
 	}

@@ -22,7 +22,7 @@ var (
 	// it, and the same change can be retried.
 	ErrAborted = errors.New("transaction aborted")
 	// ErrPrecommitVote means a 3PC cohort did not acknowledge PRECOMMIT; the
-	// outcome is left to recovery.
+	// outcome is left to recovery when the coordinator restarts.
 	ErrPrecommitVote = errors.New("failed to send precommit")
 	// ErrInvalidTransaction reports a request rejected before any durable
 	// transaction record is written.
@@ -137,7 +137,9 @@ func (c *Coordinator) Commit(ctx context.Context, key string, value []byte) (uin
 		})
 
 		if err := c.delivery.VotePrecommit(ctx, height); err != nil {
-			return height, fmt.Errorf("%w: %w", ErrPrecommitVote, err)
+			return height, fmt.Errorf("%w at height %d: %w; restore connectivity and restart the coordinator "+
+				"with the same DataDir to finish this transaction",
+				ErrPrecommitVote, height, err)
 		}
 	}
 

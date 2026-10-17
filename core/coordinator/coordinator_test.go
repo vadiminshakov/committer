@@ -203,12 +203,15 @@ func TestCoordinatorPrecommitFailureStaysInDoubt(t *testing.T) {
 	height, err := coordinator.Commit(context.Background(), "invoice", []byte("pending"))
 	require.ErrorContains(t, err, "failed to send precommit")
 	require.ErrorIs(t, err, ErrPrecommitVote)
+	require.ErrorContains(t, err, "restart the coordinator with the same DataDir")
 	require.Equal(t, uint64(0), height)
 	require.Equal(t, dto.OutcomeUnknown, coordinator.Decision(0))
 	require.Equal(t, uint64(0), coordinator.Height())
 
 	_, err = coordinator.Commit(context.Background(), "next", nil)
 	require.ErrorContains(t, err, "not resolved")
+	require.ErrorIs(t, err, ErrCoordinatorNotReady)
+	require.ErrorContains(t, err, "restart the coordinator with the same DataDir")
 }
 
 func TestCoordinatorAbortJournalError(t *testing.T) {

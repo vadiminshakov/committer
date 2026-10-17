@@ -102,6 +102,8 @@ func prepareCommitter(t *testing.T, walPath, commitType string, timeout uint64) 
 	stateStore, recovery := newStateStore(t, w)
 
 	committer := newCohort(stateStore, commitType, iowal.New(w), timeout)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	return committer, stateStore, w, recovery
@@ -114,6 +116,8 @@ func TestPropose_ResourceRejectionIsNackWithReason(t *testing.T) {
 
 	resource := &testResource{Store: stateStore, prepareErr: errors.New("insufficient funds")}
 	committer := newCohort(resource, "two-phase", iowal.New(w), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	resp, err := committer.Propose(context.Background(), &dto.ProposeRequest{Height: 0, Key: "k", Value: []byte("v")})
@@ -159,6 +163,8 @@ func TestCommit_StateValidation_2PC(t *testing.T) {
 
 	// create 2PC committer
 	committer := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	require.Equal(t, proposeStage, committer.getCurrentState())
@@ -195,6 +201,8 @@ func TestCommit_StateValidation_3PC(t *testing.T) {
 
 	// create 3PC committer
 	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	require.Equal(t, proposeStage, committer.getCurrentState())
@@ -245,6 +253,8 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 		// create 3PC committer whose resource fails to commit
 		resource := &testResource{Store: stateStore, commitErr: errors.New("disk full")}
 		committer := newCohort(resource, "three-phase", iowal.New(wal), 5000)
+
+		t.Cleanup(func() { require.NoError(t, committer.Close()) })
 		committer.SetHeight(recovery.NextHeight)
 
 		// go through proper 3PC flow: propose -> precommit
@@ -287,6 +297,8 @@ func TestCommit_StateRestoration_OnErrors(t *testing.T) {
 
 		// create 3PC committer
 		committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+
+		t.Cleanup(func() { require.NoError(t, committer.Close()) })
 		committer.SetHeight(recovery.NextHeight)
 
 		// first propose a normal transaction
@@ -334,10 +346,14 @@ func TestGetExpectedCommitState(t *testing.T) {
 
 	// test 2PC mode
 	committer2PC := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer2PC.Close()) })
 	require.Equal(t, preparedStage, committer2PC.getExpectedCommitState())
 
 	// test 3PC mode
 	committer3PC := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer3PC.Close()) })
 	require.Equal(t, precommitStage, committer3PC.getExpectedCommitState())
 }
 func TestPrecommitTimeout_StateValidation(t *testing.T) {
@@ -376,6 +392,8 @@ func TestPrecommitTimeout_AutocommitSuccess(t *testing.T) {
 
 	// create 3PC committer
 	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 50)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	ctx := context.Background()
@@ -411,6 +429,8 @@ func TestPrecommitTimeout_AutocommitWithSkipRecord(t *testing.T) {
 
 	// create 3PC committer
 	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 50)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	// abort fully resolves height 0: journals the abort and consumes the height
@@ -438,6 +458,8 @@ func TestPrecommitTimeout_AutocommitFailure(t *testing.T) {
 	// create 3PC committer whose resource fails to commit
 	resource := &testResource{Store: stateStore, commitErr: errors.New("disk full")}
 	committer := newCohort(resource, "three-phase", iowal.New(wal), 50)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	ctx := context.Background()
@@ -472,6 +494,8 @@ func TestPrecommitTimeout_NoDataInWAL(t *testing.T) {
 
 	// create 3PC committer
 	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 50)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	// set up state without data in WAL
@@ -497,6 +521,8 @@ func TestAbort_CurrentHeight(t *testing.T) {
 
 	// create 3PC committer
 	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	// set up a transaction at current height
@@ -554,6 +580,8 @@ func TestAbort_FutureHeight(t *testing.T) {
 
 	// create committer
 	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	// test abort for future height (should be ignored)
@@ -583,6 +611,8 @@ func TestAbort_PastHeight(t *testing.T) {
 
 	// create committer and advance height
 	committer := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	// complete a transaction to advance height
@@ -638,6 +668,8 @@ func TestAbort_StateRecovery_3PC(t *testing.T) {
 
 	// create 3PC committer
 	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	// set up transaction and move to precommit state
@@ -681,6 +713,8 @@ func TestAbort_StateRecovery_2PC(t *testing.T) {
 
 	// create 2PC committer
 	committer := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	committer.SetHeight(recovery.NextHeight)
 
 	// set up transaction (in 2PC, we stay in propose state)
@@ -840,6 +874,8 @@ func TestResume_InDoubtTransaction2PC(t *testing.T) {
 
 	// simulate a restart of a cohort that crashed while prepared at height 3
 	committer := newCohort(stateStore, "two-phase", iowal.New(wal), 5000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	require.NoError(t, committer.Resume(context.Background(), &iowal.RecoveryState{
 		NextHeight: 4,
 		Unresolved: &iowal.UnresolvedTransaction{
@@ -874,6 +910,8 @@ func TestResume_PrecommittedTransaction3PC(t *testing.T) {
 	require.NoError(t, err)
 
 	committer := newCohort(stateStore, "three-phase", iowal.New(wal), 60_000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	require.NoError(t, committer.Resume(context.Background(), &iowal.RecoveryState{
 		NextHeight: 4,
 		Unresolved: &iowal.UnresolvedTransaction{
@@ -1009,6 +1047,9 @@ func TestCommitRetriesFromCommitStageAfterStoreFailure(t *testing.T) {
 	resource.EXPECT().Commit(gomock.Any(), tx).Return(nil)
 
 	committer := newCohort(resource, "three-phase", iowal.New(w), 5_000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
+
 	ctx := context.Background()
 	_, err := committer.Propose(ctx, &dto.ProposeRequest{
 		Height: 0,
@@ -1048,6 +1089,8 @@ func TestResume_ReappliesLastCommitAndReleasesUnloggedPrepare(t *testing.T) {
 	)
 
 	committer := newCohort(resource, "two-phase", iowal.New(w), 5_000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
 	require.NoError(t, committer.Resume(context.Background(), &iowal.RecoveryState{
 		NextHeight:  5,
 		Decisions:   map[uint64]string{4: iowal.PhaseKeyCommit},
@@ -1065,6 +1108,9 @@ func TestResume_FailsWhenResourceCannotReapply(t *testing.T) {
 	resource.EXPECT().Abort(gomock.Any(), uint64(2)).Return(errors.New("db down"))
 
 	committer := newCohort(resource, "two-phase", iowal.New(w), 5_000)
+
+	t.Cleanup(func() { require.NoError(t, committer.Close()) })
+
 	err := committer.Resume(context.Background(), &iowal.RecoveryState{
 		NextHeight:  3,
 		LastDecided: &iowal.DecidedTransaction{Height: 2, Phase: iowal.PhaseKeyAbort},
@@ -1094,6 +1140,8 @@ func TestCommit_RejectsUnpreparedTransaction(t *testing.T) {
 			resource := mocks.NewMockResource(gomock.NewController(t))
 			committer := newCohort(resource, commitType, iowal.New(w), 60_000)
 
+			t.Cleanup(func() { require.NoError(t, committer.Close()) })
+
 			resp, err := committer.Commit(context.Background(), &dto.CommitRequest{Height: 0})
 
 			require.Nil(t, resp)
@@ -1118,6 +1166,9 @@ func TestAbort_RejectsCommitInProgress(t *testing.T) {
 				resource.EXPECT().Commit(gomock.Any(), tx).Return(nil),
 			)
 			committer := newCohort(resource, commitType, iowal.New(w), 60_000)
+
+			t.Cleanup(func() { require.NoError(t, committer.Close()) })
+
 			ctx := context.Background()
 
 			_, err := committer.Propose(ctx, &dto.ProposeRequest{Height: tx.Height, Key: tx.Key, Value: tx.Value})

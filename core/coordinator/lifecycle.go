@@ -211,7 +211,9 @@ func (l *transactionLifecycle) Prepare(transaction dto.Transaction) (uint64, err
 	}
 
 	if l.phase != lifecycleReady {
-		return 0, fmt.Errorf("%w: transaction at height %d is not resolved", ErrCoordinatorNotReady, l.height)
+		return 0, fmt.Errorf("%w: transaction at height %d is not resolved; restore connectivity and restart "+
+			"the coordinator with the same DataDir to recover",
+			ErrCoordinatorNotReady, l.height)
 	}
 
 	payload, err := iowal.Encode(iowal.Tx{Key: transaction.Key, Value: transaction.Value})

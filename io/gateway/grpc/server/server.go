@@ -138,7 +138,7 @@ func (s *Server) Run() error {
 	return nil
 }
 
-// Stop gracefully stops the gRPC server.
+// Stop closes the gRPC server and cancels in-flight RPCs.
 func (s *Server) Stop() {
-	s.grpc.GracefulStop()
+	s.grpc.Stop()
 }

@@ -89,10 +89,16 @@ type Cohort struct {
 	coordClient    DecisionRequester // coordinator used for decision requests
 	emitter        events.Emitter
 	shutdown       func() error
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	tasks  sync.WaitGroup
 }
 
 // newCohort creates a cohort state machine over resource and wal.
 func newCohort(resource Resource, commitType string, wal wal, timeout uint64) *Cohort {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Cohort{
 		resource:  resource,
 		wal:       wal,
@@ -101,7 +107,17 @@ func newCohort(resource Resource, commitType string, wal wal, timeout uint64) *C
 		phase:     proposeStage,
 		decisions: make(map[uint64]string),
 		emitter:   events.NoopEmitter{},
+		ctx:       ctx,
+		cancel:    cancel,
 	}
+}
+
+func (c *Cohort) startTask(task func(uint64), height uint64) {
+	if c.ctx.Err() != nil {
+		return
+	}
+
+	c.tasks.Go(func() { task(height) })
 }
 
 // SetEmitter sets the event emitter. A nil emitter disables events.
@@ -133,6 +149,10 @@ func (c *Cohort) SetHeight(height uint64) {
 func (c *Cohort) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.ctx.Err() != nil {
+		return nil, status.Error(codes.Unavailable, "cohort is closed")
+	}
 
 	currentHeight := c.height.Load()
 	if req.Height != currentHeight {
@@ -170,7 +190,7 @@ func (c *Cohort) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.Coh
 	c.pendingPayload = payload
 	c.phase = preparedStage
 
-	go c.awaitDecision(req.Height)
+	c.startTask(c.awaitDecision, req.Height)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
 }
@@ -179,6 +199,10 @@ func (c *Cohort) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.Coh
 func (c *Cohort) Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.ctx.Err() != nil {
+		return nil, status.Error(codes.Unavailable, "cohort is closed")
+	}
 
 	if c.mode != threephase {
 		return nil, status.Error(codes.FailedPrecondition, "precommit is allowed for 3PC mode only")
@@ -212,7 +236,7 @@ func (c *Cohort) Precommit(ctx context.Context, index uint64) (*dto.CohortRespon
 
 	c.emitter.Emit(events.Event{Kind: events.EvCohortPrecommit, Height: index})
 
-	go c.handlePrecommitTimeout(index)
+	c.startTask(c.handlePrecommitTimeout, index)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: index}, nil
 }
@@ -229,6 +253,10 @@ func (c *Cohort) Commit(ctx context.Context, req *dto.CommitRequest) (*dto.Cohor
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.ctx.Err() != nil {
+		return nil, status.Error(codes.Unavailable, "cohort is closed")
+	}
 
 	return c.commit(ctx, req)
 }
@@ -314,6 +342,10 @@ func (c *Cohort) Abort(ctx context.Context, req *dto.AbortRequest) (*dto.CohortR
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.ctx.Err() != nil {
+		return nil, status.Error(codes.Unavailable, "cohort is closed")
+	}
+
 	currentHeight := c.height.Load()
 
 	if req.Height != currentHeight {
@@ -378,10 +410,18 @@ func (c *Cohort) handlePrecommitTimeout(height uint64) {
 	timer := time.NewTimer(time.Duration(c.timeout) * time.Millisecond)
 	defer timer.Stop()
 
-	<-timer.C
+	select {
+	case <-timer.C:
+	case <-c.ctx.Done():
+		return
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.ctx.Err() != nil {
+		return
+	}
 
 	currentHeight := c.height.Load()
 
@@ -401,7 +441,7 @@ func (c *Cohort) handlePrecommitTimeout(height uint64) {
 
 	slog.Warn("performing autocommit after precommit timeout", "height", height)
 
-	response, err := c.commit(context.Background(), &dto.CommitRequest{Height: height})
+	response, err := c.commit(c.ctx, &dto.CommitRequest{Height: height})
 	if err != nil {
 		slog.Error("autocommit failed", "height", height, "err", err)
 
@@ -428,12 +468,18 @@ func (c *Cohort) awaitDecision(height uint64) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		select {
+		case <-ticker.C:
+		case <-c.ctx.Done():
+			return
+		}
+
 		if !c.stillPrepared(height) {
 			return
 		}
 
-		reqCtx, cancel := context.WithTimeout(context.Background(), interval)
+		reqCtx, cancel := context.WithTimeout(c.ctx, interval)
 		outcome, err := c.coordClient.Decision(reqCtx, height)
 
 		cancel()
@@ -458,7 +504,7 @@ func (c *Cohort) stillPrepared(height uint64) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.phase == preparedStage && c.height.Load() == height
+	return c.ctx.Err() == nil && c.phase == preparedStage && c.height.Load() == height
 }
 
 // applyDecision applies the outcome and reports whether the height is resolved.
@@ -466,7 +512,7 @@ func (c *Cohort) applyDecision(height uint64, outcome dto.Outcome) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.phase != preparedStage || c.height.Load() != height {
+	if c.ctx.Err() != nil || c.phase != preparedStage || c.height.Load() != height {
 		return true
 	}
 
@@ -474,13 +520,13 @@ func (c *Cohort) applyDecision(height uint64, outcome dto.Outcome) bool {
 
 	switch outcome {
 	case dto.OutcomeCommit:
-		if _, err := c.commit(context.Background(), &dto.CommitRequest{Height: height}); err != nil {
+		if _, err := c.commit(c.ctx, &dto.CommitRequest{Height: height}); err != nil {
 			slog.Error("failed to apply commit decision", "height", height, "err", err)
 
 			return false
 		}
 	case dto.OutcomeAbort:
-		if err := c.abortCurrent(context.Background(), height, "coordinator decision"); err != nil {
+		if err := c.abortCurrent(c.ctx, height, "coordinator decision"); err != nil {
 			slog.Error("failed to apply abort decision", "height", height, "err", err)
 
 			return false
@@ -497,6 +543,10 @@ func (c *Cohort) applyDecision(height uint64, outcome dto.Outcome) bool {
 func (c *Cohort) Resume(ctx context.Context, rec *iowal.RecoveryState) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.ctx.Err() != nil {
+		return status.Error(codes.Unavailable, "cohort is closed")
+	}
 
 	if rec.Decisions != nil {
 		c.decisions = rec.Decisions
@@ -572,7 +622,7 @@ func (c *Cohort) reapplyLastDecision(ctx context.Context, last *iowal.DecidedTra
 // polling for the coordinator's decision.
 func (c *Cohort) restorePreparedAndPollDecision(unresolved *iowal.UnresolvedTransaction) {
 	c.phase = preparedStage
-	go c.awaitDecision(unresolved.Height)
+	c.startTask(c.awaitDecision, unresolved.Height)
 
 	slog.Warn("recovered in-doubt transaction, awaiting coordinator decision", "height", unresolved.Height)
 }
@@ -581,7 +631,7 @@ func (c *Cohort) restorePreparedAndPollDecision(unresolved *iowal.UnresolvedTran
 // background polling for the coordinator's decision.
 func (c *Cohort) restoreThreePhasePreparedAndPollDecision(unresolved *iowal.UnresolvedTransaction) {
 	c.phase = preparedStage
-	go c.awaitDecision(unresolved.Height)
+	c.startTask(c.awaitDecision, unresolved.Height)
 
 	slog.Warn("recovered prepared 3PC transaction, awaiting coordinator decision", "height", unresolved.Height)
 }
@@ -592,7 +642,7 @@ func (c *Cohort) restorePrecommitAndStartCommitTimer(unresolved *iowal.Unresolve
 	c.phase = precommitStage
 
 	slog.Warn("recovered precommitted 3PC transaction, resuming commit timeout", "height", unresolved.Height)
-	go c.handlePrecommitTimeout(unresolved.Height)
+	c.startTask(c.handlePrecommitTimeout, unresolved.Height)
 }
 
 func (c *Cohort) resetPending() {
