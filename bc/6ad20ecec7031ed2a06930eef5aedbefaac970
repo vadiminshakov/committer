@@ -1,0 +1,19 @@
+README.md
+  s_45daf3c7ddb5fe::t_363526bab6d1d0 79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bc6ad20ecec7031ed2a06930eef5aedbefaac970",
+  "prompts": {},
+  "sessions": {
+    "s_45daf3c7ddb5fe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6fea5494-7d29-4cc0-ac5e-1a1970345e52",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
