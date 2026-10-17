@@ -64,24 +64,44 @@ atomically (packages `github.com/vadiminshakov/committer/v2/core/cohort` and
 `github.com/vadiminshakov/committer/v2/core/coordinator`):
 
 ```go
+// Inside a function returning error. Both databases implement cohort.Resource.
 participant, err := cohort.Start(ctx, cohort.Config{
     Addr:        "localhost:3001",
     Coordinator: "localhost:3000",
-    DataDir:     "/var/lib/orders", // WAL; reuse it across restarts
+    DataDir:     ".data/orders", // WAL; reuse it across restarts
 }, ordersDB) // your cohort.Resource, see below
+if err != nil {
+    return err
+}
 defer participant.Close()
+
+inventory, err := cohort.Start(ctx, cohort.Config{
+    Addr:        "localhost:3002",
+    Coordinator: "localhost:3000",
+    DataDir:     ".data/inventory",
+}, inventoryDB)
+if err != nil {
+    return err
+}
+defer inventory.Close()
 
 coord, err := coordinator.Start(coordinator.Config{
     Addr:    "localhost:3000",
     Cohorts: []dto.Addr{"localhost:3001", "localhost:3002"},
-    DataDir: "/var/lib/coordinator",
+    DataDir: ".data/coordinator",
 })
+if err != nil {
+    return err
+}
 defer coord.Close()
 
 height, err := coord.Commit(ctx, "order-42", payload)
 switch {
 case errors.Is(err, coordinator.ErrAborted):
-    // a participant voted NO; nothing was applied, safe to retry
+    // voting failed; ABORT is durable, safe to retry
+case errors.Is(err, coordinator.ErrInvalidTransaction),
+     errors.Is(err, coordinator.ErrCoordinatorNotReady):
+    // this request did not start; fix its input or recover the coordinator
 case err != nil:
     // outcome unknown for now: check coord.Decision(height) later
 }
@@ -121,6 +141,11 @@ returns, so a crash in between may leave a reservation it cannot see. That vote
 never reached the coordinator, so aborting is safe. A failed `Commit` or
 `Abort` is retried.
 
+Finish transactions and Resource calls before closing a cohort. `Close()`
+cancels background work and closes the node without waiting for in-flight
+Resource calls. If a transaction is interrupted, restart with the same WAL
+and resource data to recover it.
+
 [examples/transfer](examples/transfer/main.go) moves money between two banks,
 each with its own resource; run it with `go run ./examples/transfer`.
 
@@ -139,6 +164,11 @@ docker compose exec cohort2 committer get greeting
 
 The cluster runs one coordinator and two participants (`cohort` and `cohort2`),
 so `put` commits across both and `get` prints `hello` from either one of them.
+
+`put` records the COMMIT decision; the participant applies it asynchronously.
+If `get` still returns the previous value or "key not found", retry the read
+after the participant catches up.
+
 Open [the protocol visualization](http://localhost:8080)
 and press **Play**. The coordinator's CLI port is published at `localhost:4000`,
 so a local `./bin/committer put greeting hello` also works (it connects to the
@@ -159,29 +189,34 @@ Requires **Go 1.25 or newer** and `make`. Run commands from the repository root.
 make build
 
 # Terminal 1: participant
-./bin/committer cohort -addr localhost:3001 -coordinator localhost:3000 -cli
+./bin/committer cohort -coordinator localhost:3000 -cli
 
 # Terminal 2: coordinator
-./bin/committer coordinator -addr localhost:3000 -cohorts localhost:3001 -cli -viz-port 8080
+./bin/committer coordinator -cohorts localhost:3001 -cli -viz-port 8080
 
 # Terminal 3: CLI
-./bin/committer put --addr localhost:3000 greeting hello
-./bin/committer get --addr localhost:3001 greeting
+./bin/committer put greeting hello
+./bin/committer get greeting
 ```
+
+`put` confirms a durable COMMIT decision, before all participants necessarily
+apply it. An immediate `get` may return the previous value or "key not found";
+retry the read after the participant catches up.
 
 `--addr` is the node's `-addr`. `put` goes to a coordinator (default
 `localhost:3000`) and `get` to a cohort (default `localhost:3001`), so `--addr`
 can be omitted here. The nodes must run with `-cli`: it opens a separate CLI port,
 the `-addr` port + 1000, which `put` and `get` connect to.
 
-`get` prints `hello`. Put CLI flags **before** key/value arguments.
+Put CLI flags **before** key/value arguments.
 Quote values containing spaces: `./bin/committer put greeting "hello world"`.
 Requests have a 5-second deadline, configurable with `--timeout 10s`.
 
 `get` reads the target cohort's committed data. If a request fails, check its error message and node logs. A timeout or lost
 connection during `put` does not by itself establish whether the transaction committed.
 
-For 3PC, pass `-committype three-phase -timeout 1s` to **both** nodes.
+For 3PC, pass `-committype three-phase` to **both** nodes. The cohort's
+`-timeout 1s` controls its autocommit delay and decision polling interval.
 Run `./bin/committer --help` or `./bin/committer coordinator -h` for help.
 To install the binary: `go install github.com/vadiminshakov/committer/v2/cmd/committer@latest`.
 
@@ -191,7 +226,7 @@ Node commands accept these flags:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `addr` | Node listen address for protocol traffic, `host:port` | `localhost:3050` |
+| `addr` | Node listen address for protocol traffic, `host:port` | coordinator: `localhost:3000`; cohort: `localhost:3001` |
 | `cli` | Serve `put` (coordinator) or `get` (cohort) on the `addr` port + 1000 | off |
 | `coordinator` | Coordinator address; required by the `cohort` command | empty |
 | `cohorts` | Comma-separated participant addresses; required by `coordinator` | empty |
@@ -199,6 +234,18 @@ Node commands accept these flags:
 | `timeout` | Cohort only: 3PC autocommit delay and in-doubt retry interval, e.g. `1s` or `500ms`; bare numbers mean milliseconds | `1s` |
 | `data-dir` | Root for the WAL and a cohort's database | `.data` |
 | `viz-port` | Protocol visualization HTTP port; 0 disables it | `0` |
+
+### Recover after a failed 3PC PRECOMMIT
+
+If PRECOMMIT voting fails, the coordinator keeps the transaction unresolved
+and rejects new writes with `ErrCoordinatorNotReady`. Restoring connectivity
+alone does not resume it. Restore the participants, then restart the coordinator
+with the same address, protocol, participant list and data directory. On startup
+it reads the durable PRECOMMIT from its WAL, records COMMIT and retries delivery.
+For Compose, restart it with `docker compose restart coordinator`.
+
+Keep the WAL and participant data when doing this: removing the data starts a
+new cluster rather than recovering the interrupted transaction.
 
 ## Protocol visualization
 

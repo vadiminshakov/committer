@@ -29,6 +29,9 @@ import (
 const (
 	roleCoordinator = "coordinator"
 	roleCohort      = "cohort"
+
+	defaultCoordinatorAddr = "localhost:3000"
+	defaultCohortAddr      = "localhost:3001"
 )
 
 // nodeConfig holds the flags of a node command.
@@ -183,7 +186,13 @@ func parseNodeFlags(role string, args []string, output io.Writer) (*nodeConfig, 
 	flagset.SetOutput(output)
 
 	conf := &nodeConfig{Role: role}
-	flagset.StringVar(&conf.Addr, "addr", "localhost:3050", "protocol listen address (host:port)")
+
+	defaultAddr := defaultCoordinatorAddr
+	if role == roleCohort {
+		defaultAddr = defaultCohortAddr
+	}
+
+	flagset.StringVar(&conf.Addr, "addr", defaultAddr, "protocol listen address (host:port)")
 	cli := flagset.Bool("cli", false,
 		fmt.Sprintf("serve put (coordinator) and get (cohort) on the protocol port + %d", clientAddrPortOffset))
 	flagset.StringVar(&conf.Coordinator, "coordinator", "", "coordinator address (required for cohort command)")

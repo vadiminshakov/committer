@@ -32,7 +32,7 @@ const defaultCLITimeout = 5 * time.Second
 
 // defaultAddrs match the README example: put goes to the coordinator,
 // get to the cohort.
-var defaultAddrs = map[string]string{cmdPut: "localhost:3000", cmdGet: "localhost:3001"}
+var defaultAddrs = map[string]string{cmdPut: defaultCoordinatorAddr, cmdGet: defaultCohortAddr}
 
 func runCLICommand(command string, args []string, stdout, stderr io.Writer) error {
 	flagset := flag.NewFlagSet("committer "+command, flag.ContinueOnError)
@@ -126,7 +126,7 @@ func invokeCLIOperation(
 			return err
 		}
 
-		fmt.Fprintf(stdout, "Committed transaction %d\n", height)
+		fmt.Fprintf(stdout, "COMMIT recorded for transaction %d; participants apply it asynchronously\n", height)
 	case cmdGet:
 		value, err := cli.Get(ctx, positional[0])
 		if err != nil {

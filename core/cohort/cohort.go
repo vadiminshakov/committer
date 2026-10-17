@@ -92,7 +92,6 @@ type Cohort struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	tasks  sync.WaitGroup
 }
 
 // newCohort creates a cohort state machine over resource and wal.
@@ -110,14 +109,6 @@ func newCohort(resource Resource, commitType string, wal wal, timeout uint64) *C
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-}
-
-func (c *Cohort) startTask(task func(uint64), height uint64) {
-	if c.ctx.Err() != nil {
-		return
-	}
-
-	c.tasks.Go(func() { task(height) })
 }
 
 // SetEmitter sets the event emitter. A nil emitter disables events.
@@ -190,7 +181,7 @@ func (c *Cohort) Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.Coh
 	c.pendingPayload = payload
 	c.phase = preparedStage
 
-	c.startTask(c.awaitDecision, req.Height)
+	go c.awaitDecision(req.Height)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: req.Height}, nil
 }
@@ -236,7 +227,7 @@ func (c *Cohort) Precommit(ctx context.Context, index uint64) (*dto.CohortRespon
 
 	c.emitter.Emit(events.Event{Kind: events.EvCohortPrecommit, Height: index})
 
-	c.startTask(c.handlePrecommitTimeout, index)
+	go c.handlePrecommitTimeout(index)
 
 	return &dto.CohortResponse{ResponseType: dto.ResponseTypeAck, Height: index}, nil
 }
@@ -622,7 +613,7 @@ func (c *Cohort) reapplyLastDecision(ctx context.Context, last *iowal.DecidedTra
 // polling for the coordinator's decision.
 func (c *Cohort) restorePreparedAndPollDecision(unresolved *iowal.UnresolvedTransaction) {
 	c.phase = preparedStage
-	c.startTask(c.awaitDecision, unresolved.Height)
+	go c.awaitDecision(unresolved.Height)
 
 	slog.Warn("recovered in-doubt transaction, awaiting coordinator decision", "height", unresolved.Height)
 }
@@ -631,7 +622,7 @@ func (c *Cohort) restorePreparedAndPollDecision(unresolved *iowal.UnresolvedTran
 // background polling for the coordinator's decision.
 func (c *Cohort) restoreThreePhasePreparedAndPollDecision(unresolved *iowal.UnresolvedTransaction) {
 	c.phase = preparedStage
-	c.startTask(c.awaitDecision, unresolved.Height)
+	go c.awaitDecision(unresolved.Height)
 
 	slog.Warn("recovered prepared 3PC transaction, awaiting coordinator decision", "height", unresolved.Height)
 }
@@ -642,7 +633,7 @@ func (c *Cohort) restorePrecommitAndStartCommitTimer(unresolved *iowal.Unresolve
 	c.phase = precommitStage
 
 	slog.Warn("recovered precommitted 3PC transaction, resuming commit timeout", "height", unresolved.Height)
-	c.startTask(c.handlePrecommitTimeout, unresolved.Height)
+	go c.handlePrecommitTimeout(unresolved.Height)
 }
 
 func (c *Cohort) resetPending() {
