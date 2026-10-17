@@ -1,5 +1,6 @@
 README.md
   h_786988a78af769 141,149-152,154-155,183-185,203,208,254-259
+  s_b69cfdd504e88b::t_67c901c1c43166 143-144,153
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -9,6 +10,16 @@ README.md
   "humans": {
     "h_786988a78af769": {
       "author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_b69cfdd504e88b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14ab9-74d9-7ff1-8cf0-a515bf7d517d",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
     }
   }
 }
