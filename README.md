@@ -138,13 +138,21 @@ and resource data to recover it.
 [examples/transfer](examples/transfer/main.go) moves money between two banks,
 each with its own resource; run it with `go run ./examples/transfer`.
 
-## Quick start with Docker
+## Quick start
 
-Requires Docker with Compose:
+Choose Docker Compose or run the nodes directly. Both setups use 2PC to write
+and read `greeting=hello`.
 
 ```bash
 git clone https://github.com/vadiminshakov/committer.git
 cd committer
+```
+
+### With Docker
+
+Requires Docker with Compose:
+
+```bash
 docker compose up --build --wait
 docker compose exec coordinator committer put greeting hello
 docker compose exec cohort committer get greeting
@@ -170,9 +178,10 @@ the nodes. Named volumes preserve their databases and WAL across restarts. To
 delete the data, run `docker compose down --volumes` (this permanently removes
 all nodes' data). This Compose setup is intended for local use.
 
-## Run with the CLI
+### Run nodes yourself
 
-Requires **Go 1.25 or newer** and `make`. Run commands from the repository root.
+Requires **Go 1.25 or newer**, `make`, and free ports 3000, 3001 and 8080.
+Run commands from the repository root.
 
 ```bash
 make build
@@ -242,9 +251,12 @@ The optional web UI animates protocol messages and shows an event log, transacti
 height, key and participants. Use Play/Pause, speed and replay controls to inspect
 the exchange. It is a protocol demonstration, not a metrics or health dashboard.
 
-Enable it on a node with `-viz-port 8080`, then open `http://localhost:8080`.
-Use a different port for each node's visualization. The HTTP server listens on
-all interfaces; the displayed localhost URL is for local access.
+Both quick-start options enable it at [localhost:8080](http://localhost:8080).
+Open the page and press **Play** to see the message exchange.
+
+For other setups, enable it on a node with `-viz-port 8080`. Use a different port
+for each node's visualization. The HTTP server listens on all interfaces; the
+displayed localhost URL is for local access.
 
 ## **Atomic Commit Protocols**
 
