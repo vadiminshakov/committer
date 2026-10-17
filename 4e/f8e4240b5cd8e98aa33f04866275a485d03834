@@ -1,0 +1,16 @@
+Makefile
+  h_786988a78af769 1,7,10
+README.md
+  h_786988a78af769 19,21-22,27-34,40-41,46,50-52,67-78,85-87,95-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4ef8e4240b5cd8e98aa33f04866275a485d03834",
+  "prompts": {},
+  "humans": {
+    "h_786988a78af769": {
+      "author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
