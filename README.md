@@ -64,7 +64,6 @@ atomically (packages `github.com/vadiminshakov/committer/v2/core/cohort` and
 `github.com/vadiminshakov/committer/v2/core/coordinator`):
 
 ```go
-// Inside a function returning error. Both databases implement cohort.Resource.
 participant, err := cohort.Start(ctx, cohort.Config{
     Addr:        "localhost:3001",
     Coordinator: "localhost:3000",
@@ -75,19 +74,9 @@ if err != nil {
 }
 defer participant.Close()
 
-inventory, err := cohort.Start(ctx, cohort.Config{
-    Addr:        "localhost:3002",
-    Coordinator: "localhost:3000",
-    DataDir:     ".data/inventory",
-}, inventoryDB)
-if err != nil {
-    return err
-}
-defer inventory.Close()
-
 coord, err := coordinator.Start(coordinator.Config{
     Addr:    "localhost:3000",
-    Cohorts: []dto.Addr{"localhost:3001", "localhost:3002"},
+    Cohorts: []dto.Addr{"localhost:3001"},
     DataDir: ".data/coordinator",
 })
 if err != nil {
