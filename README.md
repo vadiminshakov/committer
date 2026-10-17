@@ -138,17 +138,17 @@ and resource data to recover it.
 [examples/transfer](examples/transfer/main.go) moves money between two banks,
 each with its own resource; run it with `go run ./examples/transfer`.
 
-## Quick start
+## Quick start: demo cluster
 
-Choose Docker Compose or run the nodes directly. Both setups use 2PC to write
-and read `greeting=hello`.
+Start a demo cluster with Docker Compose or run the nodes directly. Both setups
+use 2PC to write and read `greeting=hello`.
 
 ```bash
 git clone https://github.com/vadiminshakov/committer.git
 cd committer
 ```
 
-### With Docker
+### Run with Docker Compose
 
 Requires Docker with Compose:
 
@@ -178,7 +178,7 @@ the nodes. Named volumes preserve their databases and WAL across restarts. To
 delete the data, run `docker compose down --volumes` (this permanently removes
 all nodes' data). This Compose setup is intended for local use.
 
-### Run nodes yourself
+### Run locally with the CLI
 
 Requires **Go 1.25 or newer**, `make`, and free ports 3000, 3001 and 8080.
 Run commands from the repository root.
@@ -200,6 +200,8 @@ make build
 `put` confirms a durable COMMIT decision, before all participants necessarily
 apply it. An immediate `get` may return the previous value or "key not found";
 retry the read after the participant catches up.
+
+### Client commands
 
 `--addr` is the node's `-addr`. `put` goes to a coordinator (default
 `localhost:3000`) and `get` to a cohort (default `localhost:3001`), so `--addr`
