@@ -246,7 +246,7 @@ canvas { display: block; width: 100%; height: 100%; }
       <h2><span class="dot" id="status-dot"></span> Committer</h2>
       <div id="phases">
         <span class="phase-pill" id="phase-propose">PROPOSE</span>
-        <span class="phase-arrow">→</span>
+        <span class="phase-arrow" id="precommit-arrow">→</span>
         <span class="phase-pill" id="phase-precommit">PRECOMMIT</span>
         <span class="phase-arrow">→</span>
         <span class="phase-pill" id="phase-commit">COMMIT</span>
@@ -500,12 +500,19 @@ function processEvent(ev) {
       break;
 
     case 'CoordAbort':
-      updatePhase('abort');
-      updateStatus('abort');
-      Object.values(nodes).forEach(n => {
-        if (!n.isCoord) addAnimation('Coordinator', n.fullLabel, 'ABORT', COLORS.abort);
-      });
-      addLog('error', `Coordinator → ABORT  ${ev.message || ''}`);
+      if (!ev.cohort) {
+        updatePhase('abort');
+        updateStatus('abort');
+        Object.values(nodes).forEach(n => {
+          if (!n.isCoord) addAnimation('Coordinator', n.fullLabel, 'ABORT', COLORS.abort);
+        });
+        addLog('error', `Coordinator → ABORT  ${ev.message || ''}`);
+      } else {
+        const accepted = ev.result === 'ok';
+        const label = accepted ? 'ACK ✓' : 'NACK ✗';
+        addAnimation(ev.cohort, 'Coordinator', label, accepted ? COLORS.ack : COLORS.nack);
+        addLog(accepted ? 'info' : 'error', `Cohort ${ev.cohort} → ${label} (ABORT)`);
+      }
       break;
 
     case 'CoordHeightSync':
@@ -568,7 +575,7 @@ function processEvent(ev) {
   }
 
   if (ev.key)    { infoKey.textContent    = ev.key; }
-  if (ev.height) { infoHeight.textContent = String(ev.height); }
+  if (ev.height != null) { infoHeight.textContent = String(ev.height); }
   infoEvents.textContent = events.length;
 }
 
@@ -577,6 +584,9 @@ function addAnimation(from, to, label, color) {
 }
 
 function updatePhase(phase) {
+  const threePhase = roleConfig.commitType === 'three-phase';
+  phasePrecommit.hidden = !threePhase;
+  document.getElementById('precommit-arrow').hidden = !threePhase;
   [phasePropose, phasePrecommit, phaseCommit].forEach(el => el.className = 'phase-pill');
   phaseCommit.textContent = 'COMMIT';
 
@@ -587,11 +597,10 @@ function updatePhase(phase) {
     phasePrecommit.classList.add('active');
   } else if (phase === 'commit') {
     phasePropose.classList.add('done');
-    phasePrecommit.classList.add('done');
+    if (threePhase) phasePrecommit.classList.add('done');
     phaseCommit.classList.add('active');
   } else if (phase === 'abort') {
     phasePropose.classList.add('done');
-    phasePrecommit.classList.add('done');
     phaseCommit.classList.add('abort');
     phaseCommit.textContent = 'ABORT';
   }
@@ -706,6 +715,7 @@ async function loadConfig() {
   try {
     const res  = await fetch('/api/config');
     roleConfig = await res.json();
+    updatePhase('');
   } catch (e) {
     console.error('loadConfig failed:', e);
   }
