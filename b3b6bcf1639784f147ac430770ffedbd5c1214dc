@@ -1,0 +1,16 @@
+README.md
+  h_39c31934e2ac79 137,140-142,145-147,152
+compose.yaml
+  h_39c31934e2ac79 1-14,17,20-24,32,44-45,51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b3b6bcf1639784f147ac430770ffedbd5c1214dc",
+  "prompts": {},
+  "humans": {
+    "h_39c31934e2ac79": {
+      "author": "Vadim Inshakov <vadim.inshakov@itms.tech>"
+    }
+  }
+}
