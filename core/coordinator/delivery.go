@@ -205,6 +205,8 @@ func (d *cohortDelivery) voteProposal(ctx context.Context, cohort Cohort, propos
 
 		d.emitVote(events.EvCoordPropose, cohort.Addr(), proposal.Height, "nack")
 
+		// Catch-up only repairs lag: a cohort at or beyond the proposed
+		// height rejected for a reason that replaying earlier decisions cannot fix.
 		if reply.Height >= proposal.Height {
 			if reply.Reason != "" {
 				return fmt.Errorf("cohort %s rejected proposal at height %d: %s",
@@ -214,6 +216,8 @@ func (d *cohortDelivery) voteProposal(ctx context.Context, cohort Cohort, propos
 			return fmt.Errorf("cohort %s rejected proposal at height %d", cohort.Addr(), proposal.Height)
 		}
 
+		// After catch-up, the next proposal must observe a higher cohort
+		// height; otherwise stop rather than replaying the same decisions forever.
 		if hasLagHeight && reply.Height <= lastLagHeight {
 			return fmt.Errorf(
 				"cohort %s did not advance during proposal catch-up: height %d",

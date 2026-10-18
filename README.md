@@ -235,18 +235,6 @@ Node commands accept these flags:
 | `data-dir` | Root for the WAL and a cohort's database | `.data` |
 | `viz-port` | Protocol visualization HTTP port; 0 disables it | `0` |
 
-### Recover after a failed 3PC PRECOMMIT
-
-If PRECOMMIT voting fails, the coordinator keeps the transaction unresolved
-and rejects new writes with `ErrCoordinatorNotReady`. Restoring connectivity
-alone does not resume it. Restore the participants, then restart the coordinator
-with the same address, protocol, participant list and data directory. On startup
-it reads the durable PRECOMMIT from its WAL, records COMMIT and retries delivery.
-For Compose, restart it with `docker compose restart coordinator`.
-
-Keep the WAL and participant data when doing this: removing the data starts a
-new cluster rather than recovering the interrupted transaction.
-
 ## Protocol visualization
 
 The optional web UI animates protocol messages and shows an event log, transaction

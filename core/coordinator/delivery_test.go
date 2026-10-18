@@ -26,7 +26,7 @@ func TestCohortDeliveryFansOutProposalBeforeWaitingForVotes(t *testing.T) {
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 
 	cohort := func(name string) Cohort {
-		cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+		cohort := mocks.NewMockCohort(gomock.NewController(t))
 		cohort.EXPECT().Addr().Return(name).AnyTimes()
 		cohort.EXPECT().Propose(gomock.Any(), dto.Proposal{Height: 7}).DoAndReturn(func(ctx context.Context, _ dto.Proposal) (dto.ParticipantReply, error) {
 			entered <- name
@@ -90,7 +90,7 @@ func TestCohortDeliveryFansOutPrecommitAndNormalizesNack(t *testing.T) {
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 
 	cohort := func(name string, accepted bool) Cohort {
-		cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+		cohort := mocks.NewMockCohort(gomock.NewController(t))
 		cohort.EXPECT().Addr().Return(name).AnyTimes()
 		cohort.EXPECT().Precommit(gomock.Any(), uint64(11)).DoAndReturn(func(ctx context.Context, height uint64) (dto.ParticipantReply, error) {
 			heights <- height
@@ -158,7 +158,7 @@ func TestCohortDeliveryReturnsAfterStartingFinalRetry(t *testing.T) {
 
 	var attemptCount atomic.Int32
 
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("alpha").AnyTimes()
 	cohort.EXPECT().ApplyFinalDecision(gomock.Any(), dto.FinalDecision{Height: 13, Outcome: dto.OutcomeCommit}).DoAndReturn(func(ctx context.Context, decision dto.FinalDecision) (dto.ParticipantReply, error) {
 		observedDecisions <- decision
@@ -233,7 +233,7 @@ func TestCohortDeliveryDoesNotBlockProposalBehindFinalDecisionRetry(t *testing.T
 	var callsMu sync.Mutex
 
 	calls := make([]string, 0, 2)
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("alpha").AnyTimes()
 	cohort.EXPECT().ApplyFinalDecision(gomock.Any(), dto.FinalDecision{Height: 4, Outcome: dto.OutcomeCommit}).DoAndReturn(
 		func(ctx context.Context, _ dto.FinalDecision) (dto.ParticipantReply, error) {
@@ -308,7 +308,7 @@ func TestCohortDeliveryCatchesUpLaggingParticipantBeforeRetryingProposal(t *test
 
 	var proposals atomic.Int32
 
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("alpha").AnyTimes()
 	cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, proposal dto.Proposal) (dto.ParticipantReply, error) {
@@ -383,7 +383,7 @@ func TestCohortDeliveryContinuesCatchUpWhenLaggingParticipantAdvances(t *testing
 	)
 
 	decisionHeights := make([]uint64, 0, 8)
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("alpha").AnyTimes()
 	cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, proposal dto.Proposal) (dto.ParticipantReply, error) {
@@ -433,7 +433,7 @@ func TestCohortDeliveryStopsCatchUpWhenParticipantDoesNotAdvance(t *testing.T) {
 		decisions atomic.Int32
 	)
 
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("alpha").AnyTimes()
 	cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(context.Context, dto.Proposal) (dto.ParticipantReply, error) {
@@ -474,7 +474,7 @@ func TestCohortDeliveryCloseUnblocksCallersAndClosesAdaptersOnce(t *testing.T) {
 
 	var closes atomic.Int32
 
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("alpha").AnyTimes()
 	cohort.EXPECT().Propose(gomock.Any(), dto.Proposal{Height: 1}).DoAndReturn(
 		func(ctx context.Context, _ dto.Proposal) (dto.ParticipantReply, error) {

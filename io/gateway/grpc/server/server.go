@@ -24,7 +24,7 @@ type Coordinator interface {
 
 // Cohort defines the interface for cohort operations.
 //
-//go:generate mockgen -destination=../../../../mocks/mock_cohort.go -package=mocks . Cohort
+//go:generate mockgen -destination=../../../../mocks/mock_cohort.go -package=mocks -mock_names=Cohort=MockGRPCCohort . Cohort
 type Cohort interface {
 	Propose(ctx context.Context, req *dto.ProposeRequest) (*dto.CohortResponse, error)
 	Precommit(ctx context.Context, index uint64) (*dto.CohortResponse, error)

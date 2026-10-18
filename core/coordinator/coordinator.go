@@ -21,9 +21,6 @@ var (
 	// ErrAborted means the transaction is durably aborted: no cohort applied
 	// it, and the same change can be retried.
 	ErrAborted = errors.New("transaction aborted")
-	// ErrPrecommitVote means a 3PC cohort did not acknowledge PRECOMMIT; the
-	// outcome is left to recovery when the coordinator restarts.
-	ErrPrecommitVote = errors.New("failed to send precommit")
 	// ErrInvalidTransaction reports a request rejected before any durable
 	// transaction record is written.
 	ErrInvalidTransaction = errors.New("invalid transaction")
@@ -32,7 +29,7 @@ var (
 	ErrCoordinatorNotReady = errors.New("coordinator is not ready")
 )
 
-//go:generate mockgen -destination=../../mocks/mock_coordinator.go -package=mocks -mock_names=wal=MockCoordinatorWAL,Cohort=MockCoordinatorCohort . wal,Cohort
+//go:generate mockgen -destination=../../mocks/mock_coordinator.go -package=mocks -mock_names=wal=MockCoordinatorWAL . wal,Cohort
 type wal interface {
 	Write(key string, value []byte) error
 	Recover(applyFn func(key string, value []byte) error) (*iowal.RecoveryState, error)
@@ -125,6 +122,8 @@ func (c *Coordinator) Commit(ctx context.Context, key string, value []byte) (uin
 		return c.abortTransaction(height, key, err)
 	}
 
+	requirePrecommit := false
+
 	if c.protocol == dto.ProtocolThreePhase {
 		if err := c.lifecycle.Precommit(); err != nil {
 			return height, fmt.Errorf("persist precommit: %w", err)
@@ -137,9 +136,12 @@ func (c *Coordinator) Commit(ctx context.Context, key string, value []byte) (uin
 		})
 
 		if err := c.delivery.VotePrecommit(ctx, height); err != nil {
-			return height, fmt.Errorf("%w at height %d: %w; restore connectivity and restart the coordinator "+
-				"with the same DataDir to finish this transaction",
-				ErrPrecommitVote, height, err)
+			// Durable PRECOMMIT cannot be rolled back. Finish as startup
+			// recovery would, even if the client's context has expired.
+			requirePrecommit = true
+
+			slog.Warn("precommit vote failed; finishing with background delivery",
+				"height", height, "err", err)
 		}
 	}
 
@@ -147,6 +149,8 @@ func (c *Coordinator) Commit(ctx context.Context, key string, value []byte) (uin
 	if err != nil {
 		return height, fmt.Errorf("failed to commit: %w", err)
 	}
+
+	decision.RequirePrecommit = requirePrecommit
 
 	c.emitter.Emit(events.Event{
 		Kind:   events.EvCoordCommit,
