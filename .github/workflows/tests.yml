@@ -30,7 +30,7 @@ jobs:
 
     # Runs a single command using the runners shell
     - name: Run tests
-      run: make prepare && make tests
+      run: make tests
 
   lint:
     runs-on: ubuntu-latest

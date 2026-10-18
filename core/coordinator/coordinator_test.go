@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vadiminshakov/committer/core/dto"
-	iowal "github.com/vadiminshakov/committer/io/wal"
-	"github.com/vadiminshakov/committer/mocks"
+	"github.com/vadiminshakov/committer/v2/core/dto"
+	iowal "github.com/vadiminshakov/committer/v2/io/wal"
+	"github.com/vadiminshakov/committer/v2/mocks"
 	"go.uber.org/mock/gomock"
 )
 
@@ -52,53 +52,32 @@ func newCoordinatorJournalMock(t *testing.T, events *coordinatorEventLog) *mocks
 	return journal
 }
 
-func newCoordinatorStoreMock(t *testing.T, events *coordinatorEventLog, putErr error) *mocks.MockCoordinatorStateStore {
+func newHealthyCoordinatorWAL(t *testing.T) *mocks.MockCoordinatorWAL {
 	t.Helper()
-	store := mocks.NewMockCoordinatorStateStore(gomock.NewController(t))
-	store.EXPECT().Put(gomock.Any(), gomock.Any()).DoAndReturn(func(string, []byte) error {
-		if events != nil {
-			events.add("store:put")
-		}
-
-		return putErr
-	}).AnyTimes()
-
-	return store
-}
-
-func newHealthyCoordinatorPersistence(t *testing.T) (*mocks.MockCoordinatorWAL, *mocks.MockCoordinatorStateStore) {
-	t.Helper()
-	journal, store := newLifecycleMocks(t)
+	journal := newLifecycleWAL(t)
 	journal.EXPECT().Recover(gomock.Any()).Return(cleanRecovery(0), nil)
 	journal.EXPECT().Write(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	store.EXPECT().Put(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-	return journal, store
+	return journal
 }
 
 func TestCoordinatorTwoPhaseReturnsCommittedTransactionHeight(t *testing.T) {
-	journal, store := newHealthyCoordinatorPersistence(t)
+	journal := newHealthyCoordinatorWAL(t)
 
-	coordinator, err := New(dto.ProtocolTwoPhase, journal, store, nil, nil)
+	coordinator, err := newCoordinator(dto.ProtocolTwoPhase, journal, nil, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, coordinator.Close()) })
 
-	response, err := coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-		Key:   "account",
-		Value: []byte("open"),
-	})
+	height, err := coordinator.Commit(context.Background(), "account", []byte("open"))
 	require.NoError(t, err)
-	require.Equal(t, &dto.BroadcastResponse{
-		Type:   dto.ResponseTypeAck,
-		Height: 0,
-	}, response)
+	require.Equal(t, uint64(0), height)
 	require.Equal(t, uint64(1), coordinator.Height())
 	require.Equal(t, dto.OutcomeCommit, coordinator.Decision(0))
 }
 
-func TestCoordinatorThreePhasePersistsAndAppliesBeforeFinalDelivery(t *testing.T) {
+func TestCoordinatorThreePhasePersistsBeforeFinalDelivery(t *testing.T) {
 	events := &coordinatorEventLog{}
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
 	cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(context.Context, dto.Proposal) (dto.ParticipantReply, error) {
@@ -120,22 +99,18 @@ func TestCoordinatorThreePhasePersistsAndAppliesBeforeFinalDelivery(t *testing.T
 		}).Times(1)
 	cohort.EXPECT().Close().Return(nil).Times(1)
 
-	coordinator, err := New(
+	coordinator, err := newCoordinator(
 		dto.ProtocolThreePhase,
 		newCoordinatorJournalMock(t, events),
-		newCoordinatorStoreMock(t, events, nil),
 		[]Cohort{cohort},
 		nil,
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, coordinator.Close()) })
 
-	response, err := coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-		Key:   "invoice",
-		Value: []byte("paid"),
-	})
+	height, err := coordinator.Commit(context.Background(), "invoice", []byte("paid"))
 	require.NoError(t, err)
-	require.Equal(t, uint64(0), response.Height)
+	require.Equal(t, uint64(0), height)
 	require.NoError(t, coordinator.Close())
 	require.Equal(t, []string{
 		"wal:prepared",
@@ -143,66 +118,22 @@ func TestCoordinatorThreePhasePersistsAndAppliesBeforeFinalDelivery(t *testing.T
 		"wal:precommit",
 		"cohort:precommit",
 		"wal:commit",
-		"store:put",
 		"cohort:decide",
 	}, events.snapshot())
-}
-
-func TestCoordinatorFencesCommittedTransactionWhenLocalApplyFails(t *testing.T) {
-	applyErr := errors.New("store unavailable")
-	journal, store := newLifecycleMocks(t)
-	journal.EXPECT().Recover(gomock.Any()).Return(cleanRecovery(0), nil)
-	journal.EXPECT().Write(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	store.EXPECT().Put("ledger", []byte("entry")).Return(applyErr)
-
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
-	cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
-	cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).Return(dto.ParticipantReply{Accepted: true}, nil)
-	cohort.EXPECT().Close().Return(nil)
-	cohort.EXPECT().ApplyFinalDecision(gomock.Any(), gomock.Any()).Times(0)
-
-	coordinator, err := New(
-		dto.ProtocolTwoPhase,
-		journal,
-		store,
-		[]Cohort{cohort},
-		nil,
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, coordinator.Close()) })
-
-	response, err := coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-		Key:   "ledger",
-		Value: []byte("entry"),
-	})
-	require.Equal(t, &dto.BroadcastResponse{Type: dto.ResponseTypeNack, Height: 0}, response)
-
-	var committedNotApplied *CommittedNotAppliedError
-	require.ErrorAs(t, err, &committedNotApplied)
-	require.ErrorIs(t, err, applyErr)
-	require.Equal(t, uint64(0), committedNotApplied.Height)
-	require.Equal(t, dto.OutcomeCommit, coordinator.Decision(0))
-	require.Equal(t, uint64(0), coordinator.Height())
-
-	_, err = coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-		Key:   "next",
-		Value: []byte("blocked"),
-	})
-	require.ErrorContains(t, err, "not resolved")
 }
 
 func TestCoordinatorProposalFailureAbort(t *testing.T) {
 	run := func(t *testing.T, failProposal func() (dto.ParticipantReply, error)) {
 		t.Helper()
 
-		journal, store := newLifecycleMocks(t)
+		journal := newLifecycleWAL(t)
 		gomock.InOrder(
 			journal.EXPECT().Recover(gomock.Any()).Return(cleanRecovery(0), nil),
 			journal.EXPECT().Write(iowal.PreparedKey(0), gomock.Any()).Return(nil),
 			journal.EXPECT().Write(iowal.AbortKey(0), gomock.Any()).Return(nil),
 		)
 
-		cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+		cohort := mocks.NewMockCohort(gomock.NewController(t))
 		cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
 		cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(context.Context, dto.Proposal) (dto.ParticipantReply, error) {
@@ -213,23 +144,19 @@ func TestCoordinatorProposalFailureAbort(t *testing.T) {
 		}).Return(dto.ParticipantReply{Accepted: true}, nil).Times(1)
 		cohort.EXPECT().Close().Return(nil).Times(1)
 
-		coordinator, err := New(
+		coordinator, err := newCoordinator(
 			dto.ProtocolTwoPhase,
 			journal,
-			store,
 			[]Cohort{cohort},
 			nil,
 		)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, coordinator.Close()) })
 
-		response, err := coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-			Key:   "order",
-			Value: []byte("cancel"),
-		})
-		require.ErrorContains(t, err, "failed to send propose")
-		require.ErrorIs(t, err, ErrProposeVote)
-		require.Equal(t, dto.ResponseTypeNack, response.Type)
+		height, err := coordinator.Commit(context.Background(), "order", []byte("cancel"))
+		require.ErrorContains(t, err, "transaction aborted")
+		require.ErrorIs(t, err, ErrAborted)
+		require.Equal(t, uint64(0), height)
 		require.Equal(t, dto.OutcomeAbort, coordinator.Decision(0))
 		require.Equal(t, uint64(1), coordinator.Height())
 	}
@@ -246,15 +173,116 @@ func TestCoordinatorProposalFailureAbort(t *testing.T) {
 	})
 }
 
-func TestCoordinatorPrecommitFailureStaysInDoubt(t *testing.T) {
-	journal, store := newLifecycleMocks(t)
+func TestCoordinatorPrecommitVoteFailureCommitsAndRetriesDelivery(t *testing.T) {
+	for _, failure := range []string{"transport", "nack", "canceled", "deadline"} {
+		t.Run(failure, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+
+				events := &coordinatorEventLog{}
+				journal := newCoordinatorJournalMock(t, events)
+				cohort := mocks.NewMockCohort(gomock.NewController(t))
+				cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
+				cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).
+					Return(dto.ParticipantReply{Accepted: true}, nil).Times(2)
+				gomock.InOrder(
+					cohort.EXPECT().Precommit(gomock.Any(), uint64(0)).DoAndReturn(
+						func(context.Context, uint64) (dto.ParticipantReply, error) {
+							switch failure {
+							case "canceled":
+								cancel()
+
+								return dto.ParticipantReply{}, context.Canceled
+							case "deadline":
+								<-ctx.Done()
+
+								return dto.ParticipantReply{}, ctx.Err()
+							case "nack":
+								return dto.ParticipantReply{Accepted: false}, nil
+							default:
+								return dto.ParticipantReply{}, errors.New("connection lost")
+							}
+						}),
+					cohort.EXPECT().Precommit(gomock.Any(), uint64(0)).DoAndReturn(
+						func(ctx context.Context, _ uint64) (dto.ParticipantReply, error) {
+							require.NoError(t, ctx.Err())
+							events.add("retry:precommit")
+
+							return dto.ParticipantReply{}, errors.New("still unavailable")
+						}),
+					cohort.EXPECT().ApplyFinalDecision(gomock.Any(), dto.FinalDecision{
+						Height: 0, Outcome: dto.OutcomeCommit, RequirePrecommit: true,
+					}).Return(dto.ParticipantReply{}, errors.New("still unavailable")),
+					cohort.EXPECT().Precommit(gomock.Any(), uint64(0)).DoAndReturn(
+						func(ctx context.Context, _ uint64) (dto.ParticipantReply, error) {
+							require.NoError(t, ctx.Err())
+							events.add("retry:precommit")
+
+							return dto.ParticipantReply{Accepted: true}, nil
+						}),
+					cohort.EXPECT().ApplyFinalDecision(gomock.Any(), dto.FinalDecision{
+						Height: 0, Outcome: dto.OutcomeCommit, RequirePrecommit: true,
+					}).DoAndReturn(func(ctx context.Context, _ dto.FinalDecision) (dto.ParticipantReply, error) {
+						require.NoError(t, ctx.Err())
+						events.add("retry:commit")
+
+						return dto.ParticipantReply{Accepted: true}, nil
+					}),
+				)
+				cohort.EXPECT().Precommit(gomock.Any(), uint64(1)).
+					Return(dto.ParticipantReply{Accepted: true}, nil)
+				cohort.EXPECT().ApplyFinalDecision(gomock.Any(), dto.FinalDecision{
+					Height: 1, Outcome: dto.OutcomeCommit,
+				}).Return(dto.ParticipantReply{Accepted: true}, nil)
+				cohort.EXPECT().Close().Return(nil)
+
+				coordinator, err := newCoordinator(dto.ProtocolThreePhase, journal, []Cohort{cohort}, nil)
+
+				require.NoError(t, err)
+				defer func() { require.NoError(t, coordinator.Close()) }()
+
+				// persist COMMIT despite the failed vote; delivery continues asynchronously.
+				height, err := coordinator.Commit(ctx, "invoice", []byte("pending"))
+				require.NoError(t, err)
+				require.Equal(t, uint64(0), height)
+				require.Equal(t, dto.OutcomeCommit, coordinator.Decision(0))
+				require.Equal(t, uint64(1), coordinator.Height())
+
+				// let the first background attempt fail and block on its retry timer.
+				synctest.Wait()
+
+				// accept another transaction while the previous delivery awaits retry.
+				height, err = coordinator.Commit(context.Background(), "next", nil)
+				require.NoError(t, err)
+				require.Equal(t, uint64(1), height)
+
+				// advance virtual time through one retry backoff without a real-time delay.
+				time.Sleep(finalDecisionRetryBackoff)
+
+				// let background delivery finish before checking the event order.
+				synctest.Wait()
+				require.Equal(t, []string{
+					"wal:prepared", "wal:precommit", "wal:commit", "retry:precommit",
+					"wal:prepared", "wal:precommit", "wal:commit",
+					"retry:precommit", "retry:commit",
+				}, events.snapshot())
+			})
+		})
+	}
+}
+
+func TestCoordinatorPrecommitFailureWithCommitWALErrorStaysInDoubt(t *testing.T) {
+	walErr := errors.New("commit journal unavailable")
+	journal := newLifecycleWAL(t)
 	gomock.InOrder(
 		journal.EXPECT().Recover(gomock.Any()).Return(cleanRecovery(0), nil),
 		journal.EXPECT().Write(iowal.PreparedKey(0), gomock.Any()).Return(nil),
 		journal.EXPECT().Write(iowal.PrecommitKey(0), gomock.Any()).Return(nil),
+		journal.EXPECT().Write(iowal.CommitKey(0), gomock.Any()).Return(walErr),
 	)
 
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
 	cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).Return(dto.ParticipantReply{Accepted: true}, nil)
 	cohort.EXPECT().Precommit(gomock.Any(), uint64(0)).DoAndReturn(
@@ -264,40 +292,37 @@ func TestCoordinatorPrecommitFailureStaysInDoubt(t *testing.T) {
 	cohort.EXPECT().ApplyFinalDecision(gomock.Any(), gomock.Any()).Times(0)
 	cohort.EXPECT().Close().Return(nil)
 
-	coordinator, err := New(
+	coordinator, err := newCoordinator(
 		dto.ProtocolThreePhase,
 		journal,
-		store,
 		[]Cohort{cohort},
 		nil,
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, coordinator.Close()) })
 
-	response, err := coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-		Key:   "invoice",
-		Value: []byte("pending"),
-	})
-	require.ErrorContains(t, err, "failed to send precommit")
-	require.ErrorIs(t, err, ErrPrecommitVote)
-	require.Equal(t, dto.ResponseTypeNack, response.Type)
+	height, err := coordinator.Commit(context.Background(), "invoice", []byte("pending"))
+	require.ErrorIs(t, err, walErr)
+	require.Equal(t, uint64(0), height)
 	require.Equal(t, dto.OutcomeUnknown, coordinator.Decision(0))
 	require.Equal(t, uint64(0), coordinator.Height())
 
-	_, err = coordinator.Broadcast(context.Background(), dto.BroadcastRequest{Key: "next"})
+	_, err = coordinator.Commit(context.Background(), "next", nil)
 	require.ErrorContains(t, err, "not resolved")
+	require.ErrorIs(t, err, ErrCoordinatorNotReady)
+	require.ErrorContains(t, err, "restart the coordinator with the same DataDir")
 }
 
 func TestCoordinatorAbortJournalError(t *testing.T) {
 	abortErr := errors.New("abort journal unavailable")
-	journal, store := newLifecycleMocks(t)
+	journal := newLifecycleWAL(t)
 	gomock.InOrder(
 		journal.EXPECT().Recover(gomock.Any()).Return(cleanRecovery(0), nil),
 		journal.EXPECT().Write(iowal.PreparedKey(0), gomock.Any()).Return(nil),
 		journal.EXPECT().Write(iowal.AbortKey(0), gomock.Any()).Return(abortErr),
 	)
 
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
 	cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(context.Context, dto.Proposal) (dto.ParticipantReply, error) {
@@ -305,24 +330,20 @@ func TestCoordinatorAbortJournalError(t *testing.T) {
 		})
 	cohort.EXPECT().Close().Return(nil)
 
-	coordinator, err := New(
+	coordinator, err := newCoordinator(
 		dto.ProtocolTwoPhase,
 		journal,
-		store,
 		[]Cohort{cohort},
 		nil,
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, coordinator.Close()) })
 
-	response, err := coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-		Key:   "order",
-		Value: []byte("cancel"),
-	})
-	require.Equal(t, &dto.BroadcastResponse{Type: dto.ResponseTypeNack, Height: 0}, response)
+	height, err := coordinator.Commit(context.Background(), "order", []byte("cancel"))
+	require.Equal(t, uint64(0), height)
 	require.ErrorIs(t, err, abortErr)
 	require.ErrorContains(t, err, "failed to send propose")
-	require.NotErrorIs(t, err, ErrProposeVote)
+	require.NotErrorIs(t, err, ErrAborted)
 }
 
 func TestCoordinatorFinalDeliveryDoesNotDelayCommittedResponse(t *testing.T) {
@@ -332,7 +353,7 @@ func TestCoordinatorFinalDeliveryDoesNotDelayCommittedResponse(t *testing.T) {
 	var releaseOnce sync.Once
 
 	t.Cleanup(func() { releaseOnce.Do(func() { close(releaseFinal) }) })
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
 	cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).
 		Return(dto.ParticipantReply{Accepted: true}, nil).Times(1)
@@ -348,12 +369,11 @@ func TestCoordinatorFinalDeliveryDoesNotDelayCommittedResponse(t *testing.T) {
 	}).Times(1)
 	cohort.EXPECT().Close().Return(nil).Times(1)
 
-	journal, store := newHealthyCoordinatorPersistence(t)
+	journal := newHealthyCoordinatorWAL(t)
 
-	coordinator, err := New(
+	coordinator, err := newCoordinator(
 		dto.ProtocolTwoPhase,
 		journal,
-		store,
 		[]Cohort{cohort},
 		nil,
 	)
@@ -361,18 +381,15 @@ func TestCoordinatorFinalDeliveryDoesNotDelayCommittedResponse(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, coordinator.Close()) })
 
 	type broadcastResult struct {
-		response *dto.BroadcastResponse
-		err      error
+		height uint64
+		err    error
 	}
 
 	result := make(chan broadcastResult, 1)
 
 	go func() {
-		response, err := coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-			Key:   "key",
-			Value: []byte("value"),
-		})
-		result <- broadcastResult{response: response, err: err}
+		height, err := coordinator.Commit(context.Background(), "key", []byte("value"))
+		result <- broadcastResult{height: height, err: err}
 	}()
 
 	select {
@@ -384,7 +401,7 @@ func TestCoordinatorFinalDeliveryDoesNotDelayCommittedResponse(t *testing.T) {
 	select {
 	case committed := <-result:
 		require.NoError(t, committed.err)
-		require.Equal(t, &dto.BroadcastResponse{Type: dto.ResponseTypeAck, Height: 0}, committed.response)
+		require.Equal(t, uint64(0), committed.height)
 	case <-time.After(time.Second):
 		require.FailNow(t, "client response waited for final decision acknowledgement")
 	}
@@ -392,17 +409,17 @@ func TestCoordinatorFinalDeliveryDoesNotDelayCommittedResponse(t *testing.T) {
 	releaseOnce.Do(func() { close(releaseFinal) })
 }
 
-func TestCoordinatorCloseCancelsAndWaitsForInFlightBroadcast(t *testing.T) {
+func TestCoordinatorCloseCancelsAndWaitsForInFlightCommit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		proposalEntered := false
 		proposalExited := false
 
-		cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+		cohort := mocks.NewMockCohort(gomock.NewController(t))
 		cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
 		cohort.EXPECT().Propose(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(ctx context.Context, _ dto.Proposal) (dto.ParticipantReply, error) {
 				proposalEntered = true
-				// keep Broadcast in flight until Coordinator.Close cancels delivery.
+				// keep Commit in flight until Coordinator.Close cancels delivery.
 				<-ctx.Done()
 
 				proposalExited = true
@@ -424,12 +441,11 @@ func TestCoordinatorCloseCancelsAndWaitsForInFlightBroadcast(t *testing.T) {
 			return nil
 		})
 
-		journal, store := newHealthyCoordinatorPersistence(t)
+		journal := newHealthyCoordinatorWAL(t)
 
-		coordinator, err := New(
+		coordinator, err := newCoordinator(
 			dto.ProtocolTwoPhase,
 			journal,
-			store,
 			[]Cohort{cohort},
 			nil,
 		)
@@ -439,67 +455,28 @@ func TestCoordinatorCloseCancelsAndWaitsForInFlightBroadcast(t *testing.T) {
 
 		var broadcastErr error
 		go func() {
-			_, broadcastErr = coordinator.Broadcast(context.Background(), dto.BroadcastRequest{
-				Key:   "key",
-				Value: []byte("value"),
-			})
+			_, broadcastErr = coordinator.Commit(context.Background(), "key", []byte("value"))
 		}()
 
-		// wait until Broadcast is blocked inside the cohort's Propose call.
+		// wait until Commit is blocked inside the cohort's Propose call.
 		synctest.Wait()
 		require.True(t, proposalEntered)
 		require.False(t, proposalExited)
 
 		var closeErr error
-		// Close must cancel Propose, wait for Broadcast to release the coordinator
+		// closing must cancel Propose, wait for Commit to release the coordinator
 		// lock, and only then close the cohort.
 		go func() {
 			closeErr = coordinator.Close()
 		}()
 
-		// both Close and the canceled Broadcast must complete before assertions.
+		// both Close and the canceled Commit must complete before assertions.
 		synctest.Wait()
 		require.NoError(t, closeErr)
 		require.Error(t, broadcastErr)
 		require.True(t, proposalExited)
 		require.Equal(t, dto.OutcomeAbort, coordinator.Decision(0))
 	})
-}
-
-func TestCoordinatorConstructionFailsClosedWhenRecoveryApplyFails(t *testing.T) {
-	applyErr := errors.New("recovery store unavailable")
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
-	cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
-	cohort.EXPECT().Close().Return(nil).Times(1)
-
-	recovery := &iowal.RecoveryState{
-		NextHeight: 1,
-		Unresolved: &iowal.UnresolvedTransaction{
-			Height:  0,
-			Phase:   iowal.PhaseKeyPrecommit,
-			Payload: lifecyclePayload(t, "key", "value"),
-		},
-		Decisions: make(map[uint64]string),
-	}
-	journal, store := newLifecycleMocks(t)
-	gomock.InOrder(
-		journal.EXPECT().Recover(gomock.Any()).Return(recovery, nil),
-		journal.EXPECT().Write(iowal.CommitKey(0), gomock.Any()).Return(nil),
-		store.EXPECT().Put("key", []byte("value")).Return(applyErr),
-	)
-
-	coordinator, err := New(
-		dto.ProtocolThreePhase,
-		journal,
-		store,
-		[]Cohort{cohort},
-		nil,
-	)
-	require.Nil(t, coordinator)
-
-	var committedNotApplied *CommittedNotAppliedError
-	require.ErrorAs(t, err, &committedNotApplied)
-	require.ErrorIs(t, err, applyErr)
 }
 
 func TestCoordinatorRecoverySendsPrecommitBeforeCommit(t *testing.T) {
@@ -512,14 +489,13 @@ func TestCoordinatorRecoverySendsPrecommitBeforeCommit(t *testing.T) {
 		},
 		Decisions: make(map[uint64]string),
 	}
-	journal, store := newLifecycleMocks(t)
+	journal := newLifecycleWAL(t)
 	gomock.InOrder(
 		journal.EXPECT().Recover(gomock.Any()).Return(recovery, nil),
 		journal.EXPECT().Write(iowal.CommitKey(0), gomock.Any()).Return(nil),
-		store.EXPECT().Put("recovered", []byte("value")).Return(nil),
 	)
 
-	cohort := mocks.NewMockCoordinatorCohort(gomock.NewController(t))
+	cohort := mocks.NewMockCohort(gomock.NewController(t))
 	cohort.EXPECT().Addr().Return("cohort-a").AnyTimes()
 	gomock.InOrder(
 		cohort.EXPECT().Precommit(gomock.Any(), uint64(0)).
@@ -530,10 +506,9 @@ func TestCoordinatorRecoverySendsPrecommitBeforeCommit(t *testing.T) {
 		cohort.EXPECT().Close().Return(nil).Times(1),
 	)
 
-	coordinator, err := New(
+	coordinator, err := newCoordinator(
 		dto.ProtocolThreePhase,
 		journal,
-		store,
 		[]Cohort{cohort},
 		nil,
 	)
