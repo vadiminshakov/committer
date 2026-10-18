@@ -1,0 +1,23 @@
+cmd/committer/cli.go
+  s_721eef92af4050::t_576bc373c5ac72 12,131
+cmd/committer/internal/cliapi/client.go
+  s_721eef92af4050::t_01305a5ab5b14d 8,32,39,41
+cmd/committer/internal/cliapi/server.go
+  s_721eef92af4050::t_660fb752e58242 14,92,98,100,102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c539e3a4b3d47aa642f7002a222b1d1dcd680021",
+  "prompts": {},
+  "sessions": {
+    "s_721eef92af4050": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f470-b890-7052-ade7-49c731bec12d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

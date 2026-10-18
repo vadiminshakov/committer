@@ -1,0 +1,19 @@
+.github/workflows/tests.yml
+  s_9b729509d3a4f3::t_5b0c37965d81d1 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "67c8b37d5fae0bdf10b638d885fad3eed449e623",
+  "prompts": {},
+  "sessions": {
+    "s_9b729509d3a4f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a73d9fa8-bc2e-4b69-8efb-d2810c7c2d8c",
+        "model": "unknown"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

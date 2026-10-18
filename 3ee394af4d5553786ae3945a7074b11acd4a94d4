@@ -1,0 +1,28 @@
+Dockerfile
+  s_762e0b03bbc547::t_bc6bc728e315ec 1-19
+compose.yaml
+  s_762e0b03bbc547::t_bc6bc728e315ec 1-49
+README.md
+  s_762e0b03bbc547::t_959a240a968555 19-20,22-23,26-33,36-43
+  s_762e0b03bbc547::t_f5883e1b6a2949 21
+  s_762e0b03bbc547::t_7c0744faf9371e 24-25,34
+  s_762e0b03bbc547::t_ee386acb37a20e 35
+.dockerignore
+  s_762e0b03bbc547::t_bc6bc728e315ec 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3ee394af4d5553786ae3945a7074b11acd4a94d4",
+  "prompts": {},
+  "sessions": {
+    "s_762e0b03bbc547": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cb31-79eb-7563-b74d-eb3987933451",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

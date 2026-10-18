@@ -1,0 +1,23 @@
+cmd/committer/internal/viz/server.go
+  s_ccf2396caf6fa4::t_6c21bb5ffbe3bd 66-68
+cmd/committer/internal/viz/server_test.go
+  s_ccf2396caf6fa4::t_6c21bb5ffbe3bd 85,142
+cmd/committer/internal/viz/static/index.html
+  s_ccf2396caf6fa4::t_6c21bb5ffbe3bd 516,528,539,555
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "04b15a078595504b53c52067ac409b32fe914958",
+  "prompts": {},
+  "sessions": {
+    "s_ccf2396caf6fa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "341d9519-e6f1-4d5f-8cdd-02e9e886cebe",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

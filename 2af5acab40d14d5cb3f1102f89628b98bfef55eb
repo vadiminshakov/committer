@@ -1,0 +1,21 @@
+core/coordinator/coordinator.go
+  s_7af0f2760e96eb::t_676c6b6cf2d689 101-102
+cmd/committer/e2e_test.go
+  s_7af0f2760e96eb::t_029695174b5036 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2af5acab40d14d5cb3f1102f89628b98bfef55eb",
+  "prompts": {},
+  "sessions": {
+    "s_7af0f2760e96eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "056a8039-43d8-4a5f-a143-2ef3e4eca370",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

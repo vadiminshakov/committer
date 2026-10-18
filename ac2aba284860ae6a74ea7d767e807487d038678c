@@ -1,0 +1,19 @@
+cmd/committer/internal/viz/static/index.html
+  s_2eaa87571eaecc::t_4444e2bf68d935 249,503-515,578,587-589,600,718
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ac2aba284860ae6a74ea7d767e807487d038678c",
+  "prompts": {},
+  "sessions": {
+    "s_2eaa87571eaecc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148da-3d97-75f1-9f48-2e13ae855721",
+        "model": "unknown"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

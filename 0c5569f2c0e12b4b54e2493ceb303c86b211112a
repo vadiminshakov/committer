@@ -1,0 +1,19 @@
+examples/transfer/bank.go
+  s_43dd2ea06f6ef4::t_6d88c5fe8002be 1-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0c5569f2c0e12b4b54e2493ceb303c86b211112a",
+  "prompts": {},
+  "sessions": {
+    "s_43dd2ea06f6ef4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a107d0-c241-70e3-8912-03d8f67d6260",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

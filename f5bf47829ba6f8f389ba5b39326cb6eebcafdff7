@@ -1,0 +1,14 @@
+io/gateway/grpc/server/server.go
+  h_786988a78af769 41,111,113,122,124,130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f5bf47829ba6f8f389ba5b39326cb6eebcafdff7",
+  "prompts": {},
+  "humans": {
+    "h_786988a78af769": {
+      "author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

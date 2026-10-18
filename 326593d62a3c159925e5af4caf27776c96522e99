@@ -1,0 +1,25 @@
+core/cohort/cohort_test.go
+  s_2eaa87571eaecc::t_4219464e5ee111 105-106,119-120,166-167,204-205,256-257,300-301,349-350,355-356,395-396,432-433,461-462,497-498,524-525,583-584,614-615,671-672,716-717,877-878,913-914,1050-1052,1092-1093,1111-1113,1143-1144,1169-1171
+core/coordinator/coordinator.go
+  s_2eaa87571eaecc::t_1e7ac780463dba 25,140-142
+core/coordinator/coordinator_test.go
+  s_2eaa87571eaecc::t_e02590f3ddd9a5 206,213-214
+core/coordinator/lifecycle.go
+  s_2eaa87571eaecc::t_82509cd414c97e 214-216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "326593d62a3c159925e5af4caf27776c96522e99",
+  "prompts": {},
+  "sessions": {
+    "s_2eaa87571eaecc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a148da-3d97-75f1-9f48-2e13ae855721",
+        "model": "unknown"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

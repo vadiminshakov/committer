@@ -1,0 +1,23 @@
+config/config.go
+  s_4843b64fdba81b::t_20b2a791487163 87
+io/store/store.go
+  s_4843b64fdba81b::t_89dceb0051bd6a 164
+  s_4843b64fdba81b::t_2498415cbffc8a 162-163
+  s_4843b64fdba81b::t_2986af0184a4b1 165-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51e22f356e63898e2950208d5423e559ff44665a",
+  "prompts": {},
+  "sessions": {
+    "s_4843b64fdba81b": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1789332556552_7q71iha",
+        "model": "unknown"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

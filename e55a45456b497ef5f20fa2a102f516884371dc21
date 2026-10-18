@@ -1,0 +1,19 @@
+core/coordinator/coordinator_test.go
+  s_721eef92af4050::t_86295e0585bff5 158,205,244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e55a45456b497ef5f20fa2a102f516884371dc21",
+  "prompts": {},
+  "sessions": {
+    "s_721eef92af4050": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f470-b890-7052-ade7-49c731bec12d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

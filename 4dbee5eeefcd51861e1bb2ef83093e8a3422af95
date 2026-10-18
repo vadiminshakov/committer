@@ -1,0 +1,19 @@
+README.md
+  s_a22794193921c3::t_de1308028b57d7 246,250-254,259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4dbee5eeefcd51861e1bb2ef83093e8a3422af95",
+  "prompts": {},
+  "sessions": {
+    "s_a22794193921c3": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1791151938742_f5tact6",
+        "model": "unknown"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

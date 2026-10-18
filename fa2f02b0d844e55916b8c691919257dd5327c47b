@@ -1,0 +1,22 @@
+core/coordinator/delivery.go
+  h_786988a78af769 1-328
+core/coordinator/delivery_test.go
+  h_786988a78af769 1-451
+core/coordinator/lifecycle.go
+  h_786988a78af769 1-293
+core/coordinator/lifecycle_test.go
+  h_786988a78af769 1-512
+mocks/mock_coordinator.go
+  h_786988a78af769 2,6,13,16-17,21-22,24,28-30,33-36,41,45-46,48-51,54-55,57,61,69-204,206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fa2f02b0d844e55916b8c691919257dd5327c47b",
+  "prompts": {},
+  "humans": {
+    "h_786988a78af769": {
+      "author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}

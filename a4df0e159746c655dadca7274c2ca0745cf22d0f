@@ -1,0 +1,102 @@
+compose.yaml
+  s_97010832549283::t_d5f86f232a2b28 8,22,27
+mocks/mock_decision_requester.go
+  s_4a681ae2485148::t_2c0a0f70720951 6
+  s_4a681ae2485148::t_8298eb377f8800 2,16
+Makefile
+  s_ac88e42e8a99ad::t_3da3dd23aacecb 1
+  s_4a681ae2485148::t_e6a7c0f64406e7 34-36
+  s_f392a23bb68bc7::t_2d8d138f996cc7 37-39
+mocks/mock_coordinator.go
+  s_2b53e26d9d6843::t_5a981e64f6c0df 6
+  s_2b53e26d9d6843::t_5eca500b1dcfca 2,16-17
+io/wal/wal.go
+  s_2b53e26d9d6843::t_294d51dc47bede 65-75
+  s_4a681ae2485148::t_06928c43a263cc 59-64,76-77,79-88
+  s_4a681ae2485148::t_a210a1b670249b 78,89
+  s_2b53e26d9d6843::t_a93d5e9026e450 4-6
+  s_4a681ae2485148::t_eedaba7f737acb 90-91
+README.md
+  s_2b53e26d9d6843::t_59c86a9549b0ae 119-123
+  s_2b53e26d9d6843::t_83c74a4e0ba845 53,91-92,136-137,140-141,143-144,178,242-243,248,255-256
+  s_97010832549283::t_d5f86f232a2b28 166-167,170-172
+  s_2b53e26d9d6843::t_dd2217c13d732a 152
+  s_2b53e26d9d6843::t_6665cbec2b1763 23-52
+  s_2b53e26d9d6843::t_ca18fce821f241 93-115
+  s_5e3ac957de17b3::t_fc08a9791a585e 76
+  s_f392a23bb68bc7::t_2d8d138f996cc7 54,165,174,251
+  s_97010832549283::t_d4a7bf34c7fddf 142,145
+  s_721eef92af4050::t_762f8ad94fb0b7 62-64,67,71,74-75,77,79,81,83,86,160,163,173,257,262-263
+io/store/store.go
+  s_4a681ae2485148::t_98a24b9cba4d4d 10,153,162
+io/store/store_test.go
+  s_4a681ae2485148::t_a31ef45ea56ad3 12-13,168,170-173
+mocks/mock_cohort.go
+  s_4a681ae2485148::t_107309b385285d 2,16
+mocks/mock_resource.go
+  s_4a681ae2485148::t_cef91ba31be17c 2,6,16,59,61,67,69,73,75,81,83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a4df0e159746c655dadca7274c2ca0745cf22d0f",
+  "prompts": {},
+  "sessions": {
+    "s_2b53e26d9d6843": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f60372ce-d1b6-445f-a30d-8b2ab67f7ffc",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_4a681ae2485148": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d41c6b4-f521-4074-b18f-56b642272847",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_5e3ac957de17b3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33ff7094-65d8-44f1-b367-532cb38507c8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_721eef92af4050": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f470-b890-7052-ade7-49c731bec12d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_97010832549283": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bf26fba-0d17-40fd-a424-78368849a788",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_ac88e42e8a99ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0feaa-7b9f-79b3-afb1-575e5a29a330",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    },
+    "s_f392a23bb68bc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9a9a4836-8783-4aaa-8a7d-ede76c0f7794",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Vadim Inshakov <vadiminshakov@gmail.com>"
+    }
+  }
+}
