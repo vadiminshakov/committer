@@ -1,0 +1,26 @@
+core/coordinator/coordinator.go
+  h_39c31934e2ac79 32,125-126,139-144,153-154
+core/coordinator/coordinator_test.go
+  h_39c31934e2ac79 80,136,176-276,282,285,305,325,356,417,467,498
+core/coordinator/delivery.go
+  h_39c31934e2ac79 208-209,219-220
+core/coordinator/delivery_test.go
+  h_39c31934e2ac79 29,93,161,236,311,386,436,477
+io/gateway/grpc/server/server.go
+  h_39c31934e2ac79 27
+mocks/mock_cohort.go
+  h_39c31934e2ac79 6,20-21,23,27-29,32-35,40,45,54,56,60,69,71,75,84,86,90,99,101
+mocks/mock_coordinator.go
+  h_39c31934e2ac79 6,74-75,77,81-83,86-89,94,99,107,109,113,122,124,128,136,138,142,151,153,157,166,168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fd3367d5917a5bddc14020a3079c7df6d31c511f",
+  "prompts": {},
+  "humans": {
+    "h_39c31934e2ac79": {
+      "author": "Vadim Inshakov <vadim.inshakov@itms.tech>"
+    }
+  }
+}

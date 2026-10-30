@@ -1,0 +1,14 @@
+.agents/skills/land/SKILL.md
+  h_39c31934e2ac79 1-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c3e240ff2373681cc29cad58ab229067ce7bf4bd",
+  "prompts": {},
+  "humans": {
+    "h_39c31934e2ac79": {
+      "author": "Vadim Inshakov <vadim.inshakov@itms.tech>"
+    }
+  }
+}
